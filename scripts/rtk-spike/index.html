@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>RTK spike</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 0; padding: 16px; background:#0b0f14; color:#d7e0ea; }
+  h1 { font-size: 16px; margin: 0 0 8px; }
+  #role { font-weight: 700; }
+  .host #role { color:#7ad; } .audience #role { color:#7da; }
+  .grid { display:grid; grid-template-columns: 160px 1fr; gap:4px 12px; margin:10px 0; }
+  .k { color:#8a98a8; } .v { font-variant-numeric: tabular-nums; }
+  #bar { height:14px; background:#1b2530; border-radius:7px; overflow:hidden; }
+  #barFill { height:100%; width:0%; background:#3fae6e; transition:width .15s; }
+  #state { font-weight:700; } .ok{color:#5fce8f;} .warn{color:#e6b34d;} .bad{color:#e0604d;}
+  #log { margin-top:12px; height:260px; overflow:auto; background:#070a0e; border:1px solid #1b2530; border-radius:6px; padding:8px; font:12px/1.45 ui-monospace,monospace; white-space:pre-wrap; }
+  .ev-err{color:#e0604d;} .ev-warn{color:#e6b34d;} .ev-ok{color:#5fce8f;} .ev-info{color:#9fb0c2;}
+</style>
+</head>
+<body>
+<h1>RealtimeKit spike — <span id="role">?</span></h1>
+<div class="grid">
+  <div class="k">status</div><div class="v" id="status">booting…</div>
+  <div class="k">media / socket</div><div class="v"><span id="state">—</span></div>
+  <div class="k">audio level (rtp)</div><div class="v"><div id="bar"><div id="barFill"></div></div></div>
+  <div class="k">decoded RMS</div><div class="v" id="rms">—</div>
+  <div class="k">packets/s</div><div class="v" id="pps">—</div>
+  <div class="k">pkts total</div><div class="v" id="pkt">—</div>
+  <div class="k">rtt</div><div class="v" id="rtt">—</div>
+  <div class="k">elapsed</div><div class="v" id="elapsed">0s</div>
+</div>
+<audio id="aud" autoplay></audio>
+<div id="log"></div>
+
+<!-- UMD global: window.RealtimeKitClient -->
+<script>
+  // ---- Capture every RTCPeerConnection the SDK creates (tmon-style), BEFORE the SDK loads.
+  (function () {
+    const Native = window.RTCPeerConnection;
+    const pcs = [];
+    function Wrapped(...args) { const pc = new Native(...args); pcs.push(pc); return pc; }
+    Wrapped.prototype = Native.prototype;
+    Object.setPrototypeOf(Wrapped, Native); // inherit statics (e.g. generateCertificate)
+    window.RTCPeerConnection = Wrapped;
+    window.webkitRTCPeerConnection = Wrapped;
+    window.__pcs = pcs;
+  })();
+</script>
+<!-- vendored locally (scripts/rtk-spike/realtimekit.browser.js) — served by the local server, no CDN dependency -->
+<script src="./realtimekit.browser.js"></script>
+<script>
+(async function () {
+  const q = new URLSearchParams(location.search);
+  const role = q.get("role") || "audience";
+  const token = q.get("token") || "";
+  const meetingId = q.get("meetingId") || "";
+  document.body.classList.add(role);
+  document.getElementById("role").textContent = role + (meetingId ? `  (${meetingId.slice(0,8)})` : "");
+
+  const T0 = Date.now();
+  const spike = window.__spike = {
+    role, meetingId, status: "booting", joinedAt: null, error: null,
+    events: [], samples: [], last: null,
+  };
+  const logEl = document.getElementById("log");
+  function ev(type, level, data) {
+    const e = { t: Date.now() - T0, type, level: level || "info", ...(data || {}) };
+    spike.events.push(e);
+    const line = `[${(e.t/1000).toFixed(1)}s] ${type}` + (data ? "  " + JSON.stringify(data) : "");
+    const div = document.createElement("div");
+    div.className = "ev-" + (level || "info");
+    div.textContent = line;
+    logEl.appendChild(div); logEl.scrollTop = logEl.scrollHeight;
+  }
+  function setStatus(s) { spike.status = s; document.getElementById("status").textContent = s; }
+
+  if (!token) { setStatus("NO TOKEN"); spike.error = "no token"; ev("no_token", "err"); return; }
+  if (!window.RealtimeKitClient) { setStatus("SDK FAILED TO LOAD"); spike.error = "sdk_load"; ev("sdk_load_fail", "err"); return; }
+
+  // ---- WebAudio analyser for the *decoded* remote audio (audience): proves audio is truly audible.
+  let analyser = null, analyserBuf = null, audioCtx = null;
+  function attachAnalyser(stream) {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const src = audioCtx.createMediaStreamSource(stream);
+      analyser = audioCtx.createAnalyser(); analyser.fftSize = 1024;
+      analyserBuf = new Float32Array(analyser.fftSize);
+      src.connect(analyser); // do NOT connect to destination twice; <audio> already plays it
+      if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+    } catch (e) { ev("analyser_fail", "warn", { msg: String(e && e.message) }); }
+  }
+  function decodedRms() {
+    if (!analyser) return null;
+    analyser.getFloatTimeDomainData(analyserBuf);
+    let s = 0; for (let i = 0; i < analyserBuf.length; i++) s += analyserBuf[i] * analyserBuf[i];
+    return Math.sqrt(s / analyserBuf.length);
+  }
+
+  // ---- getStats aggregation across all captured PCs.
+  let prevPkts = null, prevTs = null;
+  async function sampleStats() {
+    let pktRecv = 0, pktSent = 0, audioLevel = 0, rtt = null, anyInbound = false, anyOutbound = false;
+    for (const pc of window.__pcs) {
+      let report; try { report = await pc.getStats(); } catch { continue; }
+      report.forEach((r) => {
+        if (r.type === "inbound-rtp" && r.kind === "audio") {
+          anyInbound = true; pktRecv += r.packetsReceived || 0;
+          if (typeof r.audioLevel === "number") audioLevel = Math.max(audioLevel, r.audioLevel);
+        }
+        if (r.type === "outbound-rtp" && r.kind === "audio") {
+          anyOutbound = true; pktSent += r.packetsSent || 0;
+        }
+        if (r.type === "candidate-pair" && (r.nominated || r.selected || r.state === "succeeded")) {
+          if (typeof r.currentRoundTripTime === "number") rtt = r.currentRoundTripTime;
+        }
+      });
+    }
+    const now = Date.now();
+    const pkts = role === "host" ? pktSent : pktRecv;
+    let pps = null;
+    if (prevPkts != null && prevTs != null) pps = (pkts - prevPkts) / ((now - prevTs) / 1000);
+    prevPkts = pkts; prevTs = now;
+    return { pkts, pps, audioLevel, rtt, anyInbound, anyOutbound };
+  }
+
+  // ---- live media/socket state from SDK events (latest wins).
+  let mediaState = "—", socketState = "—", remoteAudioOn = false;
+
+  function paint(s) {
+    document.getElementById("state").innerHTML =
+      `<span class="${mediaState === 'connected' ? 'ok' : (mediaState === 'reconnecting' ? 'warn' : (mediaState === '—' ? '' : 'bad'))}">media:${mediaState}</span>` +
+      `  <span class="${socketState === 'connected' ? 'ok' : 'warn'}">socket:${socketState}</span>`;
+    document.getElementById("barFill").style.width = Math.min(100, (s.audioLevel || 0) * 100 / 0.3) + "%";
+    document.getElementById("rms").textContent = s.rms == null ? "—" : s.rms.toFixed(4);
+    document.getElementById("pps").textContent = s.pps == null ? "—" : s.pps.toFixed(1);
+    document.getElementById("pkt").textContent = s.pkts;
+    document.getElementById("rtt").textContent = s.rtt == null ? "—" : (s.rtt * 1000).toFixed(0) + "ms";
+    document.getElementById("elapsed").textContent = ((Date.now() - T0) / 1000).toFixed(0) + "s";
+  }
+
+  // ---- init + join
+  try {
+    setStatus("init");
+    const meeting = await window.RealtimeKitClient.init({
+      authToken: token,
+      defaults: { audio: role === "host", video: false },
+    });
+    window.__meeting = meeting;
+
+    meeting.meta.on("mediaConnectionUpdate", ({ transport, state }) => {
+      mediaState = state;
+      ev("mediaConnectionUpdate", state === "connected" ? "ok" : (state === "reconnecting" ? "warn" : "bad"), { transport, state });
+    });
+    meeting.meta.on("socketConnectionUpdate", ({ state, reconnectionAttempt, reconnected }) => {
+      socketState = state;
+      ev("socketConnectionUpdate", state === "connected" ? "ok" : "warn", { state, reconnectionAttempt, reconnected });
+    });
+
+    function tryAttachRemote(p) {
+      if (!p || !p.audioEnabled || !p.audioTrack) return;
+      remoteAudioOn = true;
+      const stream = new MediaStream([p.audioTrack]);
+      const a = document.getElementById("aud");
+      a.srcObject = stream; a.play().catch(() => {});
+      attachAnalyser(stream);
+      ev("remote_audio_attached", "ok", { id: p.id });
+    }
+    if (role === "audience") {
+      meeting.participants.joined.on("participantJoined", (p) => ev("participantJoined", "info", { id: p.id }));
+      meeting.participants.joined.on("audioUpdate", (p) => {
+        ev("remote_audioUpdate", p.audioEnabled ? "ok" : "warn", { id: p.id, on: p.audioEnabled });
+        if (p.audioEnabled) tryAttachRemote(p);
+      });
+      meeting.participants.joined.on("participantLeft", (p) => ev("participantLeft", "warn", { id: p.id }));
+    }
+
+    setStatus("joining");
+    ev("join_call", "info");
+    await meeting.join();
+    spike.joinedAt = Date.now() - T0;
+    setStatus("joined");
+    ev("joined", "ok", { atMs: spike.joinedAt });
+
+    if (role === "host") {
+      try { await meeting.self.enableAudio(); ev("host_enableAudio", "ok", { audioEnabled: meeting.self.audioEnabled }); }
+      catch (e) { ev("host_enableAudio_fail", "err", { msg: String(e && e.message) }); }
+    } else {
+      // host may already be present
+      meeting.participants.joined.forEach((p) => tryAttachRemote(p));
+    }
+
+    // ---- 1s sampler
+    setInterval(async () => {
+      const s = await sampleStats();
+      s.rms = decodedRms();
+      s.mediaState = mediaState; s.socketState = socketState; s.remoteAudioOn = remoteAudioOn;
+      s.t = Date.now() - T0;
+      spike.last = s; spike.samples.push(s);
+      if (spike.samples.length > 1200) spike.samples.shift();
+      paint(s);
+    }, 1000);
+  } catch (e) {
+    setStatus("ERROR"); spike.error = String(e && e.message || e);
+    ev("init_or_join_error", "err", { msg: spike.error });
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>RealtimeKit phone test</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; font:16px/1.4 system-ui,-apple-system,sans-serif; background:#0b0f14; color:#d7e0ea;
+         min-height:100dvh; display:flex; flex-direction:column; }
+  header { padding:14px 16px 4px; font-weight:700; font-size:17px; }
+  #role { font-weight:800; } .host #role{color:#e6a857;} .listener #role{color:#7da;}
+  #start { margin:14px 16px; padding:26px; font-size:22px; font-weight:800; border:0; border-radius:16px;
+           background:#b5762e; color:#fff; touch-action:manipulation; }
+  #start:disabled { opacity:.5; }
+  #big { margin:6px 16px; padding:26px 16px; border-radius:16px; text-align:center; font-size:26px; font-weight:800; background:#1b2530; }
+  #big.ok{background:#13351f;color:#5fce8f;} #big.warn{background:#3a2f10;color:#e6b34d;} #big.bad{background:#3a1512;color:#e0604d;}
+  #stats { padding:0 16px; display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-variant-numeric:tabular-nums; }
+  .k{color:#8a98a8;}
+  #log { flex:1 1 auto; min-height:120px; overflow:auto; margin:12px 16px 16px; background:#070a0e;
+         border:1px solid #1b2530; border-radius:8px; padding:10px; font:12px/1.5 ui-monospace,monospace; white-space:pre-wrap; }
+  .err{color:#e0604d;}.warn{color:#e6b34d;}.ok{color:#5fce8f;}.info{color:#9fb0c2;}
+  audio{display:none;}
+</style>
+</head>
+<body>
+<header>RealtimeKit (Cloudflare) test — <span id="role">?</span></header>
+<button id="start">▶ TAP TO START</button>
+<div id="big">idle — tap start</div>
+<div id="stats">
+  <div class="k">reconnects</div><div id="recon">0</div>
+  <div class="k">uptime</div><div id="uptime">0s</div>
+  <div class="k">audio</div><div id="ain">—</div>
+</div>
+<audio id="aud" autoplay playsinline></audio>
+<div id="log"></div>
+<script src="https://cdn.jsdelivr.net/npm/@cloudflare/realtimekit@2.0.0/dist/browser.js"></script>
+<script>
+(function () {
+  var p = new URLSearchParams((location.hash || "").slice(1) || (location.search || "").slice(1));
+  var role = p.get("role") || "listener";
+  var token = p.get("token") || "";
+  document.body.classList.add(role);
+  document.getElementById("role").textContent = role;
+  var bigEl = document.getElementById("big"), logEl = document.getElementById("log"),
+      reconEl = document.getElementById("recon"), upEl = document.getElementById("uptime"), ainEl = document.getElementById("ain");
+  var T0 = Date.now(), reconnects = 0;
+  function log(msg, cls) { var d = document.createElement("div"); d.className = cls || "info";
+    d.textContent = "[" + ((Date.now() - T0) / 1000).toFixed(1) + "s] " + msg; logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight; }
+  function big(t, cls) { bigEl.textContent = t; bigEl.className = cls || ""; }
+  setInterval(function () { upEl.textContent = ((Date.now() - T0) / 1000).toFixed(0) + "s"; }, 1000);
+
+  if (!window.RealtimeKitClient) { big("SDK FAILED TO LOAD", "bad"); return; }
+
+  document.getElementById("start").onclick = async function () {
+    this.disabled = true; this.textContent = "starting…";
+    try {
+      if (!token) { var tr = await fetch("/token?role=" + encodeURIComponent(role)); if (!tr.ok) throw new Error("token fetch " + tr.status); var tj = await tr.json(); token = tj.token; log("token acquired for " + role, "ok"); }
+      var meeting = await window.RealtimeKitClient.init({ authToken: token, defaults: { audio: role === "host", video: false } });
+      window.__meeting = meeting;
+
+      meeting.meta.on("mediaConnectionUpdate", function (e) {
+        var st = e && e.state, tr = e && e.transport;
+        if (st === "connected") big("● CONNECTED", "ok");
+        else if (st === "reconnecting") { big("… RECONNECTING", "warn"); }
+        else if (st === "disconnected" || st === "failed") big("✕ " + (st || "").toUpperCase(), "bad");
+        log("media " + (tr || "") + ": " + st, st === "connected" ? "ok" : (st === "reconnecting" ? "warn" : "err"));
+      });
+      meeting.meta.on("socketConnectionUpdate", function (e) {
+        if (e && e.state === "reconnecting") { reconnects++; reconEl.textContent = reconnects; big("… RECONNECTING", "warn"); log("socket reconnecting #" + reconnects, "warn"); }
+        else if (e && e.reconnected) log("socket reconnected ✓", "ok");
+        else log("socket: " + (e && e.state), "info");
+      });
+
+      function attach(pt) {
+        if (!pt || !pt.audioEnabled || !pt.audioTrack) return;
+        var a = document.getElementById("aud"); a.srcObject = new MediaStream([pt.audioTrack]); a.play().catch(function(){});
+        ainEl.textContent = "receiving"; log("audio attached from " + pt.id, "ok");
+      }
+      if (role === "listener") {
+        meeting.participants.joined.on("audioUpdate", function (pt) { log("remote audio " + (pt.audioEnabled ? "on" : "off"), pt.audioEnabled ? "ok" : "warn"); if (pt.audioEnabled) attach(pt); });
+        meeting.participants.joined.on("participantJoined", function (pt) { log("participant joined " + pt.id, "info"); });
+      }
+
+      log("joining meeting as " + role);
+      await meeting.join();
+      big("● CONNECTED", "ok"); log("joined ✓", "ok");
+      if (role === "host") { await meeting.self.enableAudio(); ainEl.textContent = "mic live"; log("mic ON — start speaking", "ok"); }
+      else { meeting.participants.joined.toArray ? meeting.participants.joined.toArray().forEach(attach) : meeting.participants.joined.forEach(attach); }
+    } catch (e) { big("ERROR", "bad"); log("error: " + (e && e.message || e), "err"); }
+  };
+})();
+</script>
+</body>
+</html>

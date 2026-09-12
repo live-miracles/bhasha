@@ -1,0 +1,13 @@
+{
+  "name": "bhasha",
+  "private": true,
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "test": "npm test --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "test:regression": "npm test --workspaces && npm run typecheck --workspaces && npm run e2e --workspace apps/web"
+  }
+}

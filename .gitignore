@@ -1,0 +1,22 @@
+# Dependencies and build outputs
+node_modules/
+dist/
+build/
+.wrangler/
+.vite/
+coverage/
+playwright-report/
+test-results/
+.worktrees/
+tmp/codex-par/
+
+# Local environment and secrets
+.env
+.env.*
+.dev.vars
+*.key
+
+# Logs and OS/editor files
+*.log
+.claude-runs/
+.DS_Store
