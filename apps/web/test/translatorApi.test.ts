@@ -47,21 +47,12 @@ describe("translator api", () => {
         };
       }
 
-      if (path === "/api/translator/realtime/session") {
+      if (path === "/api/translator/realtime/token") {
         return {
           publishSessionId: "publish_1",
-          streamId: "stream_hi",
-          iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }]
-        };
-      }
-
-      if (path === "/api/translator/realtime/publish") {
-        return {
-          streamId: "stream_hi",
-          publishSessionId: "publish_1",
-          publishedTrack: { trackName: "mic-track", mid: "0" },
-          sessionDescription: { type: "answer", sdp: "publish-answer" },
-          requiresImmediateRenegotiation: false
+          token: "livekit-jwt",
+          url: "wss://livekit.example.test",
+          roomName: "program_1-stream_hi"
         };
       }
 
@@ -72,13 +63,7 @@ describe("translator api", () => {
 
     await api.login("patna-event-2026", "hi@example.com", "secret-pass");
     await api.session();
-    await api.realtimeSession("stream_hi", { reclaim: true });
-    await api.realtimePublish(
-      "stream_hi",
-      "publish_1",
-      { type: "offer", sdp: "publish-offer" },
-      { mid: "0", trackName: "mic-track" }
-    );
+    await api.realtimeToken("stream_hi", { reclaim: true });
     await api.realtimeStop("stream_hi", "publish_1");
     await api.audioActivity("stream_hi", "publish_1", true);
 
@@ -88,22 +73,16 @@ describe("translator api", () => {
       password: "secret-pass"
     });
     expect(get).toHaveBeenCalledWith("/api/translator/session");
-    expect(post).toHaveBeenNthCalledWith(2, "/api/translator/realtime/session", {
+    expect(post).toHaveBeenNthCalledWith(2, "/api/translator/realtime/token", {
       streamId: "stream_hi",
       reclaim: true
     });
-    expect(post).toHaveBeenNthCalledWith(3, "/api/translator/realtime/publish", {
-      streamId: "stream_hi",
-      publishSessionId: "publish_1",
-      sessionDescription: { type: "offer", sdp: "publish-offer" },
-      track: { mid: "0", trackName: "mic-track" }
-    });
-    expect(post).toHaveBeenNthCalledWith(4, "/api/translator/realtime/stop", {
+    expect(post).toHaveBeenNthCalledWith(3, "/api/translator/realtime/stop", {
       streamId: "stream_hi",
       publishSessionId: "publish_1"
     });
     expect(post).toHaveBeenNthCalledWith(
-      5,
+      4,
       "/api/translator/realtime/audio-activity",
       {
         streamId: "stream_hi",
@@ -113,23 +92,28 @@ describe("translator api", () => {
     );
   });
 
-  it("returns the realtime session response shape", async () => {
+  it("returns the realtime token response shape", async () => {
     const post = vi.fn(async () => ({
       publishSessionId: "publish_1",
-      streamId: "stream_hi",
-      iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }]
+      token: "livekit-jwt",
+      url: "wss://livekit.example.test",
+      roomName: "program_1-stream_hi"
     }));
     const api = createTranslatorApi({
       get: vi.fn(),
       post
     } as unknown as TranslatorHttpClient);
 
-    const response = await api.realtimeSession("stream_hi");
+    const response = await api.realtimeToken("stream_hi");
 
     expect(response).toEqual({
       publishSessionId: "publish_1",
-      streamId: "stream_hi",
-      iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }]
+      token: "livekit-jwt",
+      url: "wss://livekit.example.test",
+      roomName: "program_1-stream_hi"
+    });
+    expect(post).toHaveBeenCalledWith("/api/translator/realtime/token", {
+      streamId: "stream_hi"
     });
   });
 });

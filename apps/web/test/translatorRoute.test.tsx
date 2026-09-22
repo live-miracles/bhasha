@@ -5,6 +5,7 @@ import {
   screen,
   waitFor
 } from "@testing-library/react";
+import { RoomEvent } from "livekit-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../src/api/client";
@@ -14,7 +15,10 @@ import type {
   TranslatorHeartbeatResponse,
   TranslatorSessionResponse
 } from "../src/api/translator";
-import type { TranslatorRealtimeClient } from "../src/realtime/translatorClient";
+import type {
+  RoomHandle,
+  TranslatorRealtimeClient
+} from "../src/realtime/translatorClient";
 import {
   TranslatorRoute,
   type TranslatorAudioMeter,
@@ -22,17 +26,6 @@ import {
   type TranslatorRouteProps
 } from "../src/routes/TranslatorRoute";
 import { saveTranslatorPrefs } from "../src/lib/translatorPrefs";
-
-type PartytracksTestState = {
-  usePartytracks: boolean;
-  onPublishSessionId: ((publishSessionId: string) => void) | null;
-};
-
-const partytracksTestState: PartytracksTestState = {
-  usePartytracks: false,
-  onPublishSessionId: null
-};
-(globalThis as Record<string, unknown>).__translatorPartytracksTestState = partytracksTestState;
 
 const defaultProgramMetadata = {
   program: {
@@ -62,64 +55,6 @@ function createPublicApi(overrides: Partial<PublicApi> = {}): PublicApi {
     ...overrides
   } as PublicApi;
 }
-
-function getPartytracksTestState(): PartytracksTestState {
-  return (
-    (globalThis as Record<string, unknown>).__translatorPartytracksTestState ??
-    partytracksTestState
-  ) as PartytracksTestState;
-}
-
-vi.mock("../src/config/featureFlags", () => ({
-  get usePartytracks() {
-    return getPartytracksTestState().usePartytracks;
-  }
-}));
-
-vi.mock("../src/realtime/partytracksTranslatorClient", () => {
-  let publishCounter = 0;
-  return {
-    createPartytracksTranslatorClient: (options: {
-      onPublishSessionId?: (publishSessionId: string) => void;
-      onConnectionStateChange?: () => void;
-    }) => {
-      const state = getPartytracksTestState();
-      const onPublishSessionId = options.onPublishSessionId;
-      if (onPublishSessionId) {
-        state.onPublishSessionId = onPublishSessionId;
-      }
-
-      const publish = vi.fn(async (input: {
-        streamId: string;
-        track: MediaStreamTrack;
-      }) => {
-        const publishSessionId = `party-publish-${++publishCounter}`;
-        onPublishSessionId?.(publishSessionId);
-        return {
-          publishSessionId,
-          streamId: input.streamId,
-          track: input.track,
-          peerConnection: {} as RTCPeerConnection
-        };
-      });
-      return {
-        publish,
-        mute: vi.fn(),
-        stop: vi.fn(async () => undefined),
-        reconnect: vi.fn(async (input) => {
-          const publishSessionId = `party-reconnect-${++publishCounter}`;
-          onPublishSessionId?.(publishSessionId);
-          return {
-            publishSessionId,
-            streamId: input.streamId,
-            track: input.track,
-            peerConnection: {} as RTCPeerConnection
-          };
-        })
-      };
-    }
-  };
-});
 
 let getUserMedia: ReturnType<typeof vi.fn>;
 let enumerateDevices: ReturnType<typeof vi.fn>;
@@ -253,13 +188,13 @@ function translatorApi(overrides: Partial<TranslatorApi> = {}): TranslatorApi {
       ...sessionResponse()
     })),
     session: vi.fn(async () => sessionResponse()),
-    realtimeSession: vi.fn(),
-    realtimePublish: vi.fn(),
-    realtimeStop: vi.fn(async () => ({ ok: true as const, cleanup: "closed" as const })),
-    realtimeTrack: vi.fn(async (streamId: string) => ({
+    realtimeToken: vi.fn(async (streamId: string) => ({
       publishSessionId: "publish-session-id",
-      streamId
+      token: "livekit-jwt",
+      url: "wss://livekit.example.test",
+      roomName: `room_${streamId}`
     })),
+    realtimeStop: vi.fn(async () => ({ ok: true as const, cleanup: "closed" as const })),
     audioActivity: vi.fn(async () => ({ ok: true as const, state: "silent" as const })),
     heartbeat: vi.fn(async () => ({ ok: true as const })),
     logout: vi.fn(async () => ({ ok: true as const })),
@@ -275,7 +210,7 @@ function realtimeClient(
       publishSessionId: "publish_1",
       streamId: input.streamId,
       track: input.track,
-      peerConnection: {} as RTCPeerConnection
+      room: {} as unknown as RoomHandle
     })),
     mute: vi.fn(),
     stop: vi.fn(async () => undefined),
@@ -283,16 +218,60 @@ function realtimeClient(
       publishSessionId: "publish_2",
       streamId: input.streamId,
       track: input.track,
-      peerConnection: {} as RTCPeerConnection
+      room: {} as unknown as RoomHandle
     })),
     ...overrides
   } as TranslatorRealtimeClient;
+}
+
+// A minimal fake of livekit-client's `Room`, for the one test that exercises
+// the REAL createTranslatorRealtimeClient wiring (see "wires the real
+// LiveKit client" below) rather than injecting a fully-mocked
+// TranslatorRealtimeClient like every other test in this file. Mirrors
+// translatorRealtimeClient.test.ts's FakeRoom.
+class FakeRoom implements RoomHandle {
+  static instances: FakeRoom[] = [];
+
+  readonly connectCalls: Array<{ url: string; token: string }> = [];
+  readonly localParticipant = {
+    publishTrack: vi.fn(async () => ({}))
+  };
+  private readonly listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+
+  constructor() {
+    FakeRoom.instances.push(this);
+  }
+
+  async connect(url: string, token: string): Promise<void> {
+    this.connectCalls.push({ url, token });
+  }
+
+  async disconnect(): Promise<void> {}
+
+  on(event: string, listener: (...args: unknown[]) => void): this {
+    const set = this.listeners.get(event) ?? new Set();
+    set.add(listener);
+    this.listeners.set(event, set);
+    return this;
+  }
+
+  off(event: string, listener: (...args: unknown[]) => void): this {
+    this.listeners.get(event)?.delete(listener);
+    return this;
+  }
+
+  emit(event: string): void {
+    for (const listener of this.listeners.get(event) ?? []) {
+      listener();
+    }
+  }
 }
 
 function renderRoute(props: {
   translatorApi: TranslatorApi;
   publicApi?: PublicApi;
   realtimeClient?: TranslatorRealtimeClient;
+  createRoom?: () => RoomHandle;
   createAudioMeter?: (stream: MediaStream) => TranslatorAudioMeter | null;
   createPublishGraph?: TranslatorRouteProps["createPublishGraph"];
   meterPollMs?: number;
@@ -300,7 +279,6 @@ function renderRoute(props: {
   silentWarningSampleThreshold?: number;
   audioActivityReportMs?: number;
   publisherHeartbeatMs?: number;
-  recoveryGraceMs?: number;
   recoveryBaseMs?: number;
   recoveryMaxMs?: number;
   recoveryMaxAttempts?: number;
@@ -311,7 +289,15 @@ function renderRoute(props: {
     programSlug: "patna-event-2026",
     translatorApi: props.translatorApi,
     publicApi: props.publicApi ?? createPublicApi(),
-    realtimeClient: props.realtimeClient ?? realtimeClient(),
+    // `createRoom` opts a test into exercising the REAL
+    // createTranslatorRealtimeClient wiring (the route's own construction
+    // line), so only fall back to the fully-mocked default client when
+    // neither an explicit realtimeClient NOR createRoom was given.
+    ...(props.realtimeClient
+      ? { realtimeClient: props.realtimeClient }
+      : props.createRoom
+        ? { createRoom: props.createRoom }
+        : { realtimeClient: realtimeClient() }),
     // Inject the publish-graph double by default so no test ever reaches the
     // real AudioContext-backed graph (absent in jsdom). Tests publish the
     // graph's destination track, not the raw mic track.
@@ -334,9 +320,6 @@ function renderRoute(props: {
   }
   if (props.audioActivityReportMs !== undefined) {
     routeProps.audioActivityReportMs = props.audioActivityReportMs;
-  }
-  if (props.recoveryGraceMs !== undefined) {
-    routeProps.recoveryGraceMs = props.recoveryGraceMs;
   }
   if (props.recoveryBaseMs !== undefined) {
     routeProps.recoveryBaseMs = props.recoveryBaseMs;
@@ -371,9 +354,6 @@ describe("TranslatorRoute", () => {
     lastTrack = null;
     lastPublishedTrack = null;
     createdGraphs = [];
-    const state = getPartytracksTestState();
-    state.usePartytracks = false;
-    state.onPublishSessionId = null;
     getUserMedia = vi.fn(async (constraints: MediaStreamConstraints) => {
       mediaConstraints.push(constraints);
       return makeStream();
@@ -668,7 +648,7 @@ describe("TranslatorRoute", () => {
           publishSessionId: "publish_recovered",
           streamId: input.streamId,
           track: input.track,
-          peerConnection: {} as RTCPeerConnection
+          room: {} as unknown as RoomHandle
         };
       })
     });
@@ -1285,77 +1265,6 @@ describe("TranslatorRoute", () => {
     });
   });
 
-  it("ignores stale publisher_not_active heartbeat errors after session supersede", async () => {
-    const state = getPartytracksTestState();
-    state.usePartytracks = true;
-
-    type HeartbeatRequest = {
-      publishSessionId: string;
-      resolve: (value: TranslatorHeartbeatResponse) => void;
-      reject: (error: Error) => void;
-    };
-    const heartbeatRequests: HeartbeatRequest[] = [];
-    const heartbeatError = new ApiError({
-      status: 409,
-      code: "publisher_not_active",
-      body: { error: "publisher_not_active" }
-    });
-    const api = translatorApi({
-      heartbeat: vi.fn((_streamId: string, publishSessionId: string) =>
-        new Promise<TranslatorHeartbeatResponse>((resolve, reject) => {
-          heartbeatRequests.push({ publishSessionId, resolve, reject });
-        })
-      )
-    });
-
-    render(
-      <TranslatorRoute
-        programSlug="patna-event-2026"
-        translatorApi={api}
-        publicApi={createPublicApi()}
-        createPublishGraph={createPublishGraphDouble}
-        meterPollMs={5}
-        silentSampleThreshold={2}
-        publisherHeartbeatMs={10}
-      />
-    );
-
-    await goLive();
-
-    await waitFor(() => {
-      expect(heartbeatRequests.length).toBeGreaterThan(0);
-    });
-
-    expect(state.onPublishSessionId).toBeTruthy();
-    const refreshedSessionId = "session-refresh";
-    state.onPublishSessionId?.(refreshedSessionId);
-
-    await waitFor(() => {
-      expect(
-        heartbeatRequests.some((request) => request.publishSessionId === refreshedSessionId)
-      ).toBe(true);
-    });
-
-    const staleHeartbeat = heartbeatRequests.find(
-      (request) => request.publishSessionId !== refreshedSessionId
-    );
-    expect(staleHeartbeat).toBeTruthy();
-
-    staleHeartbeat?.reject(heartbeatError);
-    heartbeatRequests.forEach((request) => {
-      if (request !== staleHeartbeat) {
-        request.resolve({ ok: true as const });
-      }
-    });
-
-    expect(screen.getByText("ON AIR")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
-    expect(screen.queryByText("Your broadcast was ended.")).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(screen.queryByText("Your broadcast was ended.")).not.toBeInTheDocument();
-    });
-  });
-
   it("shows broadcast-ended state and returns to login on translator_auth_required heartbeat", async () => {
     const heartbeatError = new ApiError({
       status: 401,
@@ -1426,7 +1335,6 @@ describe("TranslatorRoute", () => {
     renderRoute({
       translatorApi: translatorApi(),
       realtimeClient: realtime,
-      recoveryGraceMs: 60_000,
       onRealtimeHandlerReady: (next) => {
         handler = next;
       }
@@ -1435,7 +1343,9 @@ describe("TranslatorRoute", () => {
     await goLive();
     expect(handler).toBeTruthy();
 
-    handler!("publish_1", "disconnected");
+    // LiveKit is already retrying on its own -- "reconnecting" just reflects
+    // that in the UI, with no manual timer pending.
+    handler!("publish_1", "reconnecting");
     const status = await screen.findByRole("status");
     expect(status).toHaveTextContent("Reconnecting…");
     expect(status).toHaveTextContent("Your audio will resume automatically.");
@@ -1459,7 +1369,7 @@ describe("TranslatorRoute", () => {
     await goLive();
     expect(handler).toBeTruthy();
 
-    handler!("publish_1", "failed");
+    handler!("publish_1", "disconnected");
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Lost connection — tap Reconnect");
     expect(screen.getByRole("button", { name: "Reconnect" })).toBeInTheDocument();
@@ -1481,12 +1391,12 @@ describe("TranslatorRoute", () => {
     await goLive();
     expect(handler).toBeTruthy();
 
-    handler!("publish_1", "failed");
+    handler!("publish_1", "disconnected");
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Lost connection — tap Reconnect"
     );
 
-    handler!("publish_1", "connected");
+    handler!("publish_1", "reconnected");
     const status = await screen.findByRole("status");
     expect(status).toHaveTextContent("Reconnected — audio resumed");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -1509,7 +1419,7 @@ describe("TranslatorRoute", () => {
     await goLive();
     expect(handler).toBeTruthy();
 
-    handler!("publish_1", "failed");
+    handler!("publish_1", "disconnected");
 
     await waitFor(() => {
       expect(realtime.reconnect).toHaveBeenCalledWith(
@@ -1551,7 +1461,7 @@ describe("TranslatorRoute", () => {
     await goLive();
     expect(handler).toBeTruthy();
 
-    handler!("publish_1", "failed");
+    handler!("publish_1", "disconnected");
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Lost connection — tap Reconnect"
     );
@@ -1840,48 +1750,6 @@ describe("TranslatorRoute", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("does not reset the elapsed timer when a live publish session id refreshes", async () => {
-    const state = getPartytracksTestState();
-    state.usePartytracks = true;
-
-    const meter: TranslatorAudioMeter = {
-      getLevel: vi.fn(() => 0.5),
-      close: vi.fn()
-    };
-    renderRoute({
-      translatorApi: translatorApi(),
-      createAudioMeter: () => meter,
-      meterPollMs: 5,
-      silentSampleThreshold: 2
-    });
-
-    await goLive();
-
-    const getElapsed = () =>
-      Number(
-        screen
-          .getByText("ON AIR")
-          .closest(".translator-on-air-pill")
-          ?.getAttribute("data-elapsed-ms")
-      );
-    await waitFor(
-      () => {
-        expect(getElapsed()).toBeGreaterThan(0);
-      },
-      { timeout: 2500 }
-    );
-
-    const elapsedBeforeRefresh = getElapsed();
-    expect(elapsedBeforeRefresh).toBeGreaterThan(0);
-
-    state.onPublishSessionId?.("party-publish-refresh");
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    const elapsedAfterRefresh = getElapsed();
-    expect(elapsedAfterRefresh).toBeGreaterThan(0);
-    expect(elapsedAfterRefresh).toBeGreaterThanOrEqual(elapsedBeforeRefresh);
-  });
-
   it("reports inactive audio before stopping an active publisher", async () => {
     const api = translatorApi();
     const realtime = realtimeClient();
@@ -1923,13 +1791,12 @@ describe("TranslatorRoute", () => {
     expect(inactiveOrder!).toBeLessThan(stopOrder!);
   });
 
-  it("auto-republishes when the live publisher connection fails", async () => {
+  it("auto-republishes when the live publisher room disconnects terminally", async () => {
     const realtime = realtimeClient();
     let handler: TranslatorConnectionStateHandler | null = null;
     renderRoute({
       translatorApi: translatorApi(),
       realtimeClient: realtime,
-      recoveryGraceMs: 5,
       recoveryBaseMs: 5,
       onRealtimeHandlerReady: (h) => {
         handler = h;
@@ -1939,8 +1806,9 @@ describe("TranslatorRoute", () => {
     await goLive();
     expect(handler).toBeTruthy();
 
-    // The live publisher's transport fails -> auto re-publish, no manual action.
-    handler!("publish_1", "failed");
+    // LiveKit gave up on the live publisher's room -> auto re-publish, no
+    // manual action.
+    handler!("publish_1", "disconnected");
 
     await waitFor(() => {
       expect(realtime.reconnect).toHaveBeenCalledWith(
@@ -1958,7 +1826,6 @@ describe("TranslatorRoute", () => {
     renderRoute({
       translatorApi: translatorApi(),
       realtimeClient: realtime,
-      recoveryGraceMs: 5,
       recoveryBaseMs: 5,
       onRealtimeHandlerReady: (h) => {
         handler = h;
@@ -1966,10 +1833,44 @@ describe("TranslatorRoute", () => {
     });
 
     await goLive();
-    handler!("publish_stale", "failed");
+    handler!("publish_stale", "disconnected");
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(realtime.reconnect).not.toHaveBeenCalled();
+  });
+
+  // Every other realtime-related test above injects a fully-mocked
+  // TranslatorRealtimeClient via `realtimeClient`, which never exercises the
+  // route's own `createTranslatorRealtimeClient({..., onConnectionStateChange})`
+  // construction line. This test omits `realtimeClient` and instead injects a
+  // fake Room via `createRoom`, so the REAL client is constructed and the
+  // route's transport-state wiring is proven end-to-end, not just the
+  // reducer (`handleTransportState`) it happens to be pointed at in isolation.
+  it("wires the real LiveKit client end-to-end (token mint, room join, transport events)", async () => {
+    const api = translatorApi();
+    renderRoute({
+      translatorApi: api,
+      createRoom: () => new FakeRoom()
+    });
+
+    await goLive();
+
+    expect(api.realtimeToken).toHaveBeenCalledWith("stream_hi", {
+      reclaim: true
+    });
+    const room = FakeRoom.instances[0]!;
+    expect(room.connectCalls).toEqual([
+      { url: "wss://livekit.example.test", token: "livekit-jwt" }
+    ]);
+    expect(room.localParticipant.publishTrack).toHaveBeenCalled();
+
+    // LiveKit's own transient self-heal: Reconnecting -> stale UI banner.
+    room.emit(RoomEvent.Reconnecting);
+    await screen.findByText("Reconnecting…");
+
+    // ...and its own recovery succeeding -> justRecovered confirmation.
+    room.emit(RoomEvent.Reconnected);
+    await screen.findByText("Reconnected — audio resumed");
   });
 
   // ---- Phase 4: Audio Settings button + bottom sheet ----

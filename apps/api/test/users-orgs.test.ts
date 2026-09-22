@@ -1,10 +1,11 @@
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import worker from "../src/index";
+import type { Env } from "../src/env";
+import { createApp } from "../src/index";
 import { UsersRepository } from "../src/db/usersRepository";
 import {
   adminCookie,
   ADMIN_TEST_EMAIL,
+  buildTestEnv,
   DEFAULT_TEST_ORG_ID,
   ORG_ADMIN_TEST_EMAIL,
   seedOrg,
@@ -15,21 +16,15 @@ import {
   VIEWER_TEST_EMAIL
 } from "./test-env";
 
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
-
 async function request(
   path: string,
-  init: IncomingRequestInit = {},
-  requestEnv: Env = testEnv
+  init: RequestInit = {},
+  requestEnv: Env = buildTestEnv()
 ) {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    requestEnv,
-    ctx
+  const app = createApp(requestEnv);
+  const response = await app.fetch(
+    new Request(`https://bhasha.test${path}`, init)
   );
-  await waitOnExecutionContext(ctx);
   return response;
 }
 
@@ -42,7 +37,7 @@ describe("admin org & user management APIs", () => {
 
   it("returns admin identity for /api/admin/me", async () => {
     const users = new UsersRepository(testEnv.DB);
-    const platformId = await seedPlatformAdmin(testEnv);
+    const platformId = await seedPlatformAdmin(buildTestEnv());
     const platformCookie = await adminCookie(ADMIN_TEST_EMAIL);
 
     const platformResponse = await request("/api/admin/me", {
@@ -64,7 +59,7 @@ describe("admin org & user management APIs", () => {
       orgName: null
     });
 
-    const { userId, orgId } = await seedOrgAdmin(testEnv, {
+    const { userId, orgId } = await seedOrgAdmin(buildTestEnv(), {
       email: ORG_ADMIN_TEST_EMAIL
     });
     const orgAdminCookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
@@ -89,7 +84,7 @@ describe("admin org & user management APIs", () => {
   });
 
   it("POST /api/admin/orgs creates org+admin, and duplicate emails do not create orphan orgs", async () => {
-    await seedPlatformAdmin(testEnv);
+    await seedPlatformAdmin(buildTestEnv());
     const cookie = await adminCookie(ADMIN_TEST_EMAIL);
 
     const first = await request("/api/admin/orgs", {
@@ -141,8 +136,8 @@ describe("admin org & user management APIs", () => {
   });
 
   it("blocks /api/admin/orgs for non-platform admins", async () => {
-    await seedOrgAdmin(testEnv, { email: ORG_ADMIN_TEST_EMAIL });
-    await seedViewer(testEnv, { email: VIEWER_TEST_EMAIL });
+    await seedOrgAdmin(buildTestEnv(), { email: ORG_ADMIN_TEST_EMAIL });
+    await seedViewer(buildTestEnv(), { email: VIEWER_TEST_EMAIL });
     const orgAdminCookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
     const viewerCookie = await adminCookie(VIEWER_TEST_EMAIL);
 
@@ -170,13 +165,13 @@ describe("admin org & user management APIs", () => {
   });
 
   it("GET /api/admin/orgs lists for platform_admin, forbids others, and PATCH updates names", async () => {
-    await seedPlatformAdmin(testEnv);
+    await seedPlatformAdmin(buildTestEnv());
     const platformCookie = await adminCookie(ADMIN_TEST_EMAIL);
-    await seedOrgAdmin(testEnv, { email: ORG_ADMIN_TEST_EMAIL });
+    await seedOrgAdmin(buildTestEnv(), { email: ORG_ADMIN_TEST_EMAIL });
     const orgAdminCookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
-    await seedViewer(testEnv, { email: VIEWER_TEST_EMAIL });
+    await seedViewer(buildTestEnv(), { email: VIEWER_TEST_EMAIL });
     const viewerCookie = await adminCookie(VIEWER_TEST_EMAIL);
-    const seededOrg = await seedOrg(testEnv, {
+    const seededOrg = await seedOrg(buildTestEnv(), {
       id: "org_seeded",
       name: "Seeded Tenant"
     });
@@ -229,11 +224,11 @@ describe("admin org & user management APIs", () => {
   });
 
   it("POST /api/admin/users enforces role/org scoping and email uniqueness", async () => {
-    await seedOrgAdmin(testEnv, { orgId: DEFAULT_TEST_ORG_ID });
-    await seedPlatformAdmin(testEnv);
+    await seedOrgAdmin(buildTestEnv(), { orgId: DEFAULT_TEST_ORG_ID });
+    await seedPlatformAdmin(buildTestEnv());
     const orgAdminCookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
     const platformCookie = await adminCookie(ADMIN_TEST_EMAIL);
-    const tenant = await seedOrg(testEnv, { id: "org_other_users", name: "Other Tenant" });
+    const tenant = await seedOrg(buildTestEnv(), { id: "org_other_users", name: "Other Tenant" });
 
     const platformViewer = await request("/api/admin/users", {
       method: "POST",
@@ -342,7 +337,7 @@ describe("admin org & user management APIs", () => {
     expect(duplicateEmail.status).toBe(409);
     expect(await duplicateEmail.json()).toEqual({ error: "email_taken" });
 
-    const viewer = await seedViewer(testEnv, {
+    const viewer = await seedViewer(buildTestEnv(), {
       email: VIEWER_TEST_EMAIL
     });
     const viewerCookie = await adminCookie(VIEWER_TEST_EMAIL);
@@ -361,15 +356,15 @@ describe("admin org & user management APIs", () => {
 
   it("GET /api/admin/users returns scoped, sanitized users", async () => {
     const users = new UsersRepository(testEnv.DB);
-    await seedPlatformAdmin(testEnv);
-    await seedOrgAdmin(testEnv, { orgId: DEFAULT_TEST_ORG_ID });
-    await seedViewer(testEnv, { orgId: DEFAULT_TEST_ORG_ID });
-    await seedOrg(testEnv, { id: "org_users_other", name: "Other Tenant" });
-    await seedViewer(testEnv, {
+    await seedPlatformAdmin(buildTestEnv());
+    await seedOrgAdmin(buildTestEnv(), { orgId: DEFAULT_TEST_ORG_ID });
+    await seedViewer(buildTestEnv(), { orgId: DEFAULT_TEST_ORG_ID });
+    await seedOrg(buildTestEnv(), { id: "org_users_other", name: "Other Tenant" });
+    await seedViewer(buildTestEnv(), {
       orgId: "org_users_other",
       email: "other-viewer@tenant.local"
     });
-    await seedOrgAdmin(testEnv, {
+    await seedOrgAdmin(buildTestEnv(), {
       orgId: "org_users_other",
       email: "other-admin@tenant.local"
     });
@@ -436,10 +431,10 @@ describe("admin org & user management APIs", () => {
   });
 
   it("PATCH /api/admin/users enforces scope and revokes sessions", async () => {
-    await seedPlatformAdmin(testEnv);
-    await seedOrgAdmin(testEnv, { orgId: DEFAULT_TEST_ORG_ID });
+    await seedPlatformAdmin(buildTestEnv());
+    await seedOrgAdmin(buildTestEnv(), { orgId: DEFAULT_TEST_ORG_ID });
     const adminCookieDefault = await adminCookie(ORG_ADMIN_TEST_EMAIL);
-    const viewer = await seedViewer(testEnv, {
+    const viewer = await seedViewer(buildTestEnv(), {
       orgId: DEFAULT_TEST_ORG_ID,
       email: "viewer-to-disable@test.local"
     });
@@ -459,7 +454,7 @@ describe("admin org & user management APIs", () => {
     });
     expect(disabledSelfRequest.status).toBe(401);
 
-    const otherOrgViewer = await seedViewer(testEnv, {
+    const otherOrgViewer = await seedViewer(buildTestEnv(), {
       orgId: "org_other_scope",
       email: "scope-other-viewer@test.local"
     });
@@ -480,7 +475,7 @@ describe("admin org & user management APIs", () => {
     });
     expect(roleChange.status).toBe(403);
 
-    const otherOrgAdmin = await request(`/api/admin/users/${(await seedOrgAdmin(testEnv, {
+    const otherOrgAdmin = await request(`/api/admin/users/${(await seedOrgAdmin(buildTestEnv(), {
       orgId: "org_scope_other_admin",
       email: "other-admin@test.local"
     })).userId}`, {
@@ -494,11 +489,11 @@ describe("admin org & user management APIs", () => {
   });
 
   it("platform PATCH rejects boundary-crossing role changes with 400 (not 500)", async () => {
-    await seedPlatformAdmin(testEnv);
+    await seedPlatformAdmin(buildTestEnv());
     const platformCookie = await adminCookie(ADMIN_TEST_EMAIL);
     // an org-scoped viewer → platform_admin would need org_id=NULL (can't change
     // org_id here) → clean 400, never a DB CHECK 500.
-    const orgViewer = await seedViewer(testEnv, {
+    const orgViewer = await seedViewer(buildTestEnv(), {
       orgId: DEFAULT_TEST_ORG_ID,
       email: "promote-me@test.local"
     });
@@ -511,7 +506,7 @@ describe("admin org & user management APIs", () => {
 
     // a platform_admin → org role would need a non-null org_id → 400.
     const otherPlatformId = await seedPlatformAdmin(
-      testEnv,
+      buildTestEnv(),
       "second-platform@test.local"
     );
     const demote = await request(`/api/admin/users/${otherPlatformId}`, {
@@ -523,12 +518,12 @@ describe("admin org & user management APIs", () => {
   });
 
   it("POST /api/admin/users/:id/password resets password and revokes sessions", async () => {
-    await seedPlatformAdmin(testEnv);
-    await seedOrgAdmin(testEnv);
+    await seedPlatformAdmin(buildTestEnv());
+    await seedOrgAdmin(buildTestEnv());
     const platformCookie = await adminCookie(ADMIN_TEST_EMAIL);
     const orgAdminCookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
 
-    const targetViewer = await seedViewer(testEnv, {
+    const targetViewer = await seedViewer(buildTestEnv(), {
       email: "platform-target-viewer@tenant.local",
       orgId: DEFAULT_TEST_ORG_ID
     });
@@ -548,7 +543,7 @@ describe("admin org & user management APIs", () => {
         .status
     ).toBe(401);
 
-    const orgViewer = await seedViewer(testEnv, {
+    const orgViewer = await seedViewer(buildTestEnv(), {
       orgId: DEFAULT_TEST_ORG_ID,
       email: "org-reset-viewer@tenant.local"
     });
@@ -568,7 +563,7 @@ describe("admin org & user management APIs", () => {
         .status
     ).toBe(401);
 
-    const otherTenantViewer = await seedViewer(testEnv, {
+    const otherTenantViewer = await seedViewer(buildTestEnv(), {
       orgId: "tenant_other_reset",
       email: "other-reset-viewer@tenant.local"
     });

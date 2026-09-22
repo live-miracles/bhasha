@@ -1,11 +1,8 @@
-import { applyD1Migrations } from "cloudflare:test";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { handleAdminRoutes } from "../src/routes/admin";
-import { adminCookie, seedPlatformAdmin, seedProgram, testEnv } from "./test-env";
-
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
+import type { WaitUntilCtx } from "../src/http";
+import { adminCookie, buildTestEnv, seedPlatformAdmin, seedProgram, testEnv } from "./test-env";
 
 type SeedProgramFixture = {
   cookie: string;
@@ -14,23 +11,16 @@ type SeedProgramFixture = {
   translatorId: string;
 };
 
-beforeAll(async () => {
-  const testEnvWithMigrations = testEnv as unknown as {
-    TEST_MIGRATIONS: Parameters<typeof applyD1Migrations>[1];
-  };
-  await applyD1Migrations(testEnv.DB, testEnvWithMigrations.TEST_MIGRATIONS);
-});
-
 async function adminRoute(
   path: string,
-  init: IncomingRequestInit = {}
+  init: RequestInit = {}
 ): Promise<Response> {
-  const request = new IncomingRequest(`https://bhasha.test${path}`, init);
+  const request = new Request(`https://bhasha.test${path}`, init);
   const response = await handleAdminRoutes(
     request,
-    testEnv,
+    buildTestEnv(),
     new URL(request.url),
-    { waitUntil() {} } as unknown as ExecutionContext
+    { waitUntil() {} } as WaitUntilCtx
   );
 
   if (!response) {
@@ -72,7 +62,7 @@ async function seedProgramWithTranslatorAndStream(cookie: string): Promise<SeedP
     })
   });
   expect(streamResponse.status).toBe(201);
-  const { id: streamId } = await streamResponse.json<{ id: string }>();
+  const { id: streamId } = (await streamResponse.json()) as { id: string };
 
   const translatorResponse = await adminRoute(
     `/api/admin/programs/${programId}/translators`,
@@ -87,7 +77,7 @@ async function seedProgramWithTranslatorAndStream(cookie: string): Promise<SeedP
     }
   );
   expect(translatorResponse.status).toBe(201);
-  const { id: translatorId } = await translatorResponse.json<{ id: string }>();
+  const { id: translatorId } = (await translatorResponse.json()) as { id: string };
 
   const assignmentResponse = await adminRoute(
     `/api/admin/programs/${programId}/translators/${translatorId}/assignments`,
@@ -116,24 +106,22 @@ async function createTranslatorSession(params: {
   const now = new Date().toISOString();
   const expiry = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO translator_sessions
       (id, session_hash, program_id, translator_id,
        absolute_expires_at, expires_at, last_seen_at, created_at, user_agent)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      sessionId,
-      `hash_${crypto.randomUUID()}`,
-      params.programId,
-      params.translatorId,
-      expiry,
-      expiry,
-      now,
-      now,
-      params.userAgent
-    )
-    .run();
+  ).run(
+    sessionId,
+    `hash_${crypto.randomUUID()}`,
+    params.programId,
+    params.translatorId,
+    expiry,
+    expiry,
+    now,
+    now,
+    params.userAgent
+  );
 
   return sessionId;
 }
@@ -150,7 +138,7 @@ async function createPublishReservation(params: {
   const now = new Date().toISOString();
   const expiry = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO realtime_publish_sessions
       (id, program_id, language_stream_id, translator_id,
        translator_session_id, cloudflare_session_id, state,
@@ -158,20 +146,18 @@ async function createPublishReservation(params: {
        expires_at, closed_at,
        created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, 'track', 'mid', ?, NULL, ?, ?)`
-  )
-    .bind(
-      publishSessionId,
-      params.programId,
-      params.streamId,
-      params.translatorId,
-      params.translatorSessionId,
-      params.cloudflareSessionId,
-      params.state ?? "published",
-      expiry,
-      now,
-      now
-    )
-    .run();
+  ).run(
+    publishSessionId,
+    params.programId,
+    params.streamId,
+    params.translatorId,
+    params.translatorSessionId,
+    params.cloudflareSessionId,
+    params.state ?? "published",
+    expiry,
+    now,
+    now
+  );
 
   return publishSessionId;
 }
@@ -217,7 +203,7 @@ describe("admin translator sessions", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{ sessions: Array<{ sessionId: string; deviceLabel: string; isPublishing: boolean }> }>();
+    const body = (await response.json()) as { sessions: Array<{ sessionId: string; deviceLabel: string; isPublishing: boolean }> };
     expect(body.sessions).toHaveLength(2);
     expect(body.sessions).toEqual(
       expect.arrayContaining([
@@ -289,18 +275,14 @@ describe("admin translator sessions", () => {
     expect(first.status).toBe(200);
     expect(await first.json()).toEqual({ ok: true });
 
-    const deletedSession = await testEnv.DB.prepare(
+    const deletedSession = testEnv.DB.prepare(
       "SELECT COUNT(*) as count FROM translator_sessions WHERE id = ?"
-    )
-      .bind(sessionId)
-      .first<{ count: number }>();
+    ).get(sessionId) as { count: number } | undefined;
     expect(deletedSession?.count).toBe(0);
 
-    const closedPublish = await testEnv.DB.prepare(
+    const closedPublish = testEnv.DB.prepare(
       "SELECT state FROM realtime_publish_sessions WHERE id = ?"
-    )
-      .bind(publishSessionId)
-      .first<{ state: string }>();
+    ).get(publishSessionId) as { state: string } | undefined;
     expect(closedPublish?.state).toBe("closed");
 
     const second = await adminRoute(
@@ -350,18 +332,14 @@ describe("admin translator sessions", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
 
-    const remaining = await testEnv.DB.prepare(
+    const remaining = testEnv.DB.prepare(
       "SELECT COUNT(*) as count FROM translator_sessions WHERE program_id = ? AND translator_id = ?"
-    )
-      .bind(programId, translatorId)
-      .first<{ count: number }>();
+    ).get(programId, translatorId) as { count: number } | undefined;
     expect(remaining?.count).toBe(0);
 
-    const closedCount = await testEnv.DB.prepare(
+    const closedCount = testEnv.DB.prepare(
       "SELECT COUNT(*) as count FROM realtime_publish_sessions WHERE program_id = ? AND translator_id = ? AND state = 'closed'"
-    )
-      .bind(programId, translatorId)
-      .first<{ count: number }>();
+    ).get(programId, translatorId) as { count: number } | undefined;
     expect(closedCount?.count).toBe(1);
   });
 
@@ -396,11 +374,9 @@ describe("admin translator sessions", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ freed: true });
 
-    const row = await testEnv.DB.prepare(
+    const row = testEnv.DB.prepare(
       "SELECT state FROM realtime_publish_sessions WHERE program_id = ? AND language_stream_id = ?"
-    )
-      .bind(programId, streamId)
-      .first<{ state: string }>();
+    ).get(programId, streamId) as { state: string } | undefined;
     expect(row?.state).toBe("closed");
   });
 
@@ -459,11 +435,9 @@ describe("admin translator sessions", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ freed: true });
 
-    const remaining = await testEnv.DB.prepare(
+    const remaining = testEnv.DB.prepare(
       "SELECT COUNT(*) as count FROM translator_sessions WHERE program_id = ? AND translator_id = ?"
-    )
-      .bind(programId, translatorId)
-      .first<{ count: number }>();
+    ).get(programId, translatorId) as { count: number } | undefined;
     expect(remaining?.count).toBe(0);
   });
 });

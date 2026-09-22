@@ -50,22 +50,14 @@ describe("listener api", () => {
     );
   });
 
-  it("posts the listener subscribe and control endpoints with program slugs", async () => {
+  it("posts the listener token and control endpoints with program slugs", async () => {
     const post = vi.fn(async (path: string, body?: unknown) => {
-      if (path === "/api/listeners/subscribe/session") {
+      if (path === "/api/listeners/token") {
         return {
           connectionId: "listener_connection_1",
-          streamId: "stream_hi",
-          sessionDescription: { type: "answer", sdp: "answer-sdp" },
-          iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
-        };
-      }
-
-      if (path === "/api/listeners/subscribe/track") {
-        return {
-          connectionId: "listener_connection_1",
-          track: { mid: "0", trackName: "remote-track" },
-          requiresImmediateRenegotiation: false,
+          token: "livekit-jwt",
+          url: "wss://livekit.example.test",
+          roomName: "program_1-stream_hi",
         };
       }
 
@@ -81,17 +73,10 @@ describe("listener api", () => {
     });
     const api = createListenerApi({ post } as unknown as ApiClient);
 
-    await api.subscribeSession({
+    await api.token({
       programSlug: "patna-event-2026",
       streamId: "stream_hi",
-      clientId: "client_1",
       connectionId: "listener_connection_existing",
-      sessionDescription: { type: "offer", sdp: "offer-sdp" },
-    });
-    await api.subscribeTrack({ connectionId: "listener_connection_1" });
-    await api.subscribeRenegotiate({
-      connectionId: "listener_connection_1",
-      sessionDescription: { type: "answer", sdp: "renegotiate-answer" },
     });
     await api.connected({ connectionId: "listener_connection_1" });
     await api.heartbeat({ connectionId: "listener_connection_1" });
@@ -112,45 +97,28 @@ describe("listener api", () => {
       reconnectOfConnectionId: "listener_connection_1",
     });
 
-    expect(post).toHaveBeenNthCalledWith(
-      1,
-      "/api/listeners/subscribe/session",
-      {
-        programSlug: "patna-event-2026",
-        streamId: "stream_hi",
-        clientId: "client_1",
-        connectionId: "listener_connection_existing",
-        sessionDescription: { type: "offer", sdp: "offer-sdp" },
-      },
-    );
-    expect(post).toHaveBeenNthCalledWith(2, "/api/listeners/subscribe/track", {
+    expect(post).toHaveBeenNthCalledWith(1, "/api/listeners/token", {
+      programSlug: "patna-event-2026",
+      streamId: "stream_hi",
+      connectionId: "listener_connection_existing",
+    });
+    expect(post).toHaveBeenNthCalledWith(2, "/api/listeners/connected", {
       connectionId: "listener_connection_1",
     });
-    expect(post).toHaveBeenNthCalledWith(
-      3,
-      "/api/listeners/subscribe/renegotiate",
-      {
-        connectionId: "listener_connection_1",
-        sessionDescription: { type: "answer", sdp: "renegotiate-answer" },
-      },
-    );
-    expect(post).toHaveBeenNthCalledWith(4, "/api/listeners/connected", {
+    expect(post).toHaveBeenNthCalledWith(3, "/api/listeners/heartbeat", {
       connectionId: "listener_connection_1",
     });
-    expect(post).toHaveBeenNthCalledWith(5, "/api/listeners/heartbeat", {
-      connectionId: "listener_connection_1",
-    });
-    expect(post).toHaveBeenNthCalledWith(6, "/api/listeners/leave", {
+    expect(post).toHaveBeenNthCalledWith(4, "/api/listeners/leave", {
       connectionId: "listener_connection_1",
       reason: "listener_left",
     });
-    expect(post).toHaveBeenNthCalledWith(7, "/api/listeners/switch", {
+    expect(post).toHaveBeenNthCalledWith(5, "/api/listeners/switch", {
       programSlug: "patna-event-2026",
       streamId: "stream_en",
       clientId: "client_1",
       fromConnectionId: "listener_connection_1",
     });
-    expect(post).toHaveBeenNthCalledWith(8, "/api/listeners/reconnect", {
+    expect(post).toHaveBeenNthCalledWith(6, "/api/listeners/reconnect", {
       programSlug: "patna-event-2026",
       streamId: "stream_hi",
       clientId: "client_1",
@@ -160,11 +128,7 @@ describe("listener api", () => {
 
   it("threads access tokens only through gated listener acquisition calls", async () => {
     const post = vi.fn(async () => ({ connectionId: "connection_next" }));
-    const get = vi.fn(async () => ({
-      sessionId: "publisher_session",
-      trackName: "publisher_track",
-    }));
-    const api = createListenerApi({ post, get } as unknown as ApiClient);
+    const api = createListenerApi({ post } as unknown as ApiClient);
     const accessToken = "listener-access-token";
 
     await api.requestConnection({
@@ -173,11 +137,10 @@ describe("listener api", () => {
       clientId: "client_1",
       accessToken,
     });
-    await api.subscribeSession({
+    await api.token({
       programSlug: "patna-event-2026",
       streamId: "stream_hi",
-      clientId: "client_1",
-      sessionDescription: { type: "offer", sdp: "offer-sdp" },
+      connectionId: "connection_1",
       accessToken,
     });
     await api.switch({
@@ -194,11 +157,6 @@ describe("listener api", () => {
       reconnectOfConnectionId: "connection_1",
       accessToken,
     });
-    await api.activePublisher({
-      programSlug: "patna-event-2026",
-      streamId: "stream_hi",
-      accessToken,
-    });
 
     expect(post).toHaveBeenNthCalledWith(1, "/api/listeners/request", {
       programSlug: "patna-event-2026",
@@ -206,17 +164,12 @@ describe("listener api", () => {
       clientId: "client_1",
       accessToken,
     });
-    expect(post).toHaveBeenNthCalledWith(
-      2,
-      "/api/listeners/subscribe/session",
-      {
-        programSlug: "patna-event-2026",
-        streamId: "stream_hi",
-        clientId: "client_1",
-        sessionDescription: { type: "offer", sdp: "offer-sdp" },
-        accessToken,
-      },
-    );
+    expect(post).toHaveBeenNthCalledWith(2, "/api/listeners/token", {
+      programSlug: "patna-event-2026",
+      streamId: "stream_hi",
+      connectionId: "connection_1",
+      accessToken,
+    });
     expect(post).toHaveBeenNthCalledWith(3, "/api/listeners/switch", {
       programSlug: "patna-event-2026",
       streamId: "stream_en",
@@ -231,30 +184,21 @@ describe("listener api", () => {
       reconnectOfConnectionId: "connection_1",
       accessToken,
     });
-    expect(get).toHaveBeenCalledWith(
-      "/api/listeners/active-publisher?programSlug=patna-event-2026&streamId=stream_hi",
-      {
-        headers: { "x-listener-access-token": accessToken },
-      },
-    );
   });
 
   it("keeps omitted access tokens out of existing wrapper call shapes", async () => {
     const post = vi.fn(async () => ({ connectionId: "connection_next" }));
-    const get = vi.fn(async () => ({
-      sessionId: "publisher_session",
-      trackName: "publisher_track",
-    }));
-    const api = createListenerApi({ post, get } as unknown as ApiClient);
+    const api = createListenerApi({ post } as unknown as ApiClient);
 
     await api.requestConnection({
       programSlug: "patna-event-2026",
       streamId: "stream_hi",
       clientId: "client_1",
     });
-    await api.activePublisher({
+    await api.token({
       programSlug: "patna-event-2026",
       streamId: "stream_hi",
+      connectionId: "connection_1",
     });
 
     expect(post).toHaveBeenCalledWith("/api/listeners/request", {
@@ -262,8 +206,10 @@ describe("listener api", () => {
       streamId: "stream_hi",
       clientId: "client_1",
     });
-    expect(get).toHaveBeenCalledWith(
-      "/api/listeners/active-publisher?programSlug=patna-event-2026&streamId=stream_hi",
-    );
+    expect(post).toHaveBeenCalledWith("/api/listeners/token", {
+      programSlug: "patna-event-2026",
+      streamId: "stream_hi",
+      connectionId: "connection_1",
+    });
   });
 });

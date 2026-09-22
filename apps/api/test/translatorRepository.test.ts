@@ -1,19 +1,7 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { env } from "cloudflare:workers";
-import { applyD1Migrations } from "cloudflare:test";
+import { beforeEach, describe, expect, it } from "vitest";
 import { TranslatorRepository } from "../src/db/translatorRepository";
 import { RealtimeStreamRepository } from "../src/db/realtimeStreamRepository";
 import { testEnv } from "./test-env";
-
-beforeAll(async () => {
-  const testEnvWithMigrations = env as Env & {
-    TEST_MIGRATIONS: Parameters<typeof applyD1Migrations>[1];
-  };
-  await applyD1Migrations(
-    testEnvWithMigrations.DB,
-    testEnvWithMigrations.TEST_MIGRATIONS
-  );
-});
 
 async function seedTranslator(): Promise<{
   programId: string;
@@ -24,39 +12,35 @@ async function seedTranslator(): Promise<{
   const programId = `program_${suffix}`;
   const translatorId = `translator_${suffix}`;
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO programs
     (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      programId,
-      `program-${suffix}`,
-      "Device Test Event",
-      "Main Hall",
-      "2026-09-01",
-      "draft",
-      "",
-      now,
-      now
-    )
-    .run();
+  ).run(
+    programId,
+    `program-${suffix}`,
+    "Device Test Event",
+    "Main Hall",
+    "2026-09-01",
+    "draft",
+    "",
+    now,
+    now
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO translators
     (id, program_id, name, email, password_hash, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      translatorId,
-      programId,
-      "Hindi translator",
-      `translator-${suffix}@example.com`,
-      "sha256:placeholder",
-      now,
-      now
-    )
-    .run();
+  ).run(
+    translatorId,
+    programId,
+    "Hindi translator",
+    `translator-${suffix}@example.com`,
+    "sha256:placeholder",
+    now,
+    now
+  );
 
   return { programId, translatorId };
 }
@@ -65,26 +49,24 @@ async function seedStream(programId: string): Promise<string> {
   const streamId = `stream_${crypto.randomUUID()}`;
   const timestamp = new Date().toISOString();
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO language_streams
     (id, program_id, language_name, language_code, display_order, is_active,
      is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      streamId,
-      programId,
-      "Hindi",
-      "hi",
-      1,
-      1,
-      0,
-      null,
-      null,
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    streamId,
+    programId,
+    "Hindi",
+    "hi",
+    1,
+    1,
+    0,
+    null,
+    null,
+    timestamp,
+    timestamp
+  );
 
   return streamId;
 }
@@ -94,32 +76,30 @@ async function seedTranslatorInProgram(programId: string): Promise<string> {
   const now = new Date().toISOString();
   const suffix = crypto.randomUUID();
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO translators
     (id, program_id, name, email, password_hash, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      translatorId,
-      programId,
-      "Support translator",
-      `translator-${suffix}@example.com`,
-      "sha256:placeholder",
-      now,
-      now
-    )
-    .run();
+  ).run(
+    translatorId,
+    programId,
+    "Support translator",
+    `translator-${suffix}@example.com`,
+    "sha256:placeholder",
+    now,
+    now
+  );
 
   return translatorId;
 }
 
 async function clearTestData(): Promise<void> {
-  await testEnv.DB.exec("DELETE FROM translator_sessions");
-  await testEnv.DB.exec("DELETE FROM translator_stream_assignments");
-  await testEnv.DB.exec("DELETE FROM translators");
-  await testEnv.DB.exec("DELETE FROM programs");
-  await testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
-  await testEnv.DB.exec("DELETE FROM language_streams");
+  testEnv.DB.exec("DELETE FROM translator_sessions");
+  testEnv.DB.exec("DELETE FROM translator_stream_assignments");
+  testEnv.DB.exec("DELETE FROM translators");
+  testEnv.DB.exec("DELETE FROM programs");
+  testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
+  testEnv.DB.exec("DELETE FROM language_streams");
 }
 
 describe("TranslatorRepository.createSession", () => {
@@ -140,13 +120,11 @@ describe("TranslatorRepository.createSession", () => {
       userAgent
     );
 
-    const row = await testEnv.DB.prepare(
+    const row = testEnv.DB.prepare(
       `SELECT user_agent as userAgent
       FROM translator_sessions
       WHERE id = ?`
-    )
-      .bind(session.id)
-      .first<{ userAgent: string | null }>();
+    ).get(session.id) as { userAgent: string | null } | undefined;
 
     expect(row?.userAgent).toBe(userAgent);
   });
@@ -218,28 +196,26 @@ describe("TranslatorRepository.createSession", () => {
       desktopUserAgent
     );
 
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `INSERT INTO realtime_publish_sessions
       (id, program_id, language_stream_id, translator_id,
        translator_session_id, cloudflare_session_id,
        published_track_name, published_track_mid, state,
        expires_at, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?)`
-    )
-      .bind(
-        `realtime_publish_session_${crypto.randomUUID()}`,
-        programId,
-        streamId,
-        translatorId,
-        mobileSession.id,
-        "cf-mobile-session",
-        "track",
-        "mid",
-        new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
-        new Date().toISOString(),
-        new Date().toISOString()
-      )
-      .run();
+    ).run(
+      `realtime_publish_session_${crypto.randomUUID()}`,
+      programId,
+      streamId,
+      translatorId,
+      mobileSession.id,
+      "cf-mobile-session",
+      "track",
+      "mid",
+      new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+      new Date().toISOString(),
+      new Date().toISOString()
+    );
 
     const sessions = await repo.listSessionsForTranslator(programId, translatorId);
     expect(sessions).toHaveLength(2);
@@ -248,23 +224,23 @@ describe("TranslatorRepository.createSession", () => {
       sessions.map((session) => [session.sessionId, session])
     );
 
-    const mobileRow = await testEnv.DB.prepare(
+    const mobileRow = testEnv.DB.prepare(
       `SELECT created_at as createdAt,
               last_seen_at as lastSeenAt
        FROM translator_sessions
        WHERE id = ?`
-    )
-      .bind(mobileSession.id)
-      .first<{ createdAt: string; lastSeenAt: string }>();
+    ).get(mobileSession.id) as
+      | { createdAt: string; lastSeenAt: string }
+      | undefined;
 
-    const desktopRow = await testEnv.DB.prepare(
+    const desktopRow = testEnv.DB.prepare(
       `SELECT created_at as createdAt,
               last_seen_at as lastSeenAt
        FROM translator_sessions
        WHERE id = ?`
-    )
-      .bind(desktopSession.id)
-      .first<{ createdAt: string; lastSeenAt: string }>();
+    ).get(desktopSession.id) as
+      | { createdAt: string; lastSeenAt: string }
+      | undefined;
 
     const mobileRowView = sessionsById.get(mobileSession.id);
     const desktopRowView = sessionsById.get(desktopSession.id);
@@ -368,13 +344,13 @@ describe("TranslatorRepository.revokeSession", () => {
     );
     expect(deletedSession).toBeNull();
 
-    const publisherRow = await testEnv.DB.prepare(
+    const publisherRow = testEnv.DB.prepare(
       `SELECT state, closed_at as closedAt
        FROM realtime_publish_sessions
        WHERE id = ?`
-    )
-      .bind(reservation.id)
-      .first<{ state: string; closedAt: string | null }>();
+    ).get(reservation.id) as
+      | { state: string; closedAt: string | null }
+      | undefined;
 
     expect(publisherRow).not.toBeNull();
     expect(publisherRow?.state).toBe("closed");
@@ -450,13 +426,13 @@ describe("TranslatorRepository.revokeSession", () => {
 
     expect(wrong).toBeNull();
 
-    const publisherRow = await testEnv.DB.prepare(
+    const publisherRow = testEnv.DB.prepare(
       `SELECT state, closed_at as closedAt
        FROM realtime_publish_sessions
        WHERE id = ?`
-    )
-      .bind(reservation.id)
-      .first<{ state: string; closedAt: string | null }>();
+    ).get(reservation.id) as
+      | { state: string; closedAt: string | null }
+      | undefined;
 
     expect(publisherRow).not.toBeNull();
     expect(publisherRow?.state).toBe("reserved");
@@ -485,13 +461,13 @@ describe("TranslatorRepository.revokeSession", () => {
       await translatorRepository.getSession(tokenB, testEnv.TRANSLATOR_SESSION_SECRET)
     ).toBeNull();
 
-    const closedPublisher = await testEnv.DB.prepare(
+    const closedPublisher = testEnv.DB.prepare(
       `SELECT state, closed_at as closedAt
        FROM realtime_publish_sessions
        WHERE id = ?`
-    )
-      .bind(reservation.id)
-      .first<{ state: string; closedAt: string | null }>();
+    ).get(reservation.id) as
+      | { state: string; closedAt: string | null }
+      | undefined;
 
     expect(closedPublisher).not.toBeNull();
     expect(closedPublisher?.state).toBe("closed");
@@ -636,16 +612,15 @@ describe("TranslatorRepository.revokeAllSessionsForTranslator", () => {
       )
     ).toBeNull();
 
-    const publisherRows = await testEnv.DB
+    const publisherRows = testEnv.DB
       .prepare(
         `SELECT language_stream_id as streamId, state
          FROM realtime_publish_sessions
          WHERE program_id = ? AND translator_id = ?`
       )
-      .bind(programId, translatorId)
-      .all<{ streamId: string; state: string }>();
+      .all(programId, translatorId) as { streamId: string; state: string }[];
 
-    expect(publisherRows.results).toEqual(
+    expect(publisherRows).toEqual(
       expect.arrayContaining([
         { streamId: streamA, state: "closed" },
         { streamId: streamB, state: "closed" }

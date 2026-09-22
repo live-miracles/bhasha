@@ -1,9 +1,6 @@
-import {
-  createExecutionContext,
-  waitOnExecutionContext
-} from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import worker from "../src/index";
+import type { Env } from "../src/env";
+import { createApp } from "../src/index";
 import { requireAdminRole, requireUserAuth } from "../src/auth/adminAuth";
 import { sha256Hex } from "../src/auth/crypto";
 import { UsersRepository } from "../src/db/usersRepository";
@@ -15,22 +12,13 @@ import {
   testEnv
 } from "./test-env";
 
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
-
 async function request(
   path: string,
-  init: IncomingRequestInit = {},
-  env: Env = testEnv
-) {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    env,
-    ctx
-  );
-  await waitOnExecutionContext(ctx);
-  return response;
+  init: RequestInit = {},
+  env: Env = buildTestEnv()
+): Promise<Response> {
+  const app = createApp(env);
+  return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
 function cookieHeader(cookie: string): Record<string, string> {
@@ -60,7 +48,7 @@ describe("admin auth (multi-tenant users)", () => {
   it.each(GATED_ADMIN_ROUTES)(
     "blocks $method $path without a session",
     async ({ method, path }) => {
-      const init: IncomingRequestInit =
+      const init: RequestInit =
         method === "GET" ? {} : { method, body: JSON.stringify({}) };
       const response = await request(path, init);
 
@@ -440,7 +428,7 @@ describe("admin auth (multi-tenant users)", () => {
     await users.setPassword(viewer.id, "viewer-password");
     const cookie = await adminCookie("viewer@test.local", "viewer-password");
 
-    const req = new IncomingRequest("https://bhasha.test/api/admin/x", {
+    const req = new Request("https://bhasha.test/api/admin/x", {
       headers: cookieHeader(cookie)
     });
     const result = await requireAdminRole(req, testEnv);
@@ -460,7 +448,7 @@ describe("admin auth (multi-tenant users)", () => {
     await users.setPassword(viewer.id, "viewer-password");
     const cookie = await adminCookie("viewer2@test.local", "viewer-password");
 
-    const req = new IncomingRequest("https://bhasha.test/api/admin/x", {
+    const req = new Request("https://bhasha.test/api/admin/x", {
       headers: cookieHeader(cookie)
     });
     const result = await requireUserAuth(req, testEnv);

@@ -46,22 +46,18 @@ async function seedProgram(): Promise<SeededProgram> {
   const slug = `rt-program-${suffix}`;
   const streamId = `stream_rt_${suffix}`;
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO programs
     (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(programId, slug, "RT Event", "Hall", "2026-08-01", "live", "", now, now)
-    .run();
+  ).run(programId, slug, "RT Event", "Hall", "2026-08-01", "live", "", now, now);
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO language_streams
     (id, program_id, language_name, language_code, display_order, is_active,
      is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(streamId, programId, "Hindi", "hi", 0, 1, 0, null, null, now, now)
-    .run();
+  ).run(streamId, programId, "Hindi", "hi", 0, 1, 0, null, null, now, now);
 
   return { programId, streamId };
 }
@@ -82,13 +78,11 @@ async function seedRequestedListener(
 
 /** Counts how many `listener_subscribed` events exist for a connection. */
 async function subscribedEventCount(connectionId: string): Promise<number> {
-  const { results } = await testEnv.DB.prepare(
+  const results = testEnv.DB.prepare(
     `SELECT id FROM stream_events
     WHERE event_type = 'listener_subscribed'
       AND json_extract(metadata_json, '$.connectionId') = ?`
-  )
-    .bind(connectionId)
-    .all<{ id: string }>();
+  ).all(connectionId) as Array<{ id: string }>;
   return results.length;
 }
 

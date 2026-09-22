@@ -16,10 +16,10 @@ import type {
 import {
   createListenerRealtimeClient,
   type ListenerRealtimeClient,
-  type ListenerSession
+  type ListenerSession,
+  type ListenerTransportState,
+  type RoomHandle
 } from "../realtime/listenerClient";
-import { createPartytracksListenerClient } from "../realtime/partytracksListenerClient";
-import { usePartytracks } from "../config/featureFlags";
 import { detectInAppBrowser } from "./inAppBrowser";
 import { ListenerAccessGate } from "./ListenerAccessGate";
 
@@ -98,7 +98,7 @@ type ReconnectOptions = {
 
 export type ConnectionStateHandler = (
   connectionId: string,
-  state: RTCPeerConnectionState
+  state: ListenerTransportState
 ) => void;
 
 export interface ListenerRouteProps {
@@ -106,13 +106,18 @@ export interface ListenerRouteProps {
   publicApi: PublicApi;
   listenerApi?: ListenerApi;
   realtimeClient?: ListenerRealtimeClient;
+  // Test seam: threaded into createListenerRealtimeClient when no
+  // `realtimeClient` override is given, so a test can exercise the REAL client
+  // construction/wiring with a fake Room instead of also having to fake the
+  // whole ListenerRealtimeClient interface. No-op in production (falls
+  // through to `new Room()`).
+  createRoom?: () => RoomHandle;
   heartbeatMs?: number;
   statusPollMs?: number;
   accessBroadcastPollMs?: number;
   accessSafetyPollMs?: number;
   accessApprovedDelayMs?: number;
   // Fast-recovery tuning (injectable for deterministic tests, like statusPollMs).
-  recoveryGraceMs?: number;
   recoveryBaseMs?: number;
   recoveryMaxMs?: number;
   recoveryMaxAttempts?: number;
@@ -132,11 +137,11 @@ const DEFAULT_ACCESS_SAFETY_POLL_MS = 5 * 60_000;
 const DEFAULT_ACCESS_APPROVED_DELAY_MS = 700;
 const ACCESS_SERVICE_ERROR_MESSAGE =
   "Check your connection, then retry.";
-// A "disconnected" transport state often self-heals within a second or two, so
-// we wait out a short grace before recovering. "failed" is terminal and recovers
-// immediately. Backoff is exponential from base to cap, bounded by max attempts,
-// so a persistently-down connection never spins in a tight reconnect loop.
-const DEFAULT_RECOVERY_GRACE_MS = 3_000;
+// LiveKit's own Room retries a transient drop internally (RoomEvent.
+// Reconnecting/Reconnected) with no app-level timer needed. Only a terminal
+// "disconnected" (LiveKit gave up, or the token's 1h TTL expired) schedules a
+// reconnect here. Backoff is exponential from base to cap, bounded by max
+// attempts, so a persistently-down connection never spins in a tight loop.
 const DEFAULT_RECOVERY_BASE_MS = 500;
 const DEFAULT_RECOVERY_MAX_MS = 4_000;
 const DEFAULT_RECOVERY_MAX_ATTEMPTS = 6;
@@ -156,12 +161,12 @@ export function ListenerRoute({
   publicApi,
   listenerApi: listenerApiProp,
   realtimeClient: realtimeClientProp,
+  createRoom,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
   statusPollMs = DEFAULT_STATUS_POLL_MS,
   accessBroadcastPollMs,
   accessSafetyPollMs = DEFAULT_ACCESS_SAFETY_POLL_MS,
   accessApprovedDelayMs = DEFAULT_ACCESS_APPROVED_DELAY_MS,
-  recoveryGraceMs = DEFAULT_RECOVERY_GRACE_MS,
   recoveryBaseMs = DEFAULT_RECOVERY_BASE_MS,
   recoveryMaxMs = DEFAULT_RECOVERY_MAX_MS,
   recoveryMaxAttempts = DEFAULT_RECOVERY_MAX_ATTEMPTS,
@@ -222,27 +227,14 @@ export function ListenerRoute({
   const realtimeClient = useMemo(
     () =>
       realtimeClientProp ??
-      (usePartytracks
-        ? createPartytracksListenerClient({
-            listenerApi,
-            getAccessToken: () => accessTokenRef.current,
-            onConnectionStateChange: (connectionId, connectionState) => {
-              connectionStateHandlerRef.current(connectionId, connectionState);
-            }
-          })
-        : createListenerRealtimeClient({
-            listenerApi,
-            onConnectionStateChange: (connectionId, connectionState) => {
-              connectionStateHandlerRef.current(connectionId, connectionState);
-            }
-          })),
-    [listenerApi, realtimeClientProp]
-  );
-  // Cache the listener's TURN/ICE servers so every connect/switch/reconnect
-  // builds its PeerConnection WITH relay candidates (gathered before the offer)
-  // without an extra round-trip per language switch. Creds are valid ~1h.
-  const iceServersRef = useRef<{ servers: RTCIceServer[]; fetchedAt: number } | null>(
-    null
+      createListenerRealtimeClient({
+        listenerApi,
+        ...(createRoom ? { createRoom } : {}),
+        onConnectionStateChange: (connectionId, connectionState) => {
+          connectionStateHandlerRef.current(connectionId, connectionState);
+        }
+      }),
+    [listenerApi, realtimeClientProp, createRoom]
   );
 
   function isAccessGenerationCurrent(accessGeneration: number): boolean {
@@ -1067,38 +1059,32 @@ export function ListenerRoute({
       }, delay);
     }
 
+    // Maps LiveKit's own Room events onto the recovery machinery.
+    // "reconnecting"/"reconnected" are LiveKit's own transient self-heal (ICE
+    // restart / signal resume) -- no manual timer needed, so "reconnecting" is
+    // a no-op here (mirrors the old grace period's quiet wait, without a
+    // timer). A terminal "disconnected" means LiveKit gave up (or the token's
+    // 1h TTL expired), which is the one case that still needs an app-level
+    // reconnect.
     const handler: ConnectionStateHandler = (connectionId, connectionState) => {
       const current = connectedRef.current;
       // Ignore events from any connection that is no longer the live one (e.g. a
-      // late "failed" from a pre-switch / closed connection).
+      // late event from a pre-switch / closed connection).
       if (!current || current.connectionId !== connectionId) {
         return;
       }
 
-      if (connectionState === "connected") {
-        // Recovered (by us or the browser): reset backoff and drop any pending timer.
+      if (connectionState === "reconnected") {
+        // Recovered (by us or LiveKit itself): reset backoff and drop any
+        // pending timer.
         recoveryAttemptRef.current = 0;
         clearRecoveryTimer();
         return;
       }
 
-      if (connectionState === "failed") {
+      if (connectionState === "disconnected") {
         // Terminal — recover immediately (subject to backoff spacing).
         scheduleRecovery();
-        return;
-      }
-
-      if (connectionState === "disconnected") {
-        // Often self-heals; wait out a short grace, re-checking liveness, before
-        // committing to a reconnect.
-        clearRecoveryTimer();
-        recoveryTimerRef.current = setTimeout(() => {
-          recoveryTimerRef.current = null;
-          const live = connectedRef.current;
-          if (live && live.connectionId === connectionId) {
-            scheduleRecovery();
-          }
-        }, recoveryGraceMs);
       }
     };
 
@@ -1107,7 +1093,6 @@ export function ListenerRoute({
     onRealtimeHandlerReady?.(handler);
   }, [
     state,
-    recoveryGraceMs,
     recoveryBaseMs,
     recoveryMaxMs,
     recoveryMaxAttempts,
@@ -1264,29 +1249,6 @@ export function ListenerRoute({
     return true;
   }
 
-  async function ensureIceServers(): Promise<RTCIceServer[] | undefined> {
-    const ICE_SERVERS_TTL_MS = 3_600_000;
-    const cached = iceServersRef.current;
-    if (cached && Date.now() - cached.fetchedAt < ICE_SERVERS_TTL_MS) {
-      return cached.servers;
-    }
-    try {
-      const { iceServers } = await listenerApi.iceServers({
-        programSlug,
-        clientId
-      });
-      if (iceServers && iceServers.length > 0) {
-        iceServersRef.current = { servers: iceServers, fetchedAt: Date.now() };
-        return iceServers;
-      }
-      return undefined;
-    } catch (_error) {
-      // Best-effort: fall back to STUN-only ("all" policy) rather than block
-      // playback if the TURN credential fetch fails.
-      return undefined;
-    }
-  }
-
   async function handleListen(stream: PublicLanguageStream) {
     setPlayback({ status: "connecting", streamId: stream.id });
     // iOS Safari only honours play() inside the synchronous gesture turn; the
@@ -1295,12 +1257,10 @@ export function ListenerRoute({
     let session: ListenerSession | null = null;
     const acquisitionAccessToken = accessTokenRef.current;
     try {
-      const iceServers = await ensureIceServers();
       session = await realtimeClient.subscribe({
         programSlug,
         streamId: stream.id,
         clientId,
-        ...(iceServers ? { iceServers } : {}),
         ...(accessTokenRef.current
           ? { accessToken: accessTokenRef.current }
           : {})
@@ -1350,13 +1310,11 @@ export function ListenerRoute({
     let session: ListenerSession | null = null;
     const acquisitionAccessToken = accessTokenRef.current;
     try {
-      const iceServers = await ensureIceServers();
       session = await realtimeClient.switch({
         connectionId: previousConnectionId,
         programSlug,
         nextStreamId: stream.id,
         clientId,
-        ...(iceServers ? { iceServers } : {}),
         ...(accessTokenRef.current
           ? { accessToken: accessTokenRef.current }
           : {})
@@ -1418,14 +1376,12 @@ export function ListenerRoute({
     const viaGesture = options.viaGesture === true;
     const acquisitionAccessToken = accessTokenRef.current;
     try {
-      const iceServers = await ensureIceServers();
       session = connectionId
         ? await realtimeClient.reconnect({
             connectionId,
             programSlug,
             streamId: stream.id,
             clientId,
-            ...(iceServers ? { iceServers } : {}),
             ...(accessTokenRef.current
               ? { accessToken: accessTokenRef.current }
               : {})
@@ -1434,7 +1390,6 @@ export function ListenerRoute({
             programSlug,
             streamId: stream.id,
             clientId,
-            ...(iceServers ? { iceServers } : {}),
             ...(accessTokenRef.current
               ? { accessToken: accessTokenRef.current }
               : {})

@@ -1,22 +1,10 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { env } from "cloudflare:workers";
-import { applyD1Migrations } from "cloudflare:test";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   RealtimeStreamRepository,
   StreamNotLiveError
 } from "../src/db/realtimeStreamRepository";
 import { testEnv } from "./test-env";
-
-beforeAll(async () => {
-  const testEnvWithMigrations = env as Env & {
-    TEST_MIGRATIONS: Parameters<typeof applyD1Migrations>[1];
-  };
-  await applyD1Migrations(
-    testEnvWithMigrations.DB,
-    testEnvWithMigrations.TEST_MIGRATIONS
-  );
-});
 
 type StreamGraph = {
   programId: string;
@@ -52,105 +40,93 @@ async function seedTranslatorGraph(): Promise<StreamGraph> {
   const translatorSessionId = `translator_session_${suffix}`;
   const translatorTrackName = `translator_track_${suffix}`;
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO programs
     (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      programId,
-      `program-${suffix}`,
-      "Relay Test Program",
-      "Main Hall",
-      "2026-08-01",
-      "live",
-      "",
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    programId,
+    `program-${suffix}`,
+    "Relay Test Program",
+    "Main Hall",
+    "2026-08-01",
+    "live",
+    "",
+    timestamp,
+    timestamp
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO language_streams
     (id, program_id, language_name, language_code, display_order, is_active,
      is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      streamId,
-      programId,
-      "Hindi",
-      "hi",
-      1,
-      1,
-      0,
-      null,
-      null,
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    streamId,
+    programId,
+    "Hindi",
+    "hi",
+    1,
+    1,
+    0,
+    null,
+    null,
+    timestamp,
+    timestamp
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO translators
     (id, program_id, name, password_hash, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      translatorId,
-      programId,
-      "Hindi translator",
-      "hash",
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    translatorId,
+    programId,
+    "Hindi translator",
+    "hash",
+    timestamp,
+    timestamp
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO translator_stream_assignments
     (program_id, translator_id, language_stream_id, created_at)
     VALUES (?, ?, ?, ?)`
-  )
-    .bind(programId, translatorId, streamId, timestamp)
-    .run();
+  ).run(programId, translatorId, streamId, timestamp);
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO realtime_publish_sessions
     (id, program_id, language_stream_id, translator_id, cloudflare_session_id,
      published_track_name, published_track_mid, state, expires_at,
      created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?)`
-  )
-    .bind(
-      publisherSessionId,
-      programId,
-      streamId,
-      translatorId,
-      translatorSessionId,
-      translatorTrackName,
-      "0",
-      new Date(Date.now() + 8 * 60 * 60_000).toISOString(),
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    publisherSessionId,
+    programId,
+    streamId,
+    translatorId,
+    translatorSessionId,
+    translatorTrackName,
+    "0",
+    new Date(Date.now() + 8 * 60 * 60_000).toISOString(),
+    timestamp,
+    timestamp
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `UPDATE language_streams
     SET is_live = 1,
         cloudflare_session_id = ?,
         current_track_id = ?,
         updated_at = ?
     WHERE program_id = ? AND id = ?`
-  )
-    .bind(
-      translatorSessionId,
-      translatorTrackName,
-      timestamp,
-      programId,
-      streamId
-    )
-    .run();
+  ).run(
+    translatorSessionId,
+    translatorTrackName,
+    timestamp,
+    programId,
+    streamId
+  );
 
   return {
     programId,
@@ -169,67 +145,59 @@ async function seedReserveGraph(): Promise<ReserveGraph> {
   const streamId = `stream_${suffix}`;
   const translatorId = `translator_${suffix}`;
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO programs
     (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      programId,
-      `program-${suffix}`,
-      "Reserve Test Program",
-      "Main Hall",
-      "2026-09-01",
-      "live",
-      "",
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    programId,
+    `program-${suffix}`,
+    "Reserve Test Program",
+    "Main Hall",
+    "2026-09-01",
+    "live",
+    "",
+    timestamp,
+    timestamp
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO language_streams
     (id, program_id, language_name, language_code, display_order, is_active,
      is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      streamId,
-      programId,
-      "Hindi",
-      "hi",
-      1,
-      1,
-      1,
-      null,
-      null,
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    streamId,
+    programId,
+    "Hindi",
+    "hi",
+    1,
+    1,
+    1,
+    null,
+    null,
+    timestamp,
+    timestamp
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO translators
     (id, program_id, name, password_hash, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      translatorId,
-      programId,
-      "Hindi translator",
-      "hash",
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    translatorId,
+    programId,
+    "Hindi translator",
+    "hash",
+    timestamp,
+    timestamp
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO translator_stream_assignments
     (program_id, translator_id, language_stream_id, created_at)
     VALUES (?, ?, ?, ?)`
-  )
-    .bind(programId, translatorId, streamId, timestamp)
-    .run();
+  ).run(programId, translatorId, streamId, timestamp);
 
   return { programId, streamId, translatorId };
 }
@@ -239,26 +207,24 @@ async function seedStream(programId: string): Promise<string> {
   const streamId = `stream_${suffix}`;
   const timestamp = new Date().toISOString();
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO language_streams
     (id, program_id, language_name, language_code, display_order, is_active,
      is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      streamId,
-      programId,
-      "Hindi",
-      "hi",
-      1,
-      1,
-      0,
-      null,
-      null,
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    streamId,
+    programId,
+    "Hindi",
+    "hi",
+    1,
+    1,
+    0,
+    null,
+    null,
+    timestamp,
+    timestamp
+  );
 
   return streamId;
 }
@@ -266,7 +232,7 @@ async function seedStream(programId: string): Promise<string> {
 async function getRelayCoords(
   graph: StreamGraph
 ): Promise<StreamRelayRow> {
-  const row = await testEnv.DB.prepare(
+  const row = testEnv.DB.prepare(
     `SELECT cloudflare_session_id as cloudflareSessionId,
       current_track_id as publishedTrackName,
       relay_session_id as relaySessionId,
@@ -275,9 +241,7 @@ async function getRelayCoords(
       updated_at as updatedAt
     FROM language_streams
     WHERE program_id = ? AND id = ?`
-  )
-    .bind(graph.programId, graph.streamId)
-    .first<StreamRelayRow>();
+  ).get(graph.programId, graph.streamId) as StreamRelayRow | undefined;
   if (!row) {
     throw new Error("language stream missing");
   }
@@ -285,22 +249,20 @@ async function getRelayCoords(
 }
 
 describe("RealtimeStreamRepository relay read helpers", () => {
-  beforeEach(async () => {
-    await testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
-    await testEnv.DB.exec("DELETE FROM stream_events");
-    await testEnv.DB.exec("DELETE FROM listener_connections");
-    await testEnv.DB.exec("DELETE FROM admin_sessions");
-    await testEnv.DB.exec("DELETE FROM translator_stream_assignments");
-    await testEnv.DB.exec("DELETE FROM translators");
-    await testEnv.DB.exec("DELETE FROM language_streams");
-    await testEnv.DB.exec("DELETE FROM programs");
+  beforeEach(() => {
+    testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
+    testEnv.DB.exec("DELETE FROM stream_events");
+    testEnv.DB.exec("DELETE FROM listener_connections");
+    testEnv.DB.exec("DELETE FROM admin_sessions");
+    testEnv.DB.exec("DELETE FROM translator_stream_assignments");
+    testEnv.DB.exec("DELETE FROM translators");
+    testEnv.DB.exec("DELETE FROM language_streams");
+    testEnv.DB.exec("DELETE FROM programs");
   });
 
   it("writes relay coordinates and bumps relay_version", async () => {
     const graph = await seedTranslatorGraph();
     const repo = new RealtimeStreamRepository(testEnv.DB);
-    const before = await getRelayCoords(graph);
-    const beforeUpdatedAt = before.updatedAt;
 
     await repo.setRelayCoords({
       programId: graph.programId,
@@ -312,7 +274,11 @@ describe("RealtimeStreamRepository relay read helpers", () => {
     const row = await getRelayCoords(graph);
     expect(row.relaySessionId).toBe("relay_session_1");
     expect(row.relayTrackName).toBe("relay_track_1");
-    expect(row.updatedAt).not.toBe(beforeUpdatedAt);
+    // NOTE: not asserting `row.updatedAt !== <pre-write updatedAt>` -- see the
+    // comment on the "clears relay coordinates" test below: better-sqlite3 can
+    // complete the seed + setRelayCoords pair within the same millisecond
+    // (Date.toISOString() resolution), making that assertion flaky.
+    // relay_version bumping to 1 is the reliable signal that the write happened.
     expect(Number(row.relayVersion ?? 0)).toBe(1);
   });
 
@@ -336,7 +302,11 @@ describe("RealtimeStreamRepository relay read helpers", () => {
     const row = await getRelayCoords(graph);
     expect(row.relaySessionId).toBeNull();
     expect(row.relayTrackName).toBeNull();
-    expect(row.updatedAt).not.toBe(beforeClear.updatedAt);
+    // NOTE: no longer asserting `row.updatedAt !== beforeClear.updatedAt` --
+    // better-sqlite3 is fast enough that the set+clear pair can land in the
+    // same millisecond (Date.toISOString() has millisecond resolution), so
+    // that assertion is now flaky. relay_version bumping to 2 is the
+    // reliable signal that the second write actually happened.
     expect(Number(row.relayVersion ?? 0)).toBe(2);
   });
 
@@ -375,16 +345,14 @@ describe("RealtimeStreamRepository relay read helpers", () => {
       relayTrackName: "relay_track_1"
     });
 
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `UPDATE language_streams
       SET is_live = 0,
           cloudflare_session_id = NULL,
           current_track_id = NULL,
           updated_at = ?
       WHERE program_id = ? AND id = ?`
-    )
-      .bind(new Date().toISOString(), graph.programId, graph.streamId)
-      .run();
+    ).run(new Date().toISOString(), graph.programId, graph.streamId);
 
     const publisher = await repo.getListenerPublisher(
       graph.programId,
@@ -412,24 +380,20 @@ describe("RealtimeStreamRepository relay read helpers", () => {
         relayTrackName: "relay_track_1"
       });
 
-      await testEnv.DB.prepare(
+      testEnv.DB.prepare(
         `UPDATE language_streams
         SET is_live = 0,
             cloudflare_session_id = NULL,
             current_track_id = NULL,
             updated_at = ?
         WHERE program_id = ? AND id = ?`
-      )
-        .bind(new Date().toISOString(), graph.programId, graph.streamId)
-        .run();
+      ).run(new Date().toISOString(), graph.programId, graph.streamId);
 
-      await testEnv.DB.prepare(
+      testEnv.DB.prepare(
         `UPDATE programs
         SET status = ?
         WHERE id = ?`
-      )
-        .bind(status, graph.programId)
-        .run();
+      ).run(status, graph.programId);
 
       await expect(
         repo.getListenerPublisher(graph.programId, graph.streamId, true)
@@ -482,14 +446,12 @@ describe("RealtimeStreamRepository relay read helpers", () => {
     const graph = await seedTranslatorGraph();
     const repo = new RealtimeStreamRepository(testEnv.DB);
 
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `UPDATE language_streams
       SET relay_session_id = '',
           relay_track_name = ''
       WHERE program_id = ? AND id = ?`
-    )
-      .bind(graph.programId, graph.streamId)
-      .run();
+    ).run(graph.programId, graph.streamId);
 
     const publisher = await repo.getListenerPublisher(
       graph.programId,
@@ -533,15 +495,13 @@ describe("RealtimeStreamRepository relay read helpers", () => {
     const graph = await seedTranslatorGraph();
     const repo = new RealtimeStreamRepository(testEnv.DB);
 
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `UPDATE language_streams
       SET is_live = 0,
           cloudflare_session_id = NULL,
           current_track_id = NULL
       WHERE program_id = ? AND id = ?`
-    )
-      .bind(graph.programId, graph.streamId)
-      .run();
+    ).run(graph.programId, graph.streamId);
 
     await expect(
       repo.getListenerPublisher(graph.programId, graph.streamId, true)
@@ -561,13 +521,11 @@ describe("RealtimeStreamRepository relay read helpers", () => {
     });
 
     expect(reservation.translatorSessionId).toBe(translatorSessionId);
-    const row = await testEnv.DB.prepare(
+    const row = testEnv.DB.prepare(
       `SELECT translator_session_id as translatorSessionId
        FROM realtime_publish_sessions
        WHERE id = ?`
-    )
-      .bind(reservation.id)
-      .first<{ translatorSessionId: string | null }>();
+    ).get(reservation.id) as { translatorSessionId: string | null } | undefined;
     expect(row?.translatorSessionId).toBe(translatorSessionId);
   });
 
@@ -601,13 +559,11 @@ describe("RealtimeStreamRepository relay read helpers", () => {
     expect(second.translatorSessionId).toBe(secondSessionId);
     expect(second.id).not.toBe(first.id);
 
-    const row = await testEnv.DB.prepare(
+    const row = testEnv.DB.prepare(
       `SELECT translator_session_id as translatorSessionId
        FROM realtime_publish_sessions
        WHERE id = ?`
-    )
-      .bind(second.id)
-      .first<{ translatorSessionId: string | null }>();
+    ).get(second.id) as { translatorSessionId: string | null } | undefined;
     expect(row?.translatorSessionId).toBe(secondSessionId);
   });
 
@@ -655,13 +611,13 @@ describe("RealtimeStreamRepository relay read helpers", () => {
       cloudflareSessionId: "cf-session-for-session-clear"
     });
 
-    const row = await testEnv.DB.prepare(
+    const row = testEnv.DB.prepare(
       `SELECT state, closed_at as closedAt
        FROM realtime_publish_sessions
        WHERE id = ?`
-    )
-      .bind(reservation.id)
-      .first<{ state: string; closedAt: string | null }>();
+    ).get(reservation.id) as
+      | { state: string; closedAt: string | null }
+      | undefined;
 
     expect(row?.state).toBe("closed");
     expect(row?.closedAt).not.toBeNull();

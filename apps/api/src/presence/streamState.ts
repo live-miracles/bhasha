@@ -17,13 +17,13 @@ export function deriveStreamState(input: {
   audioActivity: AudioActivitySnapshot | undefined;
   now: number;
   degraded: boolean;
-  relayCoordsPresent?: boolean;
-  programLive?: boolean;
 }): StreamAudioState {
   if (input.currentPublishSessionId === null) {
-    return input.relayCoordsPresent === true && input.programLive === true
-      ? "silent"
-      : "offline";
+    // The Cloudflare-Realtime-relay fallback ("no confirmed publisher, but
+    // stale relay coordinates + a live program" reports as silent instead of
+    // offline) was removed along with the rest of the relay subsystem in
+    // Slice 1/3 -- no publisher pointer now always means offline, full stop.
+    return "offline";
   }
 
   if (input.degraded) {

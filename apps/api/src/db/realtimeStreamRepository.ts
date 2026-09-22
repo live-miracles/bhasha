@@ -1,3 +1,5 @@
+import type { Database } from "./sqlite";
+
 export type PublisherState =
   | "reserved"
   | "published"
@@ -79,7 +81,7 @@ export class StreamNotLiveError extends Error {
 }
 
 export class RealtimeStreamRepository {
-  constructor(private readonly db: D1Database | D1DatabaseSession) {}
+  constructor(private readonly db: Database) {}
 
   async reservePublisher(input: {
     programId: string;
@@ -88,9 +90,9 @@ export class RealtimeStreamRepository {
     sessionId?: string | null;
   }): Promise<PublisherReservation> {
     const timestamp = nowIso();
-    await this.reclaimExpiredPublishers(input.programId, input.streamId, timestamp);
+    this.reclaimExpiredPublishers(input.programId, input.streamId, timestamp);
 
-    const active = await this.db
+    const active = this.db
       .prepare(
         `SELECT id
         FROM realtime_publish_sessions
@@ -99,8 +101,7 @@ export class RealtimeStreamRepository {
           AND state IN ('reserved', 'published', 'closing')
         LIMIT 1`
       )
-      .bind(input.programId, input.streamId)
-      .first<{ id: string }>();
+      .get(input.programId, input.streamId);
 
     if (active) {
       throw new StreamAlreadyPublishedError();
@@ -110,14 +111,14 @@ export class RealtimeStreamRepository {
     const expiresAt = new Date(Date.now() + 2 * 60_000).toISOString();
 
     try {
-      await this.db
+      this.db
         .prepare(
           `INSERT INTO realtime_publish_sessions
           (id, program_id, language_stream_id, translator_id, translator_session_id,
            state, expires_at, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, 'reserved', ?, ?, ?)`
         )
-        .bind(
+        .run(
           publishSessionId,
           input.programId,
           input.streamId,
@@ -126,8 +127,7 @@ export class RealtimeStreamRepository {
           expiresAt,
           timestamp,
           timestamp
-        )
-        .run();
+        );
     } catch (error) {
       if (isUniqueConstraintError(error)) {
         throw new StreamAlreadyPublishedError();
@@ -142,7 +142,7 @@ export class RealtimeStreamRepository {
     programId: string,
     streamId: string
   ): Promise<PublisherReservation | null> {
-    return this.db
+    return (this.db
       .prepare(
         `${PUBLISHER_SELECT}
         WHERE program_id = ?
@@ -151,8 +151,7 @@ export class RealtimeStreamRepository {
         ORDER BY created_at DESC
         LIMIT 1`
       )
-      .bind(programId, streamId)
-      .first<PublisherReservation>();
+      .get(programId, streamId) as PublisherReservation | undefined) ?? null;
   }
 
   async attachPublisherSession(input: {
@@ -172,8 +171,8 @@ export class RealtimeStreamRepository {
     }
 
     const timestamp = nowIso();
-    const [publisherUpdate] = await this.db.batch([
-      this.db
+    const publisherUpdate = this.db.transaction(() => {
+      const update = this.db
         .prepare(
           `UPDATE realtime_publish_sessions
           SET cloudflare_session_id = ?, updated_at = ?
@@ -182,13 +181,14 @@ export class RealtimeStreamRepository {
             AND language_stream_id = ?
             AND state = 'reserved'`
         )
-        .bind(
+        .run(
           input.cloudflareSessionId,
           timestamp,
           input.publishSessionId,
           input.translatorId,
           input.streamId
-        ),
+        );
+
       this.db
         .prepare(
           `UPDATE language_streams
@@ -210,7 +210,7 @@ export class RealtimeStreamRepository {
                 AND r.updated_at = ?
             )`
         )
-        .bind(
+        .run(
           input.cloudflareSessionId,
           timestamp,
           existing.programId,
@@ -219,10 +219,12 @@ export class RealtimeStreamRepository {
           input.translatorId,
           input.cloudflareSessionId,
           timestamp
-        )
-    ]);
+        );
 
-    if ((publisherUpdate?.meta.changes ?? 0) === 0) {
+      return update;
+    })();
+
+    if (publisherUpdate.changes === 0) {
       throw new PublisherReservationNotFoundError();
     }
 
@@ -254,12 +256,12 @@ export class RealtimeStreamRepository {
 
     const timestamp = nowIso();
     if (existing.state === "failed" || existing.state === "closed") {
-      await this.clearLanguageStreamIfCurrent(existing, timestamp);
+      this.clearLanguageStreamIfCurrent(existing, timestamp);
       return this.requireReservation(input.publishSessionId);
     }
 
-    const [publisherUpdate] = await this.db.batch([
-      this.db
+    const publisherUpdate = this.db.transaction(() => {
+      const update = this.db
         .prepare(
           `UPDATE realtime_publish_sessions
           SET state = 'failed',
@@ -269,22 +271,25 @@ export class RealtimeStreamRepository {
             AND language_stream_id = ?
             AND state = 'reserved'`
         )
-        .bind(
+        .run(
           timestamp,
           input.publishSessionId,
           input.translatorId,
           input.streamId
-        ),
-      this.clearLanguageStreamIfCurrentStatement(existing, timestamp, {
+        );
+
+      this.clearLanguageStreamIfCurrentRun(existing, timestamp, {
         state: "failed",
         updatedAt: timestamp
-      })
-    ]);
+      });
 
-    if ((publisherUpdate?.meta.changes ?? 0) === 0) {
+      return update;
+    })();
+
+    if (publisherUpdate.changes === 0) {
       const current = await this.requireReservation(input.publishSessionId);
       if (current.state === "failed" || current.state === "closed") {
-        await this.clearLanguageStreamIfCurrent(current, timestamp);
+        this.clearLanguageStreamIfCurrent(current, timestamp);
         return current;
       }
       throw new PublisherReservationNotFoundError();
@@ -318,8 +323,8 @@ export class RealtimeStreamRepository {
     // Cap the published expiry to a short, heartbeat-refreshed TTL. Never extend
     // it past the caller's absolute (8h translator session) expiry.
     const expiresAt = cappedPublisherExpiry(input.expiresAt, timestamp);
-    const [publisherUpdate] = await this.db.batch([
-      this.db
+    const publisherUpdate = this.db.transaction(() => {
+      const update = this.db
         .prepare(
           `UPDATE realtime_publish_sessions
           SET state = 'published',
@@ -333,7 +338,7 @@ export class RealtimeStreamRepository {
             AND state = 'reserved'
             AND cloudflare_session_id IS NOT NULL`
         )
-        .bind(
+        .run(
           input.trackName,
           input.trackMid,
           expiresAt,
@@ -341,7 +346,8 @@ export class RealtimeStreamRepository {
           input.publishSessionId,
           input.translatorId,
           input.streamId
-        ),
+        );
+
       this.db
         .prepare(
           `UPDATE language_streams
@@ -365,7 +371,7 @@ export class RealtimeStreamRepository {
                 AND r.updated_at = ?
             )`
         )
-        .bind(
+        .run(
           existing.cloudflareSessionId,
           input.trackName,
           timestamp,
@@ -377,10 +383,11 @@ export class RealtimeStreamRepository {
           input.trackName,
           input.trackMid,
           timestamp
-        ),
+        );
+
       // Track lifecycle only. Events are emitted from publish/stop paths,
       // never from an audio transition write.
-      this.streamEventInsertStatement(
+      this.streamEventInsertRun(
         existing,
         "translator_connected",
         timestamp,
@@ -390,15 +397,16 @@ export class RealtimeStreamRepository {
           cloudflareSessionId: existing.cloudflareSessionId
         },
         { state: "published", updatedAt: timestamp }
-      )
-    ]);
+      );
 
-    if ((publisherUpdate?.meta.changes ?? 0) === 0) {
+      return update;
+    })();
+
+    if (publisherUpdate.changes === 0) {
       throw new PublisherReservationNotFoundError();
     }
 
-    const updated = await this.requireReservation(input.publishSessionId);
-    return updated;
+    return this.requireReservation(input.publishSessionId);
   }
 
   // Refreshes a live publisher's bounded TTL. Called by the translator heartbeat
@@ -414,7 +422,7 @@ export class RealtimeStreamRepository {
   }): Promise<boolean> {
     const timestamp = nowIso();
     const expiresAt = cappedPublisherExpiry(input.absoluteExpiresAt, timestamp);
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE realtime_publish_sessions
         SET expires_at = ?, updated_at = ?
@@ -423,16 +431,15 @@ export class RealtimeStreamRepository {
           AND language_stream_id = ?
           AND state = 'published'`
       )
-      .bind(
+      .run(
         expiresAt,
         timestamp,
         input.publishSessionId,
         input.translatorId,
         input.streamId
-      )
-      .run();
+      );
 
-    return (result.meta.changes ?? 0) > 0;
+    return result.changes > 0;
   }
 
   async clearPublisher(input: {
@@ -449,15 +456,16 @@ export class RealtimeStreamRepository {
 
     const timestamp = nowIso();
     if (existing.state === "closed" || existing.state === "failed") {
-      await this.clearLanguageStreamIfCurrent(existing, timestamp);
+      this.clearLanguageStreamIfCurrent(existing, timestamp);
       return this.requireReservation(input.publishSessionId);
     }
 
     const targetState: PublisherState = input.cleanupFailed
       ? "closing"
       : "closed";
-    const statements: D1PreparedStatement[] = [
-      this.db
+
+    const publisherUpdate = this.db.transaction(() => {
+      const update = this.db
         .prepare(
           `UPDATE realtime_publish_sessions
           SET state = ?,
@@ -471,7 +479,7 @@ export class RealtimeStreamRepository {
             AND language_stream_id = ?
             AND state IN ('reserved', 'published', 'closing')`
         )
-        .bind(
+        .run(
           targetState,
           targetState,
           timestamp,
@@ -479,18 +487,17 @@ export class RealtimeStreamRepository {
           input.publishSessionId,
           input.translatorId,
           input.streamId
-        ),
-      this.clearLanguageStreamIfCurrentStatement(existing, timestamp, {
+        );
+
+      this.clearLanguageStreamIfCurrentRun(existing, timestamp, {
         state: targetState,
         updatedAt: timestamp
-      })
-    ];
+      });
 
-    if (existing.state === "published") {
-      // Stopping the publisher is a track-lifecycle event. Audio transitions are
-      // owned by the audio-activity path and are not emitted here.
-      statements.push(
-        this.streamEventInsertStatement(
+      if (existing.state === "published") {
+        // Stopping the publisher is a track-lifecycle event. Audio transitions are
+        // owned by the audio-activity path and are not emitted here.
+        this.streamEventInsertRun(
           existing,
           "translator_disconnected",
           timestamp,
@@ -500,13 +507,11 @@ export class RealtimeStreamRepository {
             cloudflareSessionId: existing.cloudflareSessionId
           },
           { state: targetState, updatedAt: timestamp }
-        )
-      );
-    }
+        );
+      }
 
-    if (input.cleanupFailed && existing.state !== "closing") {
-      statements.push(
-        this.streamEventInsertStatement(
+      if (input.cleanupFailed && existing.state !== "closing") {
+        this.streamEventInsertRun(
           existing,
           "connection_failed",
           timestamp,
@@ -519,27 +524,26 @@ export class RealtimeStreamRepository {
             reason: "realtime_publisher_cleanup_failed"
           },
           { state: targetState, updatedAt: timestamp }
-        )
-      );
-    }
+        );
+      }
 
-    const [publisherUpdate] = await this.db.batch(statements);
+      return update;
+    })();
 
-    if ((publisherUpdate?.meta.changes ?? 0) === 0) {
+    if (publisherUpdate.changes === 0) {
       const current = await this.requireReservation(input.publishSessionId);
       if (current.state === "closed" || current.state === "failed") {
-        await this.clearLanguageStreamIfCurrent(current, timestamp);
+        this.clearLanguageStreamIfCurrent(current, timestamp);
         return current;
       }
       if (current.state === "closing") {
-        await this.clearLanguageStreamIfCurrent(current, timestamp);
+        this.clearLanguageStreamIfCurrent(current, timestamp);
         return current;
       }
       throw new PublisherReservationNotFoundError();
     }
 
-    const updated = await this.requireReservation(input.publishSessionId);
-    return updated;
+    return this.requireReservation(input.publishSessionId);
   }
 
   async markPublisherCleanupFailed(input: {
@@ -557,12 +561,12 @@ export class RealtimeStreamRepository {
 
     const timestamp = nowIso();
     if (existing.state === "closed" || existing.state === "failed") {
-      await this.clearLanguageStreamBySessionIfCurrent(existing, timestamp);
+      this.clearLanguageStreamBySessionIfCurrent(existing, timestamp);
       return this.requireReservation(input.publishSessionId);
     }
 
     if (existing.state === "closing") {
-      await this.clearLanguageStreamBySessionIfCurrent(existing, timestamp);
+      this.clearLanguageStreamBySessionIfCurrent(existing, timestamp);
       return this.requireReservation(input.publishSessionId);
     }
 
@@ -575,8 +579,9 @@ export class RealtimeStreamRepository {
       publishedTrackName: existing.publishedTrackName ?? input.trackName,
       publishedTrackMid: existing.publishedTrackMid ?? input.trackMid
     };
-    const statements: D1PreparedStatement[] = [
-      this.db
+
+    const publisherUpdate = this.db.transaction(() => {
+      const update = this.db
         .prepare(
           `UPDATE realtime_publish_sessions
           SET state = 'closing',
@@ -588,25 +593,24 @@ export class RealtimeStreamRepository {
             AND language_stream_id = ?
             AND state IN ('reserved', 'published')`
         )
-        .bind(
+        .run(
           input.trackName,
           input.trackMid,
           timestamp,
           input.publishSessionId,
           input.translatorId,
           input.streamId
-        ),
-      this.clearLanguageStreamBySessionIfCurrentStatement(
+        );
+
+      this.clearLanguageStreamBySessionIfCurrentRun(
         publisherWithTrack,
         timestamp,
         { state: "closing", updatedAt: timestamp }
-      )
-    ];
+      );
 
-    if (existing.state === "published") {
-      // Track-lifecycle disconnect only; audio transitions are not emitted here.
-      statements.push(
-        this.streamEventInsertStatement(
+      if (existing.state === "published") {
+        // Track-lifecycle disconnect only; audio transitions are not emitted here.
+        this.streamEventInsertRun(
           publisherWithTrack,
           "translator_disconnected",
           timestamp,
@@ -616,12 +620,10 @@ export class RealtimeStreamRepository {
             cloudflareSessionId: existing.cloudflareSessionId
           },
           { state: "closing", updatedAt: timestamp }
-        )
-      );
-    }
+        );
+      }
 
-    statements.push(
-      this.streamEventInsertStatement(
+      this.streamEventInsertRun(
         publisherWithTrack,
         "connection_failed",
         timestamp,
@@ -634,15 +636,15 @@ export class RealtimeStreamRepository {
           reason: "realtime_publisher_cleanup_failed"
         },
         { state: "closing", updatedAt: timestamp }
-      )
-    );
+      );
 
-    const [publisherUpdate] = await this.db.batch(statements);
+      return update;
+    })();
 
-    if ((publisherUpdate?.meta.changes ?? 0) === 0) {
+    if (publisherUpdate.changes === 0) {
       const current = await this.requireReservation(input.publishSessionId);
       if (current.state === "closing") {
-        await this.clearLanguageStreamBySessionIfCurrent(current, timestamp);
+        this.clearLanguageStreamBySessionIfCurrent(current, timestamp);
         return current;
       }
       throw new PublisherReservationNotFoundError();
@@ -656,7 +658,7 @@ export class RealtimeStreamRepository {
     streamId: string
   ): Promise<ActivePublisher> {
     const timestamp = nowIso();
-    const row = await this.db
+    const row = (this.db
       .prepare(
         `SELECT r.id as publishSessionId,
           r.program_id as programId,
@@ -682,8 +684,7 @@ export class RealtimeStreamRepository {
           AND ls.current_track_id = r.published_track_name
         LIMIT 1`
       )
-      .bind(programId, streamId, timestamp)
-      .first<ActivePublisher>();
+      .get(programId, streamId, timestamp) as ActivePublisher | undefined) ?? null;
 
     if (!row) {
       throw new StreamNotLiveError();
@@ -696,7 +697,7 @@ export class RealtimeStreamRepository {
     programId: string,
     sessionId: string
   ): Promise<{ streamId: string; cloudflareSessionId: string | null } | null> {
-    const active = await this.db
+    const active = this.db
       .prepare(
         `SELECT id as publishSessionId,
           translator_id as translatorId,
@@ -708,12 +709,9 @@ export class RealtimeStreamRepository {
           AND closed_at IS NULL
         LIMIT 1`
       )
-      .bind(sessionId, programId)
-      .first<{
-        publishSessionId: string;
-        translatorId: string;
-        streamId: string;
-      }>();
+      .get(sessionId, programId) as
+      | { publishSessionId: string; translatorId: string; streamId: string }
+      | undefined;
 
     if (!active) {
       return null;
@@ -736,7 +734,7 @@ export class RealtimeStreamRepository {
     programId: string,
     translatorId: string
   ): Promise<Array<{ streamId: string; cloudflareSessionId: string | null }>> {
-    const active = await this.db
+    const active = this.db
       .prepare(
         `SELECT id as publishSessionId,
           translator_id as translatorId,
@@ -748,12 +746,15 @@ export class RealtimeStreamRepository {
           AND closed_at IS NULL
         ORDER BY created_at ASC`
       )
-      .bind(translatorId, programId)
-      .all<{ publishSessionId: string; translatorId: string; streamId: string }>();
+      .all(translatorId, programId) as Array<{
+      publishSessionId: string;
+      translatorId: string;
+      streamId: string;
+    }>;
 
     const releases: Array<{ streamId: string; cloudflareSessionId: string | null }> = [];
 
-    for (const publisher of active.results) {
+    for (const publisher of active) {
       const freed = await this.clearPublisher({
         publishSessionId: publisher.publishSessionId,
         translatorId: publisher.translatorId,
@@ -778,7 +779,7 @@ export class RealtimeStreamRepository {
     translatorSessionId: string | null;
     translatorId: string;
   } | null> {
-    const active = await this.db
+    const active = this.db
       .prepare(
         `SELECT id as publishSessionId,
           translator_id as translatorId
@@ -789,8 +790,9 @@ export class RealtimeStreamRepository {
           AND closed_at IS NULL
         LIMIT 1`
       )
-      .bind(streamId, programId)
-      .first<{ publishSessionId: string; translatorId: string }>();
+      .get(streamId, programId) as
+      | { publishSessionId: string; translatorId: string }
+      | undefined;
 
     if (!active) {
       return null;
@@ -818,7 +820,7 @@ export class RealtimeStreamRepository {
     relayTrackName: string;
   }): Promise<void> {
     const timestamp = nowIso();
-    await this.db
+    this.db
       .prepare(
         `UPDATE language_streams
         SET relay_session_id = ?,
@@ -828,14 +830,13 @@ export class RealtimeStreamRepository {
         WHERE program_id = ?
           AND id = ?`
       )
-      .bind(
+      .run(
         input.relaySessionId,
         input.relayTrackName,
         timestamp,
         input.programId,
         input.streamId
-      )
-      .run();
+      );
   }
 
   async clearRelayCoords(input: {
@@ -843,7 +844,7 @@ export class RealtimeStreamRepository {
     streamId: string;
   }): Promise<void> {
     const timestamp = nowIso();
-    await this.db
+    this.db
       .prepare(
         `UPDATE language_streams
         SET relay_session_id = NULL,
@@ -853,13 +854,12 @@ export class RealtimeStreamRepository {
         WHERE program_id = ?
           AND id = ?`
       )
-      .bind(timestamp, input.programId, input.streamId)
-      .run();
+      .run(timestamp, input.programId, input.streamId);
   }
 
   async clearProgramStreamsLive(programId: string): Promise<void> {
     const timestamp = nowIso();
-    await this.db
+    this.db
       .prepare(
         `UPDATE language_streams
         SET is_live = 0,
@@ -868,12 +868,11 @@ export class RealtimeStreamRepository {
             updated_at = ?
         WHERE program_id = ?`
       )
-      .bind(timestamp, programId)
-      .run();
+      .run(timestamp, programId);
   }
 
   async listRelayVersions(programId: string): Promise<Map<string, number>> {
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT id AS streamId, relay_version AS relayVersion
         FROM language_streams
@@ -882,8 +881,7 @@ export class RealtimeStreamRepository {
           AND relay_session_id != ''
           AND relay_version IS NOT NULL`
       )
-      .bind(programId)
-      .all<{ streamId: string; relayVersion: number }>();
+      .all(programId) as Array<{ streamId: string; relayVersion: number }>;
 
     const relayVersionByStream = new Map<string, number>();
     for (const row of results) {
@@ -898,7 +896,7 @@ export class RealtimeStreamRepository {
     preferRelay: boolean
   ): Promise<ListenerPublisherPointer> {
     if (preferRelay) {
-      const relayRow = await this.db
+      const relayRow = this.db
         .prepare(
         `SELECT relay_session_id as cloudflareSessionId,
             relay_track_name as publishedTrackName
@@ -914,8 +912,9 @@ export class RealtimeStreamRepository {
             AND ls.relay_track_name != ''
           LIMIT 1`
         )
-        .bind(programId, streamId)
-        .first<{ cloudflareSessionId: string; publishedTrackName: string }>();
+        .get(programId, streamId) as
+        | { cloudflareSessionId: string; publishedTrackName: string }
+        | undefined;
 
       if (relayRow) {
         return {
@@ -934,14 +933,14 @@ export class RealtimeStreamRepository {
     };
   }
 
-  // Current D1 publisher pointers for a program: one published session per
+  // Current publisher pointers for a program: one published session per
   // stream aligned with the language_streams live pointer. Used to derive
   // stream audio state (offline/silent/live).
   async listActivePublishers(
     programId: string
   ): Promise<ActivePublisherPointer[]> {
     const timestamp = nowIso();
-    const { results } = await this.db
+    return this.db
       .prepare(
         `SELECT r.language_stream_id as streamId,
           r.id as publishSessionId,
@@ -961,10 +960,7 @@ export class RealtimeStreamRepository {
           AND ls.cloudflare_session_id = r.cloudflare_session_id
           AND ls.current_track_id = r.published_track_name`
       )
-      .bind(programId, timestamp)
-      .all<ActivePublisherPointer>();
-
-    return results;
+      .all(programId, timestamp) as ActivePublisherPointer[];
   }
 
 
@@ -977,7 +973,7 @@ export class RealtimeStreamRepository {
     programId: string,
     streamId: string
   ): Promise<boolean> {
-    const publisher = await this.db
+    const publisher = this.db
       .prepare(
         `${PUBLISHER_SELECT}
         WHERE program_id = ?
@@ -987,16 +983,15 @@ export class RealtimeStreamRepository {
         ORDER BY created_at DESC
         LIMIT 1`
       )
-      .bind(programId, streamId)
-      .first<PublisherReservation>();
+      .get(programId, streamId) as PublisherReservation | undefined;
 
     if (!publisher) {
       return false;
     }
 
     const timestamp = nowIso();
-    const [publisherUpdate] = await this.db.batch([
-      this.db
+    const publisherUpdate = this.db.transaction(() => {
+      const update = this.db
         .prepare(
           `UPDATE realtime_publish_sessions
           SET state = 'closed',
@@ -1005,19 +1000,22 @@ export class RealtimeStreamRepository {
           WHERE id = ?
             AND state IN ('published', 'closing')`
         )
-        .bind(timestamp, timestamp, publisher.id),
-      this.clearLanguageStreamIfCurrentStatement(publisher, timestamp)
-    ]);
+        .run(timestamp, timestamp, publisher.id);
 
-    return (publisherUpdate?.meta.changes ?? 0) > 0;
+      this.clearLanguageStreamIfCurrentRun(publisher, timestamp);
+
+      return update;
+    })();
+
+    return publisherUpdate.changes > 0;
   }
 
-  private async reclaimExpiredPublishers(
+  private reclaimExpiredPublishers(
     programId: string,
     streamId: string,
     timestamp: string
-  ): Promise<void> {
-    await this.db
+  ): void {
+    this.db
       .prepare(
         `UPDATE language_streams
         SET is_live = 0,
@@ -1037,10 +1035,9 @@ export class RealtimeStreamRepository {
               AND r.published_track_name = language_streams.current_track_id
           )`
       )
-      .bind(timestamp, programId, streamId, timestamp)
-      .run();
+      .run(timestamp, programId, streamId, timestamp);
 
-    await this.db
+    this.db
       .prepare(
         `UPDATE language_streams
         SET is_live = 0,
@@ -1059,10 +1056,9 @@ export class RealtimeStreamRepository {
               AND r.cloudflare_session_id = language_streams.cloudflare_session_id
           )`
       )
-      .bind(timestamp, programId, streamId, timestamp)
-      .run();
+      .run(timestamp, programId, streamId, timestamp);
 
-    await this.db
+    this.db
       .prepare(
         `UPDATE realtime_publish_sessions
         SET state = 'failed',
@@ -1072,10 +1068,9 @@ export class RealtimeStreamRepository {
           AND state = 'reserved'
           AND expires_at <= ?`
       )
-      .bind(timestamp, programId, streamId, timestamp)
-      .run();
+      .run(timestamp, programId, streamId, timestamp);
 
-    await this.db
+    this.db
       .prepare(
         `UPDATE realtime_publish_sessions
         SET state = 'closed',
@@ -1086,8 +1081,7 @@ export class RealtimeStreamRepository {
           AND state IN ('published', 'closing')
           AND expires_at <= ?`
       )
-      .bind(timestamp, timestamp, programId, streamId, timestamp)
-      .run();
+      .run(timestamp, timestamp, programId, streamId, timestamp);
   }
 
   private async requireOwnedReservation(
@@ -1110,10 +1104,9 @@ export class RealtimeStreamRepository {
   private async requireReservation(
     publishSessionId: string
   ): Promise<PublisherReservation> {
-    const reservation = await this.db
+    const reservation = this.db
       .prepare(`${PUBLISHER_SELECT} WHERE id = ?`)
-      .bind(publishSessionId)
-      .first<PublisherReservation>();
+      .get(publishSessionId) as PublisherReservation | undefined;
 
     if (!reservation) {
       throw new PublisherReservationNotFoundError();
@@ -1122,28 +1115,25 @@ export class RealtimeStreamRepository {
     return reservation;
   }
 
-  private async clearLanguageStreamIfCurrent(
+  private clearLanguageStreamIfCurrent(
     publisher: PublisherReservation,
     timestamp: string
-  ): Promise<void> {
-    await this.clearLanguageStreamIfCurrentStatement(publisher, timestamp).run();
+  ): void {
+    this.clearLanguageStreamIfCurrentRun(publisher, timestamp);
   }
 
-  private async clearLanguageStreamBySessionIfCurrent(
+  private clearLanguageStreamBySessionIfCurrent(
     publisher: PublisherReservation,
     timestamp: string
-  ): Promise<void> {
-    await this.clearLanguageStreamBySessionIfCurrentStatement(
-      publisher,
-      timestamp
-    ).run();
+  ): void {
+    this.clearLanguageStreamBySessionIfCurrentRun(publisher, timestamp);
   }
 
-  private clearLanguageStreamIfCurrentStatement(
+  private clearLanguageStreamIfCurrentRun(
     publisher: PublisherReservation,
     timestamp: string,
     guard?: { state: PublisherState; updatedAt: string }
-  ): D1PreparedStatement {
+  ): void {
     const guardClause = guard
       ? `AND EXISTS (
           SELECT 1
@@ -1168,7 +1158,7 @@ export class RealtimeStreamRepository {
       values.push(publisher.id, guard.state, guard.updatedAt);
     }
 
-    return this.db
+    this.db
       .prepare(
         `UPDATE language_streams
         SET is_live = 0,
@@ -1184,14 +1174,14 @@ export class RealtimeStreamRepository {
           )
           ${guardClause}`
       )
-      .bind(...values);
+      .run(...values);
   }
 
-  private clearLanguageStreamBySessionIfCurrentStatement(
+  private clearLanguageStreamBySessionIfCurrentRun(
     publisher: PublisherReservation,
     timestamp: string,
     guard?: { state: PublisherState; updatedAt: string }
-  ): D1PreparedStatement {
+  ): void {
     const guardClause = guard
       ? `AND EXISTS (
           SELECT 1
@@ -1214,7 +1204,7 @@ export class RealtimeStreamRepository {
       values.push(publisher.id, guard.state, guard.updatedAt);
     }
 
-    return this.db
+    this.db
       .prepare(
         `UPDATE language_streams
         SET is_live = 0,
@@ -1226,16 +1216,16 @@ export class RealtimeStreamRepository {
           AND cloudflare_session_id = ?
           ${guardClause}`
       )
-      .bind(...values);
+      .run(...values);
   }
 
-  private streamEventInsertStatement(
+  private streamEventInsertRun(
     publisher: PublisherReservation,
     eventType: PublisherStreamEventType,
     occurredAt: string,
     metadata: Record<string, unknown>,
     guard?: { state: PublisherState; updatedAt: string }
-  ): D1PreparedStatement {
+  ): void {
     const guardClause = guard ? "AND r.state = ? AND r.updated_at = ?" : "";
     const values: unknown[] = [
       id("stream_event"),
@@ -1249,7 +1239,7 @@ export class RealtimeStreamRepository {
       values.push(guard.state, guard.updatedAt);
     }
 
-    return this.db
+    this.db
       .prepare(
         `INSERT INTO stream_events
         (id, program_id, stream_program_id, language_stream_id, event_type,
@@ -1262,7 +1252,7 @@ export class RealtimeStreamRepository {
         WHERE r.id = ?
           ${guardClause}`
       )
-      .bind(...values);
+      .run(...values);
   }
 }
 

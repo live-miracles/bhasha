@@ -1,4 +1,5 @@
-import { timingSafeEqualHex } from "../relay/relayAuth";
+import { timingSafeEqualHex } from "../auth/crypto";
+import type { Database } from "./sqlite";
 
 export type UserRole = "platform_admin" | "org_admin" | "viewer";
 
@@ -55,16 +56,17 @@ export type ListUsersScope = {
 // PBKDF2-HMAC-SHA-256 password parameters. Iterations is stored per-user
 // (password_iterations) so the work factor can be raised without invalidating
 // existing hashes — verification always uses the stored value.
-// HARD CAP: the Cloudflare Workers runtime rejects PBKDF2 iteration counts above
-// 100_000 ("NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are
-// not supported"); miniflare/tests do NOT enforce this, so a higher value passes
-// CI but throws (500) in production. Keep this <= 100_000. (Below OWASP's 600k
-// for SHA-256 — a platform ceiling; raising the effective work factor would need
-// chained PBKDF2. Tracked as a follow-up.)
+// Historically capped at 100,000 because the Cloudflare Workers runtime
+// rejected higher PBKDF2 iteration counts ("NotSupportedError: Pbkdf2 failed:
+// iteration counts above 100000 are not supported"). Node's WebCrypto has no
+// such ceiling, so a future slice can raise this toward OWASP's ~600k
+// recommendation for SHA-256 — left unchanged in this slice (data-layer port
+// only, no behavior changes) to keep this migration a pure infrastructure
+// swap. Tracked as a follow-up, not part of Slice 1.
 export const PBKDF2_ITERATIONS = 100_000;
-// The production Workers runtime hard-limit. Exported alongside the value so a
-// regression test can assert PBKDF2_ITERATIONS never exceeds it (tests run in a
-// pool that does NOT enforce the cap, so only a static check catches a regression).
+// The former Cloudflare Workers runtime hard-limit. Kept (and still checked by
+// a regression test) even though Node's WebCrypto no longer enforces it, so a
+// future change to PBKDF2_ITERATIONS is a deliberate, reviewed decision.
 export const WORKERS_PBKDF2_MAX_ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 const DERIVED_KEY_BYTES = 32;
@@ -193,22 +195,21 @@ export function isOrgAdminConflict(error: unknown): boolean {
  *
  * Email is normalized to lower-case on write and read so the NOCASE unique
  * index and lookups stay consistent. Password verification reuses the existing
- * constant-time hex compare (relayAuth.ts) to avoid timing leaks.
+ * constant-time hex compare (auth/crypto.ts) to avoid timing leaks.
  */
 export class UsersRepository {
-  constructor(private readonly db: D1Database) {}
+  constructor(private readonly db: Database) {}
 
   // ----- orgs -----
 
   async createOrg(input: { name: string; id?: string }): Promise<OrgRecord> {
     const now = new Date().toISOString();
     const id = input.id ?? `org_${crypto.randomUUID()}`;
-    await this.db
+    this.db
       .prepare(
         `INSERT INTO orgs (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`
       )
-      .bind(id, input.name, now, now)
-      .run();
+      .run(id, input.name, now, now);
 
     return { id, name: input.name, createdAt: now, updatedAt: now };
   }
@@ -235,49 +236,49 @@ export class UsersRepository {
       updatedAt: now
     };
 
-    const orgInsert = this.db
-      .prepare(
-        `INSERT INTO orgs (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`
-      )
-      .bind(org.id, org.name, org.createdAt, org.updatedAt);
-
-    const userInsert = this.db
-      .prepare(
-        `INSERT INTO users
-          (id, email, password_hash, password_salt, password_iterations,
-           role, org_id, is_disabled, created_at, updated_at)
-         VALUES (?, ?, NULL, NULL, NULL, ?, ?, 0, ?, ?)`
-      )
-      .bind(
-        admin.id,
-        admin.email,
-        admin.role,
-        admin.orgId,
-        admin.createdAt,
-        admin.updatedAt
-      );
-
-    // db.batch is transactional — a unique conflict (email / one-active-org_admin)
+    // A transaction is atomic — a unique conflict (email / one-active-org_admin)
     // rolls back BOTH inserts, so no orphan org is left behind. Errors propagate
     // to the route handler, which maps isEmailConflict/isOrgAdminConflict → 409.
-    await this.db.batch([orgInsert, userInsert]);
+    const insertOrgAndAdmin = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO orgs (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`
+        )
+        .run(org.id, org.name, org.createdAt, org.updatedAt);
+
+      this.db
+        .prepare(
+          `INSERT INTO users
+            (id, email, password_hash, password_salt, password_iterations,
+             role, org_id, is_disabled, created_at, updated_at)
+           VALUES (?, ?, NULL, NULL, NULL, ?, ?, 0, ?, ?)`
+        )
+        .run(
+          admin.id,
+          admin.email,
+          admin.role,
+          admin.orgId,
+          admin.createdAt,
+          admin.updatedAt
+        );
+    });
+    insertOrgAndAdmin();
 
     return { org, admin };
   }
 
   async getOrg(id: string): Promise<OrgRecord | null> {
-    const row = await this.db
+    const row = (this.db
       .prepare(`SELECT * FROM orgs WHERE id = ?`)
-      .bind(id)
-      .first<OrgRow>();
+      .get(id) as OrgRow | undefined) ?? null;
     return row ? mapOrg(row) : null;
   }
 
   async listOrgs(): Promise<OrgRecord[]> {
-    const result = await this.db
+    const results = this.db
       .prepare(`SELECT * FROM orgs ORDER BY created_at ASC`)
-      .all<OrgRow>();
-    return (result.results ?? []).map(mapOrg);
+      .all() as OrgRow[];
+    return results.map(mapOrg);
   }
 
   // ----- users -----
@@ -288,15 +289,14 @@ export class UsersRepository {
     const email = normalizeEmail(input.email);
     const orgId = input.orgId ?? null;
 
-    await this.db
+    this.db
       .prepare(
         `INSERT INTO users
           (id, email, password_hash, password_salt, password_iterations,
            role, org_id, is_disabled, created_at, updated_at)
          VALUES (?, ?, NULL, NULL, NULL, ?, ?, 0, ?, ?)`
       )
-      .bind(id, email, input.role, orgId, now, now)
-      .run();
+      .run(id, email, input.role, orgId, now, now);
 
     return {
       id,
@@ -313,18 +313,16 @@ export class UsersRepository {
   }
 
   async getUserByEmail(email: string): Promise<UserRecord | null> {
-    const row = await this.db
+    const row = (this.db
       .prepare(`SELECT * FROM users WHERE email = ? COLLATE NOCASE`)
-      .bind(normalizeEmail(email))
-      .first<UserRow>();
+      .get(normalizeEmail(email)) as UserRow | undefined) ?? null;
     return row ? mapUser(row) : null;
   }
 
   async getUserById(id: string): Promise<UserRecord | null> {
-    const row = await this.db
+    const row = (this.db
       .prepare(`SELECT * FROM users WHERE id = ?`)
-      .bind(id)
-      .first<UserRow>();
+      .get(id) as UserRow | undefined) ?? null;
     return row ? mapUser(row) : null;
   }
 
@@ -346,11 +344,10 @@ export class UsersRepository {
     }
 
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-    const result = await this.db
+    const results = this.db
       .prepare(`SELECT * FROM users ${where} ORDER BY created_at ASC`)
-      .bind(...params)
-      .all<UserRow>();
-    return (result.results ?? []).map(mapUser);
+      .all(...params) as UserRow[];
+    return results.map(mapUser);
   }
 
   async updateUser(
@@ -385,10 +382,9 @@ export class UsersRepository {
     params.push(new Date().toISOString());
     params.push(userId);
 
-    await this.db
+    this.db
       .prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`)
-      .bind(...params)
-      .run();
+      .run(...params);
 
     return this.getUserById(userId);
   }
@@ -398,12 +394,11 @@ export class UsersRepository {
     input: UpdateOrgInput
   ): Promise<OrgRecord | null> {
     const updatedAt = new Date().toISOString();
-    const result = await this.db
+    const result = this.db
       .prepare(`UPDATE orgs SET name = ?, updated_at = ? WHERE id = ?`)
-      .bind(input.name, updatedAt, orgId)
-      .run();
+      .run(input.name, updatedAt, orgId);
 
-    if ((result.meta.changes ?? 0) === 0) {
+    if (result.changes === 0) {
       return null;
     }
 
@@ -425,14 +420,13 @@ export class UsersRepository {
     const saltHex = toHex(salt);
     const hashHex = await deriveKeyHex(password, saltHex, PBKDF2_ITERATIONS);
 
-    await this.db
+    this.db
       .prepare(
         `UPDATE users
          SET password_hash = ?, password_salt = ?, password_iterations = ?, updated_at = ?
          WHERE id = ?`
       )
-      .bind(hashHex, saltHex, PBKDF2_ITERATIONS, new Date().toISOString(), userId)
-      .run();
+      .run(hashHex, saltHex, PBKDF2_ITERATIONS, new Date().toISOString(), userId);
   }
 
   /**
@@ -473,9 +467,8 @@ export class UsersRepository {
   // ----- sessions -----
 
   async deleteSessionsForUser(userId: string): Promise<void> {
-    await this.db
+    this.db
       .prepare(`DELETE FROM admin_sessions WHERE user_id = ?`)
-      .bind(userId)
-      .run();
+      .run(userId);
   }
 }

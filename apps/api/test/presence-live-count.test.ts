@@ -1,11 +1,9 @@
-import {
-  createExecutionContext,
-  runInDurableObject,
-  waitOnExecutionContext
-} from "cloudflare:test";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import worker, { ProgramPresence } from "../src/index";
+import type { Env } from "../src/env";
+import { createApp } from "../src/index";
+import type { PresenceStatusSnapshot } from "../src/presence/status";
+import * as presenceStatus from "../src/presence/status";
 import {
   adminCookie,
   buildTestEnv,
@@ -14,61 +12,39 @@ import {
   testEnv
 } from "./test-env";
 
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
-
-interface PresenceCall {
-  path: string;
-  body: Record<string, unknown>;
-}
+/**
+ * Presence is now an in-process module (src/presence/status.ts) instead of a
+ * `PROGRAM_PRESENCE` Durable Object, so these tests no longer fake a DO
+ * namespace or count DO `/snapshot` fetches. Where the old tests injected a
+ * `PROGRAM_PRESENCE` proxy to simulate presence writes or a failing DO fetch,
+ * this version either calls `presenceJoin`/`presenceHeartbeat` directly (no
+ * network hop to simulate) or uses `vi.spyOn` on the presence module's
+ * exports to force a specific return value -- see the "falls back to D1"
+ * test below for why a forced RETURN VALUE (not a thrown error) is used to
+ * simulate "degraded".
+ */
 
 async function request(
   path: string,
-  init: IncomingRequestInit = {},
-  workerEnv: Env = testEnv
-) {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    workerEnv,
-    ctx
-  );
-  await waitOnExecutionContext(ctx);
-  return response;
-}
-
-async function requestWithTrackedWaitUntil(
-  path: string,
-  init: IncomingRequestInit = {},
-  workerEnv: Env = testEnv
-) {
-  const scheduled: Promise<unknown>[] = [];
-  const ctx = {
-    waitUntil: vi.fn((promise: Promise<unknown>) => {
-      scheduled.push(promise);
-    }),
-    passThroughOnException: vi.fn()
-  } as unknown as ExecutionContext;
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    workerEnv,
-    ctx
-  );
-  return { response, scheduled, waitUntil: ctx.waitUntil };
+  init: RequestInit = {},
+  workerEnv: Env = buildTestEnv()
+): Promise<Response> {
+  const app = createApp(workerEnv);
+  return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
 async function resetDb(): Promise<void> {
-  await testEnv.DB.exec("DELETE FROM listener_realtime_cleanup_targets");
-  await testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
-  await testEnv.DB.exec("DELETE FROM translator_sessions");
-  await testEnv.DB.exec("DELETE FROM stream_events");
-  await testEnv.DB.exec("DELETE FROM listener_connections");
-  await testEnv.DB.exec("DELETE FROM admin_sessions");
-  await testEnv.DB.exec("DELETE FROM translator_stream_assignments");
-  await testEnv.DB.exec("DELETE FROM translators");
-  await testEnv.DB.exec("DELETE FROM language_streams");
-  await testEnv.DB.exec("DELETE FROM programs");
-  await seedPlatformAdmin(testEnv);
+  testEnv.DB.exec("DELETE FROM listener_realtime_cleanup_targets");
+  testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
+  testEnv.DB.exec("DELETE FROM translator_sessions");
+  testEnv.DB.exec("DELETE FROM stream_events");
+  testEnv.DB.exec("DELETE FROM listener_connections");
+  testEnv.DB.exec("DELETE FROM admin_sessions");
+  testEnv.DB.exec("DELETE FROM translator_stream_assignments");
+  testEnv.DB.exec("DELETE FROM translators");
+  testEnv.DB.exec("DELETE FROM language_streams");
+  testEnv.DB.exec("DELETE FROM programs");
+  await seedPlatformAdmin(buildTestEnv());
 }
 
 async function seedProgramWithStreams(): Promise<{
@@ -79,7 +55,7 @@ async function seedProgramWithStreams(): Promise<{
 }> {
   const cookie = await adminCookie();
   const suffix = crypto.randomUUID();
-  const program = await seedProgram(testEnv, {
+  const program = await seedProgram(buildTestEnv(), {
     slug: `presence-live-count-${suffix}`,
     name: "Presence Live Count"
   });
@@ -95,7 +71,7 @@ async function seedProgramWithStreams(): Promise<{
     })
   });
   expect(hindiResponse.status).toBe(201);
-  const hindi = await hindiResponse.json<{ id: string }>();
+  const hindi = (await hindiResponse.json()) as { id: string };
 
   const tamilResponse = await request(`/api/admin/programs/${program.id}/streams`, {
     method: "POST",
@@ -108,7 +84,7 @@ async function seedProgramWithStreams(): Promise<{
     })
   });
   expect(tamilResponse.status).toBe(201);
-  const tamil = await tamilResponse.json<{ id: string }>();
+  const tamil = (await tamilResponse.json()) as { id: string };
 
   return {
     cookie,
@@ -122,7 +98,7 @@ async function connectListener(
   programId: string,
   streamId: string,
   clientId: string,
-  workerEnv: Env = testEnv
+  workerEnv: Env = buildTestEnv()
 ): Promise<string> {
   const requested = await request(
     "/api/listeners/request",
@@ -133,7 +109,7 @@ async function connectListener(
     workerEnv
   );
   expect(requested.status).toBe(201);
-  const { connectionId } = await requested.json<{ connectionId: string }>();
+  const { connectionId } = (await requested.json()) as { connectionId: string };
 
   const connected = await request(
     "/api/listeners/connected",
@@ -146,111 +122,25 @@ async function connectListener(
   expect(connected.status).toBe(200);
 
   const now = new Date().toISOString();
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `UPDATE listener_connections
     SET last_seen_at = ?, updated_at = ?
     WHERE id = ?`
-  )
-    .bind(now, now, connectionId)
-    .run();
+  ).run(now, now, connectionId);
 
   return connectionId;
 }
 
-async function joinPresence(
-  programId: string,
-  connectionId: string,
-  streamId: string
-): Promise<void> {
-  const id = testEnv.PROGRAM_PRESENCE.idFromName(programId);
-  const stub = testEnv.PROGRAM_PRESENCE.get(id);
-  const joined = await stub.fetch("https://presence.internal/join", {
-    method: "POST",
-    body: JSON.stringify({ connectionId, streamId })
-  });
-  expect(joined.status).toBe(200);
-}
-
-async function presenceRecordLastSeenAt(
-  env: Env,
-  programId: string,
-  connectionId: string
-): Promise<number | undefined> {
-  const id = env.PROGRAM_PRESENCE.idFromName(programId);
-  const stub = env.PROGRAM_PRESENCE.get(id);
-  return runInDurableObject(stub, async (_instance: ProgramPresence, state) => {
-    const records =
-      (await state.storage.get<
-        Record<string, { streamId: string; lastSeenAt: number }>
-      >("records")) ?? {};
-    return records[connectionId]?.lastSeenAt;
-  });
-}
-
-function capturingPresenceNamespace(calls: PresenceCall[]): DurableObjectNamespace {
-  return new Proxy(testEnv.PROGRAM_PRESENCE, {
-    get(target, property, receiver) {
-      if (property !== "get") {
-        const value = Reflect.get(target, property, receiver);
-        return typeof value === "function" ? value.bind(target) : value;
-      }
-
-      return (id: DurableObjectId) => {
-        const stub = target.get(id);
-        return new Proxy(stub, {
-          get(stubTarget, stubProperty, stubReceiver) {
-            if (stubProperty !== "fetch") {
-              return Reflect.get(stubTarget, stubProperty, stubReceiver);
-            }
-
-            return async (input: RequestInfo | URL, init?: RequestInit) => {
-              const proxiedRequest =
-                input instanceof Request ? input.clone() : new Request(input, init);
-              const body = (await proxiedRequest.json().catch(() => ({}))) as Record<
-                string,
-                unknown
-              >;
-              calls.push({ path: new URL(proxiedRequest.url).pathname, body });
-              return Response.json({ ok: true });
-            };
-          }
-        });
-      };
-    }
-  }) as DurableObjectNamespace;
-}
-
-function failingPresenceNamespace(calls: PresenceCall[] = []): DurableObjectNamespace {
-  return new Proxy(testEnv.PROGRAM_PRESENCE, {
-    get(target, property, receiver) {
-      if (property !== "get") {
-        const value = Reflect.get(target, property, receiver);
-        return typeof value === "function" ? value.bind(target) : value;
-      }
-
-      return (id: DurableObjectId) => {
-        const stub = target.get(id);
-        return new Proxy(stub, {
-          get(stubTarget, stubProperty, stubReceiver) {
-            if (stubProperty !== "fetch") {
-              return Reflect.get(stubTarget, stubProperty, stubReceiver);
-            }
-
-            return async (input: RequestInfo | URL, init?: RequestInit) => {
-              const proxiedRequest =
-                input instanceof Request ? input.clone() : new Request(input, init);
-              const body = (await proxiedRequest.json().catch(() => ({}))) as Record<
-                string,
-                unknown
-              >;
-              calls.push({ path: new URL(proxiedRequest.url).pathname, body });
-              return Response.json({ error: "presence_unavailable" }, { status: 503 });
-            };
-          }
-        });
-      };
-    }
-  }) as DurableObjectNamespace;
+function degradedSnapshot(): PresenceStatusSnapshot {
+  return {
+    total: 0,
+    streams: {},
+    audioActivity: {},
+    updatedAt: null,
+    stale: true,
+    degraded: true,
+    serverTime: new Date().toISOString()
+  };
 }
 
 describe("presence live listener count flag", () => {
@@ -258,32 +148,43 @@ describe("presence live listener count flag", () => {
     await resetDb();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
   it("keeps flag-unset archive counts on D1 without touching presence", async () => {
     const { cookie, programId, hindiStreamId, tamilStreamId } =
       await seedProgramWithStreams();
     await connectListener(programId, hindiStreamId, "d1-listener-1");
-    await joinPresence(programId, "do-listener-1", hindiStreamId);
-    await joinPresence(programId, "do-listener-2", tamilStreamId);
+    // Simulate presence having entirely different data than D1 -- if the
+    // "d1" source path (the flag-unset default) ever accidentally consulted
+    // presence, these joins would show up in the archived summary below.
+    presenceStatus.presenceJoin(programId, "do-listener-1", hindiStreamId);
+    presenceStatus.presenceJoin(programId, "do-listener-2", tamilStreamId);
 
-    const presenceCalls: PresenceCall[] = [];
+    const readSnapshotSpy = vi.spyOn(presenceStatus, "readPresenceStatusSnapshot");
     const response = await request(
       `/api/admin/programs/${programId}/archive`,
       { method: "POST", headers: { Cookie: cookie } },
-      buildTestEnv({ PROGRAM_PRESENCE: capturingPresenceNamespace(presenceCalls) })
+      buildTestEnv()
     );
 
     expect(response.status).toBe(200);
-    expect(presenceCalls).toEqual([]);
+    // "d1" (flag-unset) resolveActiveListenerCount short-circuits before ever
+    // reading presence -- see routes/admin.ts.
+    expect(readSnapshotSpy).not.toHaveBeenCalled();
+    readSnapshotSpy.mockRestore();
 
     const summary = await request(
       `/api/admin/programs/${programId}/report/summary`,
       { headers: { Cookie: cookie } }
     );
     expect(summary.status).toBe(200);
-    const body = await summary.json<{
+    const body = (await summary.json()) as {
       totals: { activeListeners: number };
       streams: Array<{ streamId: string; activeListeners: number }>;
-    }>();
+    };
     expect(body.totals.activeListeners).toBe(1);
     expect(body.streams.find((stream) => stream.streamId === hindiStreamId))
       .toMatchObject({ activeListeners: 1 });
@@ -295,8 +196,8 @@ describe("presence live listener count flag", () => {
     const { cookie, programId, hindiStreamId, tamilStreamId } =
       await seedProgramWithStreams();
     await connectListener(programId, tamilStreamId, "d1-listener-1");
-    await joinPresence(programId, "do-listener-1", hindiStreamId);
-    await joinPresence(programId, "do-listener-2", hindiStreamId);
+    presenceStatus.presenceJoin(programId, "do-listener-1", hindiStreamId);
+    presenceStatus.presenceJoin(programId, "do-listener-2", hindiStreamId);
 
     const response = await request(
       `/api/admin/programs/${programId}/status`,
@@ -305,10 +206,10 @@ describe("presence live listener count flag", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       totalActiveListeners: number;
       streams: Array<{ id: string; activeListeners: number }>;
-    }>();
+    };
     expect(body.totalActiveListeners).toBe(2);
     expect(body.streams.find((stream) => stream.id === hindiStreamId))
       .toMatchObject({ activeListeners: 2 });
@@ -316,27 +217,39 @@ describe("presence live listener count flag", () => {
       .toMatchObject({ activeListeners: 0 });
   });
 
+  // The old in-process presence stub's `readPresenceStatusSnapshot` never
+  // throws (it's a plain Map read -- see src/presence/status.ts), so there is
+  // no way left to make a REAL presence read fail the way a Durable Object
+  // fetch used to. `resolveActiveListenerCount` in routes/admin.ts also does
+  // not wrap the call in a try/catch (an exception there would 500 the whole
+  // route, not degrade gracefully), so throwing from the spy would not
+  // reproduce the "falls back to D1" behavior either. Forcing the RETURN
+  // VALUE with `degraded: true` instead exercises exactly the branch this
+  // test cares about (`source === "true" && presence.degraded` -> fall back
+  // to the D1 count) without fabricating a failure mode that no longer
+  // exists in this slice.
   it("falls back to D1 admin status counts when true-mode presence is degraded", async () => {
     const { cookie, programId, hindiStreamId, tamilStreamId } =
       await seedProgramWithStreams();
     await connectListener(programId, tamilStreamId, "d1-listener-1");
 
+    vi.spyOn(presenceStatus, "readPresenceStatusSnapshot").mockResolvedValue(
+      degradedSnapshot()
+    );
+
     const response = await request(
       `/api/admin/programs/${programId}/status`,
       { headers: { Cookie: cookie } },
-      buildTestEnv({
-        PRESENCE_LIVE_COUNT: "true",
-        PROGRAM_PRESENCE: failingPresenceNamespace()
-      })
+      buildTestEnv({ PRESENCE_LIVE_COUNT: "true" })
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       totalActiveListeners: number;
       streams: Array<{ id: string; activeListeners: number }>;
       degraded: boolean;
       stale: boolean;
-    }>();
+    };
     expect(body.totalActiveListeners).toBe(1);
     expect(body.streams.find((stream) => stream.id === hindiStreamId))
       .toMatchObject({ activeListeners: 0 });
@@ -346,48 +259,17 @@ describe("presence live listener count flag", () => {
     expect(body.stale).toBe(true);
   });
 
-  it("schedules listener request presence updates with waitUntil when enabled", async () => {
+  // Slice 3: listener join/leave presence is now driven exclusively by
+  // livekit/webhook.ts's handling of LiveKit's participant_joined/
+  // participant_left events (see presence/status.ts's header comment) --
+  // routes/listeners.ts's /request no longer calls into presence/status.ts
+  // at all, regardless of PRESENCE_LIVE_COUNT. (The webhook's own presence
+  // effects, including its handling of a throwing presenceJoin, are covered
+  // in test/livekit-webhook.test.ts.)
+  it("never touches presence from a listener request, even with the flag enabled", async () => {
     const { programId, hindiStreamId } = await seedProgramWithStreams();
-    const presenceCalls: PresenceCall[] = [];
-    const enabledEnv = buildTestEnv({
-      PRESENCE_LIVE_COUNT: "true",
-      PROGRAM_PRESENCE: capturingPresenceNamespace(presenceCalls)
-    });
-
-    const { response, scheduled, waitUntil } = await requestWithTrackedWaitUntil(
-      "/api/listeners/request",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          programId,
-          streamId: hindiStreamId,
-          clientId: "wait-until-listener"
-        })
-      },
-      enabledEnv
-    );
-
-    expect(response.status).toBe(201);
-    expect(waitUntil).toHaveBeenCalledTimes(1);
-    expect(scheduled).toHaveLength(1);
-    const body = await response.json<{ connectionId: string }>();
-    expect(body.connectionId).toMatch(/^listener_connection_/);
-    await Promise.allSettled(scheduled);
-    expect(presenceCalls).toEqual([
-      {
-        path: "/join",
-        body: { connectionId: body.connectionId, streamId: hindiStreamId }
-      }
-    ]);
-  });
-
-  it("swallows listener request presence notify failures when enabled", async () => {
-    const { programId, hindiStreamId } = await seedProgramWithStreams();
-    const presenceCalls: PresenceCall[] = [];
-    const enabledEnv = buildTestEnv({
-      PRESENCE_LIVE_COUNT: "shadow",
-      PROGRAM_PRESENCE: failingPresenceNamespace(presenceCalls)
-    });
+    const enabledEnv = buildTestEnv({ PRESENCE_LIVE_COUNT: "true" });
+    const joinSpy = vi.spyOn(presenceStatus, "presenceJoin");
 
     const response = await request(
       "/api/listeners/request",
@@ -396,98 +278,66 @@ describe("presence live listener count flag", () => {
         body: JSON.stringify({
           programId,
           streamId: hindiStreamId,
-          clientId: "presence-failure-listener"
+          clientId: "sync-presence-listener"
         })
       },
       enabledEnv
     );
 
     expect(response.status).toBe(201);
-    const body = await response.json<{ connectionId: string }>();
+    const body = (await response.json()) as { connectionId: string };
     expect(body.connectionId).toMatch(/^listener_connection_/);
-    expect(presenceCalls).toEqual([
-      {
-        path: "/join",
-        body: { connectionId: body.connectionId, streamId: hindiStreamId }
-      }
-    ]);
+    expect(joinSpy).not.toHaveBeenCalled();
+
+    const snapshot = await presenceStatus.readPresenceStatusSnapshot(
+      enabledEnv,
+      programId
+    );
+    expect(snapshot.total).toBe(0);
   });
 
-  it("refreshes listener presence records on heartbeat when enabled", async () => {
-    const { programId, hindiStreamId } = await seedProgramWithStreams();
-    const enabledEnv = buildTestEnv({ PRESENCE_LIVE_COUNT: "true" });
-    const connectionId = await connectListener(
-      programId,
-      hindiStreamId,
-      "heartbeat-refresh-listener"
+  // presence/status.ts's STALE_AFTER_MS was widened from a 240s
+  // "primary mechanism" window to a multi-hour "defense-in-depth safety net"
+  // (see its header comment) now that LiveKit's participant_left webhook,
+  // not a periodic app-level heartbeat, is what normally removes a listener.
+  // pruneStale still exists purely to bound a lost/dropped webhook's damage,
+  // exercised directly with fake timers against the real STALE_AFTER_MS.
+  it("keeps a listener counted well before the safety-net staleness window elapses", async () => {
+    const programId = `program_presence_stale_${crypto.randomUUID()}`;
+    const streamId = `stream_presence_stale_${crypto.randomUUID()}`;
+    vi.useFakeTimers();
+    const start = Date.parse("2026-06-23T00:00:00.000Z");
+    vi.setSystemTime(start);
+
+    presenceStatus.presenceJoin(programId, "listener-1", streamId);
+    // Comfortably inside the window, with no heartbeat needed to keep it so
+    // -- nothing refreshes an individual listener between join and leave any
+    // more (see the module header comment).
+    vi.setSystemTime(start + presenceStatus.STALE_AFTER_MS - 1);
+
+    const snapshot = await presenceStatus.readPresenceStatusSnapshot(
+      buildTestEnv(),
+      programId
     );
-    await joinPresence(programId, connectionId, hindiStreamId);
-
-    const id = enabledEnv.PROGRAM_PRESENCE.idFromName(programId);
-    const stub = enabledEnv.PROGRAM_PRESENCE.get(id);
-    const oldBoundaryLastSeenAt = Date.now() - 31_000;
-    await runInDurableObject(stub, async (_instance: ProgramPresence, state) => {
-      await state.storage.put("records", {
-        [connectionId]: {
-          streamId: hindiStreamId,
-          lastSeenAt: oldBoundaryLastSeenAt
-        }
-      });
-    });
-
-    const heartbeatStartedAt = Date.now();
-    const heartbeat = await request(
-      "/api/listeners/heartbeat",
-      {
-        method: "POST",
-        body: JSON.stringify({ connectionId })
-      },
-      enabledEnv
-    );
-
-    expect(heartbeat.status).toBe(200);
-    expect(await heartbeat.json()).toEqual({ ok: true });
-
-    const liveSnapshot = await stub.fetch("https://presence.internal/snapshot", {
-      method: "POST",
-      body: "{}"
-    });
-    expect(await liveSnapshot.json()).toMatchObject({
-      total: 1,
-      streams: { [hindiStreamId]: 1 }
-    });
-
-    await runInDurableObject(stub, async (instance: ProgramPresence) => {
-      await (instance as ProgramPresence & { alarm(): Promise<void> }).alarm();
-    });
-
-    let refreshedLastSeenAt: number | undefined;
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      refreshedLastSeenAt = await presenceRecordLastSeenAt(
-        enabledEnv,
-        programId,
-        connectionId
-      );
-      if (
-        refreshedLastSeenAt !== undefined &&
-        refreshedLastSeenAt >= heartbeatStartedAt
-      ) {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-
-    expect(refreshedLastSeenAt).toBeGreaterThanOrEqual(heartbeatStartedAt);
+    expect(snapshot.total).toBe(1);
+    expect(snapshot.streams[streamId]).toBe(1);
   });
 
-  it("keeps listener presence records fresh for 240 seconds", async () => {
-    const id = testEnv.PROGRAM_PRESENCE.newUniqueId();
-    const stub = testEnv.PROGRAM_PRESENCE.get(id);
+  it("prunes a listener as stale once the safety-net window elapses without a leave/webhook", async () => {
+    const programId = `program_presence_stale_${crypto.randomUUID()}`;
+    const streamId = `stream_presence_stale_${crypto.randomUUID()}`;
+    vi.useFakeTimers();
+    const start = Date.parse("2026-06-23T00:00:00.000Z");
+    vi.setSystemTime(start);
 
-    await runInDurableObject(stub, async (instance: ProgramPresence) => {
-      expect((instance as unknown as { staleAfterMs: number }).staleAfterMs).toBe(
-        240_000
-      );
-    });
+    presenceStatus.presenceJoin(programId, "listener-1", streamId);
+    vi.setSystemTime(start + presenceStatus.STALE_AFTER_MS + 1);
+
+    const snapshot = await presenceStatus.readPresenceStatusSnapshot(
+      buildTestEnv(),
+      programId
+    );
+    expect(snapshot.total).toBe(0);
+    expect(snapshot.streams[streamId]).toBe(0);
   });
 });

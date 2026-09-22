@@ -9,7 +9,7 @@ import { ListenerAccessRepository } from "../db/listenerAccessRepository";
 import { ProgramRepository } from "../db/programRepository";
 import { VolunteerRepository } from "../db/volunteerRepository";
 import type { Env } from "../env";
-import { json, readJson } from "../http";
+import { json, readJson, type WaitUntilCtx } from "../http";
 
 interface VolunteerLoginInput {
   programSlug: string;
@@ -25,7 +25,7 @@ export async function handleVolunteerRoutes(
   request: Request,
   env: Env,
   url: URL,
-  _ctx: ExecutionContext
+  _ctx: WaitUntilCtx
 ): Promise<Response | null> {
   if (!url.pathname.startsWith("/api/volunteer/")) {
     return null;
@@ -57,6 +57,11 @@ export async function handleVolunteerRoutes(
         );
       }
 
+      // TODO(slice-5): `CF-Connecting-IP` was set by Cloudflare's edge; on the
+      // new Caddy-fronted deploy this needs to become `X-Forwarded-For` (or
+      // whatever header Caddy is configured to set). Until then this always
+      // reads null, so per-IP volunteer login throttling is a no-op (the
+      // per-program-wide threshold in recordFailure still applies).
       const clientIp = request.headers.get("CF-Connecting-IP");
       const ipHash = clientIp === null ? null : await sha256Hex(clientIp);
       if (await volunteers.isLocked(program.id, ipHash)) {

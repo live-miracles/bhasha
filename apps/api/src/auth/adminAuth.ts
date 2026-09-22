@@ -1,12 +1,11 @@
 import type { Env } from "../env";
 import { json } from "../http";
-import { sha256Hex } from "./crypto";
+import { sha256Hex, timingSafeEqualHex } from "./crypto";
 import {
   UsersRepository,
   type UserRecord,
   type UserRole
 } from "../db/usersRepository";
-import { timingSafeEqualHex } from "../relay/relayAuth";
 
 const SESSION_SECONDS = 86_400;
 // Break-glass bootstrap sessions are short-lived: the operator should set a real
@@ -60,9 +59,9 @@ export async function handleLogout(
   const token = cookieValue(request, "admin_session");
   if (token) {
     const sessionHash = await sha256Hex(token + env.ADMIN_SESSION_SECRET);
-    await env.DB.prepare("DELETE FROM admin_sessions WHERE session_hash = ?")
-      .bind(sessionHash)
-      .run();
+    env.DB.prepare("DELETE FROM admin_sessions WHERE session_hash = ?").run(
+      sessionHash
+    );
   }
   const response = json({ ok: true });
   response.headers.set("set-cookie", clearSessionCookie());
@@ -84,18 +83,16 @@ async function issueSession(
   const now = new Date();
   const expiresAt = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
 
-  await env.DB.prepare(
+  env.DB.prepare(
     `INSERT INTO admin_sessions (id, user_id, session_hash, expires_at, created_at)
      VALUES (?, ?, ?, ?, ?)`
-  )
-    .bind(
-      `admin_session_${crypto.randomUUID()}`,
-      userId,
-      sessionHash,
-      expiresAt,
-      now.toISOString()
-    )
-    .run();
+  ).run(
+    `admin_session_${crypto.randomUUID()}`,
+    userId,
+    sessionHash,
+    expiresAt,
+    now.toISOString()
+  );
 
   return token;
 }
@@ -183,14 +180,14 @@ export async function requireUserAuth(
   }
 
   const sessionHash = await sha256Hex(token + env.ADMIN_SESSION_SECRET);
-  const row = await env.DB.prepare(
+  const row = env.DB.prepare(
     `SELECT u.id AS id, u.role AS role, u.org_id AS org_id
      FROM admin_sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.session_hash = ? AND s.expires_at > ? AND u.is_disabled = 0`
-  )
-    .bind(sessionHash, new Date().toISOString())
-    .first<{ id: string; role: UserRole; org_id: string | null }>();
+  ).get(sessionHash, new Date().toISOString()) as
+    | { id: string; role: UserRole; org_id: string | null }
+    | undefined;
 
   if (!row) {
     return json({ error: "admin_auth_required" }, { status: 401 });

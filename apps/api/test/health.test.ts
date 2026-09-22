@@ -1,54 +1,38 @@
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
-import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
-import worker from "../src/index";
-import devVarsExample from "../.dev.vars.example?raw";
+import { createApp } from "../src/index";
+import { buildTestEnv } from "./test-env";
 
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-
-function createEnvWithDb(prepareImpl: () => Promise<unknown>) {
-  return {
+function createEnvWithDb(getImpl: () => unknown) {
+  return buildTestEnv({
     DB: {
       prepare: vi.fn().mockReturnValue({
-        first: vi.fn().mockImplementation(prepareImpl)
+        get: vi.fn().mockImplementation(getImpl)
       })
-    } as unknown as D1Database,
-    PROGRAM_PRESENCE: {} as DurableObjectNamespace,
-    ADMIN_PASSWORD_HASH: "admin-password-hash",
-    ADMIN_SESSION_SECRET: "admin-session-secret",
-    CLOUDFLARE_REALTIME_APP_ID: "app-id",
-    CLOUDFLARE_REALTIME_APP_SECRET: "app-secret",
-    TRANSLATOR_PASSWORD_PEPPER: "pepper",
-    TRANSLATOR_SESSION_SECRET: "translator-session-secret"
-  } as unknown as Env;
+    } as unknown as Env["DB"]
+  });
 }
 
 describe("health route", () => {
   it("returns ok", async () => {
-    const request = new IncomingRequest("https://bhasha.test/api/health");
-    const ctx = createExecutionContext();
-
-    const response = await worker.fetch(request, env, ctx);
-    await waitOnExecutionContext(ctx);
+    const app = createApp(buildTestEnv());
+    const response = await app.fetch(
+      new Request("https://bhasha.test/api/health")
+    );
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
   });
 
   it("does not query DB on cheap health probe", async () => {
-    const dbPrepare = vi.fn().mockReturnValue({ first: vi.fn() });
-    const testEnv = {
-      ...createEnvWithDb(async () => ({ ok: false })),
-      DB: {
-        prepare: dbPrepare
-      }
-    } as unknown as Env;
-    const request = new IncomingRequest("https://bhasha.test/api/health");
-    const ctx = createExecutionContext();
-
-    const response = await worker.fetch(request, testEnv, ctx);
-    await waitOnExecutionContext(ctx);
+    const dbPrepare = vi.fn().mockReturnValue({ get: vi.fn() });
+    const env = buildTestEnv({
+      DB: { prepare: dbPrepare } as unknown as Env["DB"]
+    });
+    const app = createApp(env);
+    const response = await app.fetch(
+      new Request("https://bhasha.test/api/health")
+    );
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
@@ -56,12 +40,11 @@ describe("health route", () => {
   });
 
   it("returns deep readiness ok when DB ping succeeds", async () => {
-    const testEnv = createEnvWithDb(async () => ({ ok: 1 }));
-    const request = new IncomingRequest("https://bhasha.test/api/health?deep=1");
-    const ctx = createExecutionContext();
-
-    const response = await worker.fetch(request, testEnv, ctx);
-    await waitOnExecutionContext(ctx);
+    const env = createEnvWithDb(() => ({ ok: 1 }));
+    const app = createApp(env);
+    const response = await app.fetch(
+      new Request("https://bhasha.test/api/health?deep=1")
+    );
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -71,14 +54,13 @@ describe("health route", () => {
   });
 
   it("returns deep readiness failure when DB ping fails", async () => {
-    const testEnv = createEnvWithDb(async () => {
+    const env = createEnvWithDb(() => {
       throw new Error("db down");
     });
-    const request = new IncomingRequest("https://bhasha.test/api/health?deep=1");
-    const ctx = createExecutionContext();
-
-    const response = await worker.fetch(request, testEnv, ctx);
-    await waitOnExecutionContext(ctx);
+    const app = createApp(env);
+    const response = await app.fetch(
+      new Request("https://bhasha.test/api/health?deep=1")
+    );
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
@@ -87,26 +69,17 @@ describe("health route", () => {
     });
   });
 
-  it("provides worker bindings", () => {
+  it("provides a real better-sqlite3 database binding", () => {
+    const env = buildTestEnv();
     expect(env.DB).toBeDefined();
-    expect(env.PROGRAM_PRESENCE).toBeDefined();
+    expect(env.DB.prepare("SELECT 1 AS ok").get()).toEqual({ ok: 1 });
   });
 
-  it("has realtime test bindings", () => {
-    expect((env as Env).CLOUDFLARE_REALTIME_APP_ID).toBeTruthy();
-    expect((env as Env).CLOUDFLARE_REALTIME_APP_SECRET).toBeTruthy();
-    expect((env as Env).TRANSLATOR_PASSWORD_PEPPER).toBeTruthy();
-    expect((env as Env).TRANSLATOR_SESSION_SECRET).toBeTruthy();
-  });
-
-  it("documents required local secret bindings", () => {
-    for (const key of [
-      "CLOUDFLARE_REALTIME_APP_ID",
-      "CLOUDFLARE_REALTIME_APP_SECRET",
-      "TRANSLATOR_PASSWORD_PEPPER",
-      "TRANSLATOR_SESSION_SECRET"
-    ]) {
-      expect(devVarsExample).toContain(`${key}=`);
-    }
+  it("has the test secret bindings tests rely on", () => {
+    const env = buildTestEnv();
+    expect(env.TRANSLATOR_PASSWORD_PEPPER).toBeTruthy();
+    expect(env.TRANSLATOR_SESSION_SECRET).toBeTruthy();
+    expect(env.ADMIN_SESSION_SECRET).toBeTruthy();
+    expect(env.ADMIN_PASSWORD_HASH).toBeTruthy();
   });
 });

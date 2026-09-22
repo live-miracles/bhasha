@@ -1,9 +1,9 @@
-import {
-  createExecutionContext,
-  waitOnExecutionContext
-} from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
-import worker from "../src/index";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { Env } from "../src/env";
+import { createApp } from "../src/index";
+import type { Database } from "../src/db/sqlite";
+import * as presenceStatus from "../src/presence/status";
 import {
   adminCookie,
   buildTestEnv,
@@ -12,22 +12,13 @@ import {
   testEnv
 } from "./test-env";
 
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
-
 async function request(
   path: string,
-  init: IncomingRequestInit = {},
-  workerEnv: Env = testEnv
-) {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    workerEnv,
-    ctx
-  );
-  await waitOnExecutionContext(ctx);
-  return response;
+  init: RequestInit = {},
+  env: Env = buildTestEnv()
+): Promise<Response> {
+  const app = createApp(env);
+  return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
 async function seedProgramAndStreams() {
@@ -48,7 +39,7 @@ async function seedProgramAndStreams() {
       isActive: true
     })
   });
-  const hindi = await hindiResponse.json<{ id: string }>();
+  const hindi = (await hindiResponse.json()) as { id: string };
 
   const englishResponse = await request(
     `/api/admin/programs/${program.id}/streams`,
@@ -63,22 +54,20 @@ async function seedProgramAndStreams() {
       })
     }
   );
-  const english = await englishResponse.json<{ id: string }>();
+  const english = (await englishResponse.json()) as { id: string };
 
   return { cookie, program, hindi, english };
 }
 
 async function presenceTotal(programId: string): Promise<number> {
   const threshold = new Date(Date.now() - 120_000).toISOString();
-  const row = await testEnv.DB.prepare(
+  const row = testEnv.DB.prepare(
     `SELECT COUNT(*) as total
      FROM listener_connections
      WHERE program_id = ?
        AND subscription_status = 'connected'
        AND last_seen_at > ?`
-  )
-    .bind(programId, threshold)
-    .first<{ total: string | number }>();
+  ).get(programId, threshold) as { total: string | number } | undefined;
   return Number(row?.total ?? 0);
 }
 
@@ -92,7 +81,7 @@ async function storedConnection(connectionId: string): Promise<{
   updatedAt: string;
   lastSeenAt: string | null;
 }> {
-  const row = await testEnv.DB.prepare(
+  const row = testEnv.DB.prepare(
     `SELECT listener_ip as listenerIp,
       user_agent as userAgent,
       client_device_model as deviceModel,
@@ -103,135 +92,91 @@ async function storedConnection(connectionId: string): Promise<{
       last_seen_at as lastSeenAt
     FROM listener_connections
     WHERE id = ?`
-  )
-    .bind(connectionId)
-    .first<{
-      listenerIp: string;
-      userAgent: string;
-      deviceModel: string | null;
-      platform: string | null;
-      platformVersion: string | null;
-      browserFullVersion: string | null;
-      updatedAt: string;
-      lastSeenAt: string | null;
-    }>();
+  ).get(connectionId) as
+    | {
+        listenerIp: string;
+        userAgent: string;
+        deviceModel: string | null;
+        platform: string | null;
+        platformVersion: string | null;
+        browserFullVersion: string | null;
+        updatedAt: string;
+        lastSeenAt: string | null;
+      }
+    | undefined;
   if (!row) {
     throw new Error("listener connection row was not found");
   }
   return row;
 }
 
-interface PresenceCall {
-  path: string;
-  body: Record<string, unknown>;
-}
-
-function capturingPresenceNamespace(calls: PresenceCall[]): DurableObjectNamespace {
-  return new Proxy(testEnv.PROGRAM_PRESENCE, {
+/**
+ * Wraps `testEnv.DB` so the guarded "mark connected" UPDATE races against a
+ * concurrent disconnect: right before that specific UPDATE runs, a separate
+ * disconnect UPDATE for the same connection is applied first. This pins the
+ * guarded-UPDATE contract (WHERE ... AND subscription_status = 'requested')
+ * without needing any Durable Object / presence plumbing.
+ */
+function disconnectBeforeConnectUpdateDb(connectionId: string): Database {
+  return new Proxy(testEnv.DB, {
     get(target, property, receiver) {
-      if (property !== "get") {
+      if (property !== "prepare") {
         const value = Reflect.get(target, property, receiver);
         return typeof value === "function" ? value.bind(target) : value;
       }
 
-      return (id: DurableObjectId) => {
-        const stub = target.get(id);
-        return new Proxy(stub, {
-          get(stubTarget, stubProperty, stubReceiver) {
-            if (stubProperty !== "fetch") {
-              return Reflect.get(stubTarget, stubProperty, stubReceiver);
-            }
-
-            return async (input: RequestInfo | URL, init?: RequestInit) => {
-              const request =
-                input instanceof Request ? input.clone() : new Request(input, init);
-              const body = (await request.json().catch(() => ({}))) as Record<
-                string,
-                unknown
-              >;
-              calls.push({ path: new URL(request.url).pathname, body });
-              return Response.json({ ok: true });
-            };
-          }
-        });
-      };
-    }
-  }) as DurableObjectNamespace;
-}
-
-function disconnectBeforeConnectUpdateDb(connectionId: string): D1Database {
-  return new Proxy(testEnv.DB, {
-    get(target, property, receiver) {
-      if (property !== "prepare") {
-        return Reflect.get(target, property, receiver);
-      }
-
-      return (query: string) => {
-        const statement = target.prepare(query);
+      return (sql: string) => {
+        const statement = target.prepare(sql);
         if (
-          !query.includes("SET subscription_status = 'connected'") ||
-          !query.includes("WHERE id = ? AND subscription_status = 'requested'")
+          !sql.includes("SET subscription_status = 'connected'") ||
+          !sql.includes("WHERE id = ? AND subscription_status = 'requested'")
         ) {
           return statement;
         }
 
         return new Proxy(statement, {
           get(statementTarget, statementProperty, statementReceiver) {
-            if (statementProperty !== "bind") {
-              return Reflect.get(
+            if (statementProperty !== "run") {
+              const value = Reflect.get(
                 statementTarget,
                 statementProperty,
                 statementReceiver
               );
+              return typeof value === "function"
+                ? value.bind(statementTarget)
+                : value;
             }
 
-            return (...values: unknown[]) => {
-              const bound = statementTarget.bind(...values);
-              return new Proxy(bound, {
-                get(boundTarget, boundProperty, boundReceiver) {
-                  if (boundProperty !== "run") {
-                    return Reflect.get(boundTarget, boundProperty, boundReceiver);
-                  }
-
-                  return async () => {
-                    const timestamp = new Date().toISOString();
-                    await target
-                      .prepare(
-                        `UPDATE listener_connections
-                        SET subscription_status = 'disconnected',
-                            disconnected_at = ?,
-                            disconnect_reason = ?,
-                            updated_at = ?
-                        WHERE id = ?`
-                      )
-                      .bind(
-                        timestamp,
-                        "client_disconnect",
-                        timestamp,
-                        connectionId
-                      )
-                      .run();
-                    return boundTarget.run();
-                  };
-                }
-              });
+            return (...args: unknown[]) => {
+              const timestamp = new Date().toISOString();
+              target
+                .prepare(
+                  `UPDATE listener_connections
+                  SET subscription_status = 'disconnected',
+                      disconnected_at = ?,
+                      disconnect_reason = ?,
+                      updated_at = ?
+                  WHERE id = ?`
+                )
+                .run(timestamp, "client_disconnect", timestamp, connectionId);
+              return statementTarget.run(...args);
             };
           }
         });
       };
     }
-  }) as D1Database;
+  }) as Database;
 }
 
 describe("listener lifecycle", () => {
   beforeEach(async () => {
-    await testEnv.DB.exec("DELETE FROM stream_events");
-    await testEnv.DB.exec("DELETE FROM listener_connections");
-    await testEnv.DB.exec("DELETE FROM admin_sessions");
-    await testEnv.DB.exec("DELETE FROM translator_stream_assignments");
-    await testEnv.DB.exec("DELETE FROM translators");
-    await testEnv.DB.exec("DELETE FROM language_streams");
-    await testEnv.DB.exec("DELETE FROM programs");
+    testEnv.DB.exec("DELETE FROM stream_events");
+    testEnv.DB.exec("DELETE FROM listener_connections");
+    testEnv.DB.exec("DELETE FROM admin_sessions");
+    testEnv.DB.exec("DELETE FROM translator_stream_assignments");
+    testEnv.DB.exec("DELETE FROM translators");
+    testEnv.DB.exec("DELETE FROM language_streams");
+    testEnv.DB.exec("DELETE FROM programs");
     await seedPlatformAdmin(testEnv);
   });
 
@@ -252,7 +197,7 @@ describe("listener lifecycle", () => {
     });
 
     expect(requested.status).toBe(201);
-    const connection = await requested.json<{ connectionId: string }>();
+    const connection = (await requested.json()) as { connectionId: string };
     expect(await presenceTotal(program.id)).toBe(0);
 
     const connected = await request("/api/listeners/connected", {
@@ -321,11 +266,10 @@ describe("listener lifecycle", () => {
         clientId: "client_1"
       })
     });
-    const connection = await requested.json<{ connectionId: string }>();
+    const connection = (await requested.json()) as { connectionId: string };
 
     const raceEnv = buildTestEnv({
-      DB: disconnectBeforeConnectUpdateDb(connection.connectionId),
-      PROGRAM_PRESENCE: testEnv.PROGRAM_PRESENCE
+      DB: disconnectBeforeConnectUpdateDb(connection.connectionId)
     });
     const connected = await request(
       "/api/listeners/connected",
@@ -342,73 +286,77 @@ describe("listener lifecycle", () => {
     });
     expect(await presenceTotal(program.id)).toBe(0);
 
-    const row = await testEnv.DB.prepare(
+    const row = testEnv.DB.prepare(
       `SELECT subscription_status as subscriptionStatus
       FROM listener_connections
       WHERE id = ?`
-    )
-      .bind(connection.connectionId)
-      .first<{ subscriptionStatus: string }>();
+    ).get(connection.connectionId) as
+      | { subscriptionStatus: string }
+      | undefined;
     expect(row?.subscriptionStatus).toBe("disconnected");
   });
 
-  it("does not notify presence during listener lifecycle transitions", async () => {
+  it("does not notify presence directly -- listener join/leave is webhook-driven only", async () => {
     const { program, hindi } = await seedProgramAndStreams();
 
-    const requested = await request("/api/listeners/request", {
-      method: "POST",
-      headers: {
-        "cf-connecting-ip": "203.0.113.9",
-        "user-agent": "Test Mobile Browser"
-      },
-      body: JSON.stringify({
-        programId: program.id,
-        streamId: hindi.id,
-        clientId: "client_1"
-      })
-    });
-    const connection = await requested.json<{ connectionId: string }>();
+    // Slice 3: routes/listeners.ts never calls into presence/status.ts at
+    // all any more (PRESENCE_LIVE_COUNT is irrelevant here) -- listener
+    // join/leave presence comes exclusively from livekit/webhook.ts's
+    // handling of LiveKit's participant_joined/participant_left events. This
+    // spies on the module directly to prove a full
+    // request -> connected -> leave transition never triggers a presence
+    // write from these DB-lifecycle routes.
+    const joinSpy = vi.spyOn(presenceStatus, "presenceJoin");
+    const heartbeatSpy = vi.spyOn(presenceStatus, "presenceHeartbeat");
+    const leaveSpy = vi.spyOn(presenceStatus, "presenceLeave");
 
-    const presenceCalls: PresenceCall[] = [];
-    const raceEnv = buildTestEnv({
-      DB: testEnv.DB,
-      PROGRAM_PRESENCE: capturingPresenceNamespace(presenceCalls)
-    });
+    try {
+      const requested = await request("/api/listeners/request", {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": "203.0.113.9",
+          "user-agent": "Test Mobile Browser"
+        },
+        body: JSON.stringify({
+          programId: program.id,
+          streamId: hindi.id,
+          clientId: "client_1"
+        })
+      });
+      const connection = (await requested.json()) as { connectionId: string };
 
-    const connected = await request(
-      "/api/listeners/connected",
-      {
+      const connected = await request("/api/listeners/connected", {
         method: "POST",
         body: JSON.stringify({ connectionId: connection.connectionId })
-      },
-      raceEnv
-    );
+      });
+      expect(connected.status).toBe(200);
 
-    expect(connected.status).toBe(200);
-
-    const leave = await request(
-      "/api/listeners/leave",
-      {
+      const leave = await request("/api/listeners/leave", {
         method: "POST",
         body: JSON.stringify({
           connectionId: connection.connectionId,
           reason: "client_disconnect"
         })
-      },
-      raceEnv
-    );
-    expect(leave.status).toBe(200);
+      });
+      expect(leave.status).toBe(200);
 
-    expect(presenceCalls).toEqual([]);
+      expect(joinSpy).not.toHaveBeenCalled();
+      expect(heartbeatSpy).not.toHaveBeenCalled();
+      expect(leaveSpy).not.toHaveBeenCalled();
 
-    const row = await testEnv.DB.prepare(
-      `SELECT subscription_status as subscriptionStatus
-      FROM listener_connections
-      WHERE id = ?`
-    )
-      .bind(connection.connectionId)
-      .first<{ subscriptionStatus: string }>();
-    expect(row?.subscriptionStatus).toBe("disconnected");
+      const row = testEnv.DB.prepare(
+        `SELECT subscription_status as subscriptionStatus
+        FROM listener_connections
+        WHERE id = ?`
+      ).get(connection.connectionId) as
+        | { subscriptionStatus: string }
+        | undefined;
+      expect(row?.subscriptionStatus).toBe("disconnected");
+    } finally {
+      joinSpy.mockRestore();
+      heartbeatSpy.mockRestore();
+      leaveSpy.mockRestore();
+    }
   });
 
   it("refreshes connected listener heartbeat without updating listener telemetry", async () => {
@@ -426,7 +374,7 @@ describe("listener lifecycle", () => {
         clientId: "client_heartbeat"
       })
     });
-    const connection = await requested.json<{ connectionId: string }>();
+    const connection = (await requested.json()) as { connectionId: string };
 
     const connected = await request("/api/listeners/connected", {
       method: "POST",
@@ -436,6 +384,13 @@ describe("listener lifecycle", () => {
     expect(await presenceTotal(program.id)).toBe(1);
 
     const beforeHeartbeat = await storedConnection(connection.connectionId);
+    // better-sqlite3 is fast enough that two sequential writes can land in
+    // the same ISO-millisecond timestamp, which would make a bare
+    // `not.toEqual(beforeHeartbeat.updatedAt)` assertion flaky. A short delay
+    // guarantees the heartbeat's timestamp write lands in a later
+    // millisecond, keeping this a reliable "did it actually get touched?"
+    // signal.
+    await new Promise((resolve) => setTimeout(resolve, 5));
     const heartbeat = await request("/api/listeners/heartbeat", {
       method: "POST",
       headers: {
@@ -461,7 +416,7 @@ describe("listener lifecycle", () => {
     });
   });
 
-  it("refreshes connected listener heartbeat timestamps in D1", async () => {
+  it("refreshes connected listener heartbeat timestamps in the database", async () => {
     const { program, hindi } = await seedProgramAndStreams();
 
     const requested = await request("/api/listeners/request", {
@@ -476,7 +431,7 @@ describe("listener lifecycle", () => {
         clientId: "client_heartbeat_restore"
       })
     });
-    const connection = await requested.json<{ connectionId: string }>();
+    const connection = (await requested.json()) as { connectionId: string };
 
     const connected = await request("/api/listeners/connected", {
       method: "POST",
@@ -514,7 +469,7 @@ describe("listener lifecycle", () => {
         clientId: "client_hints"
       })
     });
-    const connection = await requested.json<{ connectionId: string }>();
+    const connection = (await requested.json()) as { connectionId: string };
 
     expect(await storedConnection(connection.connectionId)).toMatchObject({
       deviceModel: null,
@@ -585,7 +540,9 @@ describe("listener lifecycle", () => {
         clientId: "client_requested"
       })
     });
-    const requestedConnection = await requested.json<{ connectionId: string }>();
+    const requestedConnection = (await requested.json()) as {
+      connectionId: string;
+    };
 
     const requestedHeartbeat = await request("/api/listeners/heartbeat", {
       method: "POST",
@@ -598,21 +555,19 @@ describe("listener lifecycle", () => {
     expect(await presenceTotal(program.id)).toBe(0);
 
     const timestamp = new Date().toISOString();
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `UPDATE listener_connections
       SET subscription_status = 'disconnected',
           disconnected_at = ?,
           disconnect_reason = ?,
           updated_at = ?
       WHERE id = ?`
-    )
-      .bind(
-        timestamp,
-        "client_disconnect",
-        timestamp,
-        requestedConnection.connectionId
-      )
-      .run();
+    ).run(
+      timestamp,
+      "client_disconnect",
+      timestamp,
+      requestedConnection.connectionId
+    );
 
     const disconnectedHeartbeat = await request("/api/listeners/heartbeat", {
       method: "POST",
@@ -632,18 +587,16 @@ describe("listener lifecycle", () => {
         clientId: "client_failed"
       })
     });
-    const failedConnection = await failed.json<{ connectionId: string }>();
+    const failedConnection = (await failed.json()) as { connectionId: string };
     const failedAt = new Date().toISOString();
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `UPDATE listener_connections
       SET subscription_status = 'failed',
           disconnected_at = ?,
           disconnect_reason = ?,
           updated_at = ?
       WHERE id = ?`
-    )
-      .bind(failedAt, "realtime_error", failedAt, failedConnection.connectionId)
-      .run();
+    ).run(failedAt, "realtime_error", failedAt, failedConnection.connectionId);
 
     const failedHeartbeat = await request("/api/listeners/heartbeat", {
       method: "POST",
@@ -654,136 +607,6 @@ describe("listener lifecycle", () => {
       error: "listener_invalid_state"
     });
     expect(await presenceTotal(program.id)).toBe(0);
-  });
-
-  it("accepts write-behind heartbeats for requested listeners and notifies presence with stream id", async () => {
-    const { program, hindi } = await seedProgramAndStreams();
-
-    const requested = await request("/api/listeners/request", {
-      method: "POST",
-      body: JSON.stringify({
-        programId: program.id,
-        streamId: hindi.id,
-        clientId: "client_requested_write_behind"
-      })
-    });
-    const connection = await requested.json<{ connectionId: string }>();
-    const beforeHeartbeat = await storedConnection(connection.connectionId);
-    const presenceCalls: PresenceCall[] = [];
-    const writeBehindEnv = buildTestEnv({
-      DB: testEnv.DB,
-      PROGRAM_PRESENCE: capturingPresenceNamespace(presenceCalls),
-      LISTENER_WRITE_BEHIND: "true",
-      PRESENCE_LIVE_COUNT: "true"
-    });
-
-    const heartbeat = await request(
-      "/api/listeners/heartbeat",
-      {
-        method: "POST",
-        body: JSON.stringify({ connectionId: connection.connectionId })
-      },
-      writeBehindEnv
-    );
-
-    expect(heartbeat.status).toBe(200);
-    expect(await heartbeat.json()).toEqual({ ok: true });
-    const afterHeartbeat = await storedConnection(connection.connectionId);
-    expect(beforeHeartbeat.lastSeenAt).toBeNull();
-    expect(afterHeartbeat.lastSeenAt).toEqual(expect.any(String));
-    expect(afterHeartbeat.updatedAt).not.toEqual(beforeHeartbeat.updatedAt);
-    expect(presenceCalls).toContainEqual({
-      path: "/heartbeat",
-      body: {
-        connectionId: connection.connectionId,
-        streamId: hindi.id
-      }
-    });
-  });
-
-  it("does not resurrect terminal listeners on write-behind heartbeat", async () => {
-    const { program, hindi } = await seedProgramAndStreams();
-
-    const disconnected = await request("/api/listeners/request", {
-      method: "POST",
-      body: JSON.stringify({
-        programId: program.id,
-        streamId: hindi.id,
-        clientId: "client_disconnected_write_behind"
-      })
-    });
-    const disconnectedConnection = await disconnected.json<{
-      connectionId: string;
-    }>();
-    const timestamp = new Date().toISOString();
-    await testEnv.DB.prepare(
-      `UPDATE listener_connections
-      SET subscription_status = 'disconnected',
-          disconnected_at = ?,
-          disconnect_reason = ?,
-          updated_at = ?
-      WHERE id = ?`
-    )
-      .bind(
-        timestamp,
-        "client_disconnect",
-        timestamp,
-        disconnectedConnection.connectionId
-      )
-      .run();
-
-    const failed = await request("/api/listeners/request", {
-      method: "POST",
-      body: JSON.stringify({
-        programId: program.id,
-        streamId: hindi.id,
-        clientId: "client_failed_write_behind"
-      })
-    });
-    const failedConnection = await failed.json<{ connectionId: string }>();
-    await testEnv.DB.prepare(
-      `UPDATE listener_connections
-      SET subscription_status = 'failed',
-          disconnected_at = ?,
-          disconnect_reason = ?,
-          updated_at = ?
-      WHERE id = ?`
-    )
-      .bind(timestamp, "realtime_error", timestamp, failedConnection.connectionId)
-      .run();
-    const writeBehindEnv = buildTestEnv({
-      DB: testEnv.DB,
-      LISTENER_WRITE_BEHIND: "true",
-      PRESENCE_LIVE_COUNT: "true"
-    });
-
-    const disconnectedHeartbeat = await request(
-      "/api/listeners/heartbeat",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          connectionId: disconnectedConnection.connectionId
-        })
-      },
-      writeBehindEnv
-    );
-    const failedHeartbeat = await request(
-      "/api/listeners/heartbeat",
-      {
-        method: "POST",
-        body: JSON.stringify({ connectionId: failedConnection.connectionId })
-      },
-      writeBehindEnv
-    );
-
-    expect(disconnectedHeartbeat.status).toBe(409);
-    expect(await disconnectedHeartbeat.json()).toEqual({
-      error: "listener_invalid_state"
-    });
-    expect(failedHeartbeat.status).toBe(409);
-    expect(await failedHeartbeat.json()).toEqual({
-      error: "listener_invalid_state"
-    });
   });
 
   it("switches language by closing the old connection exactly once", async () => {
@@ -801,7 +624,7 @@ describe("listener lifecycle", () => {
         clientId: "client_1"
       })
     });
-    const first = await requested.json<{ connectionId: string }>();
+    const first = (await requested.json()) as { connectionId: string };
     await request("/api/listeners/connected", {
       method: "POST",
       body: JSON.stringify({ connectionId: first.connectionId })
@@ -824,7 +647,7 @@ describe("listener lifecycle", () => {
     });
 
     expect(switched.status).toBe(201);
-    const replacement = await switched.json<{ connectionId: string }>();
+    const replacement = (await switched.json()) as { connectionId: string };
     expect(await presenceTotal(program.id)).toBe(0);
 
     const retriedSwitch = await request("/api/listeners/switch", {
@@ -854,60 +677,54 @@ describe("listener lifecycle", () => {
         headers: { Cookie: cookie }
       }
     );
-    const body = await report.json<{
+    const body = (await report.json()) as {
       connections: Array<{
         id: string;
         disconnectReason: string | null;
       }>;
-    }>();
+    };
     const oldRows = body.connections.filter(
       (row) => row.id === first.connectionId
     );
     expect(oldRows).toHaveLength(1);
     expect(oldRows[0]?.disconnectReason).toBe("language_switch");
 
-    const { results } = await testEnv.DB.prepare(
+    const results = testEnv.DB.prepare(
       `SELECT event_type as eventType FROM stream_events
       WHERE program_id = ? AND language_stream_id = ?`
-    )
-      .bind(program.id, hindi.id)
-      .all<{ eventType: string }>();
+    ).all(program.id, hindi.id) as Array<{ eventType: string }>;
     expect(
       results.filter((event) => event.eventType === "listener_switched")
     ).toHaveLength(1);
 
-    const successorCount = await testEnv.DB.prepare(
+    const successorCount = testEnv.DB.prepare(
       `SELECT COUNT(*) as count FROM listener_connections
       WHERE switch_from_connection_id = ?`
-    )
-      .bind(first.connectionId)
-      .first<{ count: number }>();
+    ).get(first.connectionId) as { count: number } | undefined;
     expect(successorCount?.count).toBe(1);
 
     const now = new Date().toISOString();
-    await expect(
+    expect(() =>
       testEnv.DB.prepare(
         `INSERT INTO listener_connections
         (id, program_id, language_stream_id, client_id, token_issued_at,
          subscription_status, listener_ip, user_agent, switch_from_connection_id,
          created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        `listener_connection_${crypto.randomUUID()}`,
+        program.id,
+        english.id,
+        "client_1",
+        now,
+        "requested",
+        "203.0.113.9",
+        "Test Mobile Browser",
+        first.connectionId,
+        now,
+        now
       )
-        .bind(
-          `listener_connection_${crypto.randomUUID()}`,
-          program.id,
-          english.id,
-          "client_1",
-          now,
-          "requested",
-          "203.0.113.9",
-          "Test Mobile Browser",
-          first.connectionId,
-          now,
-          now
-        )
-        .run()
-    ).rejects.toThrow(/UNIQUE|constraint|D1_ERROR/);
+    ).toThrow(/UNIQUE|constraint/i);
   });
 
   it("recovers a retried switch after the old connection was disconnected without a successor", async () => {
@@ -925,7 +742,7 @@ describe("listener lifecycle", () => {
         clientId: "client_1"
       })
     });
-    const first = await requested.json<{ connectionId: string }>();
+    const first = (await requested.json()) as { connectionId: string };
     await request("/api/listeners/connected", {
       method: "POST",
       body: JSON.stringify({ connectionId: first.connectionId })
@@ -933,16 +750,14 @@ describe("listener lifecycle", () => {
     expect(await presenceTotal(program.id)).toBe(1);
 
     const timestamp = new Date().toISOString();
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `UPDATE listener_connections
       SET subscription_status = 'disconnected',
           disconnected_at = ?,
           disconnect_reason = ?,
           updated_at = ?
       WHERE id = ?`
-    )
-      .bind(timestamp, "language_switch", timestamp, first.connectionId)
-      .run();
+    ).run(timestamp, "language_switch", timestamp, first.connectionId);
 
     const retriedSwitch = await request("/api/listeners/switch", {
       method: "POST",
@@ -961,12 +776,10 @@ describe("listener lifecycle", () => {
     expect(retriedSwitch.status).toBe(201);
     expect(await presenceTotal(program.id)).toBe(0);
 
-    const successorCount = await testEnv.DB.prepare(
+    const successorCount = testEnv.DB.prepare(
       `SELECT COUNT(*) as count FROM listener_connections
       WHERE switch_from_connection_id = ?`
-    )
-      .bind(first.connectionId)
-      .first<{ count: number }>();
+    ).get(first.connectionId) as { count: number } | undefined;
     expect(successorCount?.count).toBe(1);
   });
 
@@ -985,23 +798,21 @@ describe("listener lifecycle", () => {
         clientId: "client_1"
       })
     });
-    const first = await requested.json<{ connectionId: string }>();
+    const first = (await requested.json()) as { connectionId: string };
     await request("/api/listeners/connected", {
       method: "POST",
       body: JSON.stringify({ connectionId: first.connectionId })
     });
 
     const timestamp = new Date().toISOString();
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `UPDATE listener_connections
       SET subscription_status = 'disconnected',
           disconnected_at = ?,
           disconnect_reason = ?,
           updated_at = ?
       WHERE id = ?`
-    )
-      .bind(timestamp, "client_disconnect", timestamp, first.connectionId)
-      .run();
+    ).run(timestamp, "client_disconnect", timestamp, first.connectionId);
 
     const retriedSwitch = await request("/api/listeners/switch", {
       method: "POST",
@@ -1023,12 +834,10 @@ describe("listener lifecycle", () => {
     });
     expect(await presenceTotal(program.id)).toBe(0);
 
-    const successorCount = await testEnv.DB.prepare(
+    const successorCount = testEnv.DB.prepare(
       `SELECT COUNT(*) as count FROM listener_connections
       WHERE switch_from_connection_id = ?`
-    )
-      .bind(first.connectionId)
-      .first<{ count: number }>();
+    ).get(first.connectionId) as { count: number } | undefined;
     expect(successorCount?.count).toBe(0);
   });
 
@@ -1049,7 +858,7 @@ describe("listener lifecycle", () => {
     });
 
     expect(requested.status).toBe(201);
-    const connection = await requested.json<{ connectionId: string }>();
+    const connection = (await requested.json()) as { connectionId: string };
     expect(await presenceTotal(program.id)).toBe(0);
 
     const report = await request(
@@ -1085,7 +894,7 @@ describe("listener lifecycle", () => {
         clientId: "client_1"
       })
     });
-    const first = await requested.json<{ connectionId: string }>();
+    const first = (await requested.json()) as { connectionId: string };
 
     await request("/api/listeners/connected", {
       method: "POST",
@@ -1109,7 +918,7 @@ describe("listener lifecycle", () => {
     });
 
     expect(reconnected.status).toBe(201);
-    const next = await reconnected.json<{ connectionId: string }>();
+    const next = (await reconnected.json()) as { connectionId: string };
     expect(await presenceTotal(program.id)).toBe(0);
 
     const retriedReconnect = await request("/api/listeners/reconnect", {
@@ -1125,13 +934,13 @@ describe("listener lifecycle", () => {
       connectionId: next.connectionId
     });
 
-    const linked = await testEnv.DB.prepare(
+    const linked = testEnv.DB.prepare(
       `SELECT reconnect_of_connection_id as reconnectOfConnectionId
       FROM listener_connections
       WHERE id = ?`
-    )
-      .bind(next.connectionId)
-      .first<{ reconnectOfConnectionId: string | null }>();
+    ).get(next.connectionId) as
+      | { reconnectOfConnectionId: string | null }
+      | undefined;
     expect(linked?.reconnectOfConnectionId).toBe(first.connectionId);
 
     const report = await request(
@@ -1140,7 +949,7 @@ describe("listener lifecycle", () => {
         headers: { Cookie: cookie }
       }
     );
-    const reportBody = await report.json<{
+    const reportBody = (await report.json()) as {
       total: number;
       connections: Array<{
         id: string;
@@ -1149,7 +958,7 @@ describe("listener lifecycle", () => {
         listenerIp: string;
         userAgent: string;
       }>;
-    }>();
+    };
     expect(reportBody.total).toBe(2);
     expect(reportBody.connections).toHaveLength(2);
     expect(
@@ -1166,12 +975,10 @@ describe("listener lifecycle", () => {
       userAgent: "Reconnect Browser"
     });
 
-    const successorCount = await testEnv.DB.prepare(
+    const successorCount = testEnv.DB.prepare(
       `SELECT COUNT(*) as count FROM listener_connections
       WHERE reconnect_of_connection_id = ?`
-    )
-      .bind(first.connectionId)
-      .first<{ count: number }>();
+    ).get(first.connectionId) as { count: number } | undefined;
     expect(successorCount?.count).toBe(1);
   });
 
@@ -1190,7 +997,7 @@ describe("listener lifecycle", () => {
         clientId: "client_1"
       })
     });
-    const first = await requested.json<{ connectionId: string }>();
+    const first = (await requested.json()) as { connectionId: string };
     await request("/api/listeners/connected", {
       method: "POST",
       body: JSON.stringify({ connectionId: first.connectionId })
@@ -1198,16 +1005,14 @@ describe("listener lifecycle", () => {
     expect(await presenceTotal(program.id)).toBe(1);
 
     const timestamp = new Date().toISOString();
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `UPDATE listener_connections
       SET subscription_status = 'disconnected',
           disconnected_at = ?,
           disconnect_reason = ?,
           updated_at = ?
       WHERE id = ?`
-    )
-      .bind(timestamp, "reconnected", timestamp, first.connectionId)
-      .run();
+    ).run(timestamp, "reconnected", timestamp, first.connectionId);
 
     const retriedReconnect = await request("/api/listeners/reconnect", {
       method: "POST",
@@ -1226,12 +1031,10 @@ describe("listener lifecycle", () => {
     expect(retriedReconnect.status).toBe(201);
     expect(await presenceTotal(program.id)).toBe(0);
 
-    const successorCount = await testEnv.DB.prepare(
+    const successorCount = testEnv.DB.prepare(
       `SELECT COUNT(*) as count FROM listener_connections
       WHERE reconnect_of_connection_id = ?`
-    )
-      .bind(first.connectionId)
-      .first<{ count: number }>();
+    ).get(first.connectionId) as { count: number } | undefined;
     expect(successorCount?.count).toBe(1);
   });
 });

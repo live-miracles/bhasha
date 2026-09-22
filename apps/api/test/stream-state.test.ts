@@ -128,56 +128,21 @@ describe("deriveStreamState", () => {
     ).toBe("offline");
   });
 
-  it("is silent for a live program with relay coords and no translator", () => {
-    expect(
-      deriveStreamState({
-        currentPublishSessionId: null,
-        audioActivity: undefined,
-        now: NOW,
-        degraded: false,
-        relayCoordsPresent: true,
-        programLive: true
-      })
-    ).toBe("silent");
-  });
-
-  it("is live when a translator is publishing even with relay coords and live program", () => {
-    expect(
-      deriveStreamState({
-        currentPublishSessionId: "publish_1",
-        audioActivity: {
-          publishSessionId: "publish_1",
-          lastAudioActivityAt: NOW - 2_000,
-          active: true
-        },
-        now: NOW,
-        degraded: false,
-        relayCoordsPresent: true,
-        programLive: true
-      })
-    ).toBe("live");
-  });
-
-  it("is offline when there is no relay and no live translator", () => {
+  // The Cloudflare-Realtime-relay fallback signal (`relayCoordsPresent`/
+  // `programLive`, which used to report "silent" for a live program with
+  // stale relay coordinates but no confirmed publisher) was removed along
+  // with the rest of the relay subsystem in Slice 1/3 -- deriveStreamState no
+  // longer accepts those parameters, and "no publisher pointer" now always
+  // means "offline" regardless of program status (already covered by the
+  // "is offline when there is no current publisher pointer" and "is offline
+  // when degraded and there is no pointer" cases above).
+  it("is offline with no publisher pointer regardless of program status", () => {
     expect(
       deriveStreamState({
         currentPublishSessionId: null,
         audioActivity: undefined,
         now: NOW,
         degraded: false
-      })
-    ).toBe("offline");
-  });
-
-  it("is offline for archived or draft programs even when relay coords are present", () => {
-    expect(
-      deriveStreamState({
-        currentPublishSessionId: null,
-        audioActivity: undefined,
-        now: NOW,
-        degraded: false,
-        relayCoordsPresent: true,
-        programLive: false
       })
     ).toBe("offline");
   });

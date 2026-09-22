@@ -1,14 +1,14 @@
+import type { Database } from "../../src/db/sqlite";
+
 /**
- * Test helper: wraps a `D1Database` so every `prepare(sql)` call pushes its SQL
- * string into `log`. Lets a test assert *how many* and *which* statements a flow
- * issues — used to characterize and then pin the D1 round-trip budget of the
- * listener JOIN hot path.
+ * Test helper: wraps a better-sqlite3 `Database` so every `prepare(sql)` call
+ * pushes its SQL string into `log`. Lets a test assert *how many* and *which*
+ * statements a flow issues -- used to characterize and then pin the DB
+ * round-trip budget of the listener JOIN hot path.
  *
- * Mirrors the `Proxy`-over-`prepare` pattern already used in
- * `listener-realtime.test.ts` (`disconnectBeforeSessionPersistenceDb`), but
- * read-only: it observes the SQL without mutating behavior.
+ * Read-only: it observes the SQL without mutating behavior.
  */
-export function countingDb(db: D1Database, log: string[]): D1Database {
+export function countingDb(db: Database, log: string[]): Database {
   return new Proxy(db, {
     get(target, property, receiver) {
       if (property !== "prepare") {
@@ -21,7 +21,7 @@ export function countingDb(db: D1Database, log: string[]): D1Database {
         return target.prepare(sql);
       };
     }
-  }) as D1Database;
+  }) as Database;
 }
 
 /** True when the SQL statement is a SELECT (ignoring leading whitespace). */

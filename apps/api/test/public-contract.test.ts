@@ -1,21 +1,11 @@
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import worker from "../src/index";
-import { testEnv } from "./test-env";
+import { createApp } from "../src/index";
+import { buildTestEnv, testEnv } from "./test-env";
 
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
-
-async function request(path: string, init: IncomingRequestInit = {}) {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    testEnv,
-    ctx
-  );
-  await waitOnExecutionContext(ctx);
-  return response;
+async function request(path: string, init: RequestInit = {}) {
+  const app = createApp(buildTestEnv());
+  return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
 async function seedProgramWithStreams(
@@ -38,7 +28,7 @@ async function seedProgramWithStreams(
      created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
   )
-    .bind(
+    .run(
       programId,
       "patna-event-2026",
       "Patna Event 2026",
@@ -48,8 +38,7 @@ async function seedProgramWithStreams(
       "admin-only notes",
       now,
       now
-    )
-    .run();
+    );
 
   for (const stream of [
     {
@@ -92,7 +81,7 @@ async function seedProgramWithStreams(
        is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-      .bind(
+      .run(
         stream.id,
         programId,
         stream.languageName,
@@ -105,8 +94,7 @@ async function seedProgramWithStreams(
         stream.currentTrackId,
         now,
         now
-      )
-      .run();
+      );
   }
 
   return {
@@ -194,8 +182,6 @@ describe("public program contract", () => {
     for (const value of privateRealtimeValues) {
       expect(text).not.toContain(value);
     }
-    expect(text).not.toContain(testEnv.CLOUDFLARE_REALTIME_APP_ID);
-    expect(text).not.toContain(testEnv.CLOUDFLARE_REALTIME_APP_SECRET);
   });
 
   it("returns not-listenable state for a draft public program", async () => {
@@ -291,8 +277,7 @@ describe("public program contract", () => {
     await testEnv.DB.prepare(
       "UPDATE programs SET deleted_at = ?, updated_at = ? WHERE id = ?"
     )
-      .bind(new Date().toISOString(), new Date().toISOString(), programId)
-      .run();
+      .run(new Date().toISOString(), new Date().toISOString(), programId);
 
     const response = await request("/api/public/programs/patna-event-2026");
     expect(response.status).toBe(404);

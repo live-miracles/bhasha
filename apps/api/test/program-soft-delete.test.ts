@@ -27,23 +27,21 @@ async function seedProgram(
   const id = `program_soft_delete_${crypto.randomUUID()}`;
   const slug = `${status}-${id}`;
   const now = new Date().toISOString();
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO programs
     (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      id,
-      slug,
-      `Program ${slug}`,
-      "Main Hall",
-      "2026-08-01",
-      status,
-      "test program notes",
-      now,
-      now
-    )
-    .run();
+  ).run(
+    id,
+    slug,
+    `Program ${slug}`,
+    "Main Hall",
+    "2026-08-01",
+    status,
+    "test program notes",
+    now,
+    now
+  );
 
   return { id, slug };
 }

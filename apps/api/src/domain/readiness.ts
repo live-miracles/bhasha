@@ -142,8 +142,8 @@ export function buildReadinessItems(inputs: ReadinessInputs): ReadinessItem[] {
     label: "Realtime SFU configured",
     status: inputs.realtimeConfigured ? "green" : "blocker",
     detail: inputs.realtimeConfigured
-      ? "Cloudflare Realtime SFU credentials are configured."
-      : "Cloudflare Realtime SFU credentials are not configured."
+      ? "LiveKit server credentials (LIVEKIT_URL/API_KEY/API_SECRET) are configured."
+      : "LiveKit server credentials (LIVEKIT_URL/API_KEY/API_SECRET) are not configured."
   });
 
   items.push({
@@ -151,8 +151,8 @@ export function buildReadinessItems(inputs: ReadinessInputs): ReadinessItem[] {
     label: "TURN credentials configured",
     status: inputs.turnConfigured ? "green" : "blocker",
     detail: inputs.turnConfigured
-      ? "Cloudflare TURN credentials are configured for restrictive networks."
-      : "Cloudflare TURN is not configured; listeners on restrictive networks may fail to connect."
+      ? "LiveKit's built-in TURN server is available (same LiveKit credentials as above)."
+      : "LiveKit is not configured, so its built-in TURN server is unavailable; listeners on restrictive networks may fail to connect."
   });
 
   items.push({
@@ -160,7 +160,7 @@ export function buildReadinessItems(inputs: ReadinessInputs): ReadinessItem[] {
     label: "TURN analytics tagging",
     status: "warning",
     detail:
-      "TURN usage analytics tagging is not enabled because Slice 10 uses generate-ice-servers without custom identifiers."
+      "TURN usage analytics tagging is not available with LiveKit's built-in TURN server in this slice."
   });
 
   const smokeAt = inputs.row?.realtimeSmokeTestedAt ?? null;

@@ -70,17 +70,17 @@ import {
   isConfirmableReadinessItem,
   type AdminReadinessResponse
 } from "../domain/readiness";
-import {
-  ensureStreamRelay,
-  ensureProgramActiveStreamRelays,
-  syncProgramRelaysForStatus,
-  teardownStreamRelay
-} from "../relay/relayLifecycle";
-import { detachRelay } from "../relay/relayControl";
-import { isTurnConfigured } from "../realtime/cloudflareTurn";
 import type { Env } from "../env";
-import { json, readJson } from "../http";
+import { json, readJson, type WaitUntilCtx } from "../http";
+import {
+  createRoomServiceClient,
+  deleteRoomBestEffort,
+  isLiveKitConfigured,
+  removeParticipantBestEffort
+} from "../livekit/client";
+import { roomNameForStream, translatorIdentity } from "../livekit/tokens";
 import { readPresenceStatusSnapshot } from "../presence/status";
+import type { RoomServiceClient } from "livekit-server-sdk";
 import { DEVICE_LABELS } from "../domain/deviceLabel";
 import { deriveStreamState } from "../presence/streamState";
 import {
@@ -615,6 +615,37 @@ function adminProgramPayload(detail: AdminProgramDetail, origin: string) {
   };
 }
 
+// Best-effort teardown of every stream's LiveKit room for a program, used at
+// the program-archive/soft-delete/PATCH-to-non-live points below. LiveKit
+// rooms are created implicitly on first participant join, so there is no
+// matching "create rooms" call needed at the mirror-image transitions
+// (restore-to-live, PATCH-to-live, stream create) -- explicit pre-creation
+// would only be useful for a synchronous "the room is ready before anyone
+// joins" guarantee, which nothing in this codebase depends on.
+async function teardownProgramRoomsBestEffort(
+  programs: ProgramRepository,
+  roomService: RoomServiceClient,
+  programId: string
+): Promise<void> {
+  try {
+    const streams = await programs.listAdminStreams(programId);
+    await Promise.all(
+      streams.map((stream) =>
+        deleteRoomBestEffort(roomService, roomNameForStream(programId, stream.id))
+      )
+    );
+  } catch (error) {
+    console.info(
+      JSON.stringify({
+        level: "info",
+        msg: "livekit_teardown_program_rooms_failed",
+        programId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    );
+  }
+}
+
 async function adminProgramDetailResponse(
   programs: ProgramRepository,
   programId: string,
@@ -625,12 +656,19 @@ async function adminProgramDetailResponse(
 }
 
 function isRealtimeConfigured(env: Env): boolean {
-  return (
-    typeof env.CLOUDFLARE_REALTIME_APP_ID === "string" &&
-    env.CLOUDFLARE_REALTIME_APP_ID.trim().length > 0 &&
-    typeof env.CLOUDFLARE_REALTIME_APP_SECRET === "string" &&
-    env.CLOUDFLARE_REALTIME_APP_SECRET.trim().length > 0
-  );
+  return isLiveKitConfigured(env);
+}
+
+// LiveKit bundles its own built-in TURN server -- there is no separate TURN
+// credential to configure/check the way Cloudflare Realtime needed
+// (CLOUDFLARE_TURN_KEY_ID/TOKEN). This mirrors isRealtimeConfigured() rather
+// than being removed outright because the readiness checklist
+// (domain/readiness.ts) still surfaces "TURN credentials configured" as its
+// own line item for operators -- keeping a second (identical) function here
+// documents *why* the two flags happen to always agree now, instead of
+// leaving a caller to wonder if that's a bug.
+function isTurnConfigured(env: Env): boolean {
+  return isLiveKitConfigured(env);
 }
 
 async function buildReadinessResponse(
@@ -670,7 +708,12 @@ export async function handleAdminRoutes(
   request: Request,
   env: Env,
   url: URL,
-  ctx: ExecutionContext
+  _ctx: WaitUntilCtx,
+  // Defaults to a real RoomServiceClient built from `env`; tests inject a
+  // fake directly (see the DI note on handleLiveKitWebhook in
+  // livekit/webhook.ts for why -- the same setupFile-eager-import problem
+  // rules out `vi.mock` here).
+  roomService: RoomServiceClient = createRoomServiceClient(env)
 ): Promise<Response | null> {
   const programs = new ProgramRepository(env.DB);
   const listeners = new ListenerRepository(env.DB);
@@ -1247,27 +1290,18 @@ export async function handleAdminRoutes(
       }
 
       try {
-        const { record, previousStatus } = await programs.updateProgram(
-          programId,
-          input
-        );
-        if (record.status !== previousStatus) {
-          ctx.waitUntil(
-            (async () => {
-              try {
-                await syncProgramRelaysForStatus({
-                  env,
-                  request,
-                  programId,
-                  from: previousStatus,
-                  to: record.status,
-                  softDeleted: false
-                });
-              } catch (error) {
-                console.error("admin status relay sync failed", error);
-              }
-            })()
-          );
+        const updateResult = await programs.updateProgram(programId, input);
+        // LiveKit rooms are created implicitly on join, so there's nothing to
+        // do on a transition INTO "live" -- but a transition OUT of "live"
+        // (back to draft, or archived via this generic PATCH rather than the
+        // dedicated /archive endpoint) should proactively tear down any
+        // rooms so no stray publisher/listener lingers in a room whose
+        // program the admin just took off the air.
+        if (
+          updateResult.previousStatus === "live" &&
+          updateResult.record.status !== "live"
+        ) {
+          await teardownProgramRoomsBestEffort(programs, roomService, programId);
         }
 
         return await adminProgramDetailResponse(programs, programId, url.origin);
@@ -1304,22 +1338,7 @@ export async function handleAdminRoutes(
             console.error("admin program soft-delete clear streams live failed", error);
           }
 
-          ctx.waitUntil(
-            (async () => {
-              try {
-                await syncProgramRelaysForStatus({
-                  env,
-                  request,
-                  programId,
-                  from: "live",
-                  to: "live",
-                  softDeleted: true
-                });
-              } catch (error) {
-                console.error("admin program soft-delete relay sync failed", error);
-              }
-            })()
-          );
+          await teardownProgramRoomsBestEffort(programs, roomService, programId);
         }
 
         return new Response(null, { status: 200 });
@@ -1348,18 +1367,10 @@ export async function handleAdminRoutes(
 
     try {
       await programs.restoreProgram(programId);
-      const program = await programs.getProgramById(programId);
-      if (program?.status === "live") {
-        ctx.waitUntil(
-          (async () => {
-            try {
-              await ensureProgramActiveStreamRelays({ env, request, programId });
-            } catch (error) {
-              console.error("admin program restore relay sync failed", error);
-            }
-          })()
-        );
-      }
+      // No explicit LiveKit room (re-)creation needed here -- rooms are
+      // created implicitly on first participant join, unlike the old
+      // Cloudflare-Realtime StreamRelay which needed a synchronous
+      // ensureProgramActiveStreamRelays call to pre-provision relay state.
       return new Response(null, { status: 200 });
     } catch (error) {
       return repositoryErrorResponse(error);
@@ -1421,27 +1432,11 @@ export async function handleAdminRoutes(
         }))
       };
 
-      const _archive = await programs.archiveProgram(programId, JSON.stringify(snapshot));
-      const { previousStatus } = _archive;
+      await programs.archiveProgram(programId, JSON.stringify(snapshot));
       const realtime = new RealtimeStreamRepository(env.DB);
       await realtime.clearProgramStreamsLive(programId);
 
-      ctx.waitUntil(
-        (async () => {
-          try {
-            await syncProgramRelaysForStatus({
-              env,
-              request,
-              programId,
-              from: previousStatus,
-              to: "archived",
-              softDeleted: false
-            });
-          } catch (error) {
-            console.error("admin archive relay sync failed", error);
-          }
-        })()
-      );
+      await teardownProgramRoomsBestEffort(programs, roomService, programId);
 
       return await adminProgramDetailResponse(programs, programId, url.origin);
     } catch (error) {
@@ -1467,7 +1462,7 @@ export async function handleAdminRoutes(
     }
 
     try {
-      const readDb = env.DB.withSession("first-unconstrained");
+      const readDb = env.DB;
       const listeners = new ListenerRepository(readDb);
       const { filters, page } = parseListenerReportQuery(url.searchParams);
       const result = await listeners.listProgramConnectionsPage(
@@ -1499,7 +1494,7 @@ export async function handleAdminRoutes(
     }
 
     try {
-      const readDb = env.DB.withSession("first-unconstrained");
+      const readDb = env.DB;
       const listeners = new ListenerRepository(readDb);
       const program = access;
 
@@ -1577,7 +1572,7 @@ export async function handleAdminRoutes(
     }
 
     try {
-      const readDb = env.DB.withSession("first-unconstrained");
+      const readDb = env.DB;
       const listeners = new ListenerRepository(readDb);
       const program = access;
 
@@ -1660,7 +1655,7 @@ export async function handleAdminRoutes(
     }
 
     try {
-      const readDb = env.DB.withSession("first-unconstrained");
+      const readDb = env.DB;
       const listeners = new ListenerRepository(readDb);
 
       return json(
@@ -1810,26 +1805,16 @@ export async function handleAdminRoutes(
     }
 
     try {
-      const readDb = env.DB.withSession("first-unconstrained");
-      if (env.DEBUG_D1_REPLICA === "true") {
-        const probe = await readDb.prepare("SELECT 1 AS ok").all();
-        console.log(JSON.stringify({
-          msg: "admin_read_replica",
-          endpoint: "status",
-          served_by_primary: probe.meta?.served_by_primary,
-          served_by_region: probe.meta?.served_by_region
-        }));
-      }
+      const readDb = env.DB;
       const programs = new ProgramRepository(readDb);
       const listeners = new ListenerRepository(readDb);
       const realtime = new RealtimeStreamRepository(readDb);
-      const [program, streams, presence, activePublishers, relayVersionByStream, activeListeners] =
+      const [program, streams, presence, activePublishers, activeListeners] =
         await Promise.all([
           programs.getProgramById(programId),
           programs.listAdminStreams(programId),
           readPresenceStatusSnapshot(env, programId),
           realtime.listActivePublishers(programId),
-          realtime.listRelayVersions(programId),
           listeners
             .countActiveListeners(programId, ACTIVE_LISTENER_WINDOW_SECONDS)
             .then((d1Count) => resolveActiveListenerCount(env, programId, d1Count))
@@ -1857,14 +1842,17 @@ export async function handleAdminRoutes(
           languageName: stream.languageName,
           languageCode: stream.languageCode,
           isActive: stream.isActive,
+          // "Confirmed publisher" (currentPublishSessionId) is set by
+          // livekit/webhook.ts's track_published handling once a
+          // translator's audio track is actually flowing -- see
+          // realtimeStreamRepository.ts's markPublisherTrackLive and
+          // listActivePublishers.
           state: deriveStreamState({
             currentPublishSessionId:
               publishSessionByStream.get(stream.id) ?? null,
             audioActivity: presence.audioActivity[stream.id],
             now,
-            degraded: presence.degraded,
-            relayCoordsPresent: relayVersionByStream.has(stream.id),
-            programLive: program.status === "live"
+            degraded: presence.degraded
           }),
           activeListeners: activeListenersByStream.get(stream.id) ?? 0
         })),
@@ -1938,15 +1926,11 @@ export async function handleAdminRoutes(
         translatorId,
         sessionId
       );
-      if (freed?.cloudflareSessionId) {
-        ctx.waitUntil(
-          detachRelay({
-            env,
-            request,
-            programId,
-            streamId: freed.streamId,
-            sessionId: freed.cloudflareSessionId
-          })
+      if (freed) {
+        await removeParticipantBestEffort(
+          roomService,
+          roomNameForStream(programId, freed.streamId),
+          translatorIdentity(translatorId)
         );
       }
 
@@ -1989,24 +1973,20 @@ export async function handleAdminRoutes(
         return json({ error: "translator_not_found" }, { status: 404 });
       }
 
-      const freedList = await translators.revokeAllSessionsForTranslator(
+      const freed = await translators.revokeAllSessionsForTranslator(
         realtime,
         programId,
         translatorId
       );
-      for (const freed of freedList) {
-        if (freed.cloudflareSessionId) {
-          ctx.waitUntil(
-            detachRelay({
-              env,
-              request,
-              programId,
-              streamId: freed.streamId,
-              sessionId: freed.cloudflareSessionId
-            })
-          );
-        }
-      }
+      await Promise.all(
+        freed.map((entry) =>
+          removeParticipantBestEffort(
+            roomService,
+            roomNameForStream(programId, entry.streamId),
+            translatorIdentity(translatorId)
+          )
+        )
+      );
 
       console.info(
         JSON.stringify({
@@ -2074,17 +2054,11 @@ export async function handleAdminRoutes(
         );
       }
 
-      if (freed.cloudflareSessionId) {
-        ctx.waitUntil(
-          detachRelay({
-            env,
-            request,
-            programId,
-            streamId: freed.streamId,
-            sessionId: freed.cloudflareSessionId
-          })
-        );
-      }
+      await removeParticipantBestEffort(
+        roomService,
+        roomNameForStream(programId, streamId),
+        translatorIdentity(freed.translatorId)
+      );
 
       console.info(
         JSON.stringify({
@@ -2142,24 +2116,10 @@ export async function handleAdminRoutes(
 
       try {
         const stream = await programs.createStream(programId, input);
-        const program = await programs.getProgramById(programId);
-
-        if (program?.status === "live") {
-          ctx.waitUntil(
-            (async () => {
-              try {
-                await ensureStreamRelay({
-                  env,
-                  request,
-                  programId,
-                  streamId: stream.id
-                });
-              } catch (error) {
-                console.error("admin create stream relay ensure failed", error);
-              }
-            })()
-          );
-        }
+        // No explicit LiveKit room creation needed here (unlike the old
+        // Cloudflare-Realtime ensureStreamRelay, which had to synchronously
+        // provision relay state) -- the room is created implicitly the
+        // first time a translator or listener joins it.
 
         return json(stream, {
           status: 201
@@ -2211,20 +2171,7 @@ export async function handleAdminRoutes(
 
       try {
         await programs.deleteStream(programId, streamId);
-        ctx.waitUntil(
-          (async () => {
-            try {
-              await teardownStreamRelay({
-                env,
-                request,
-                programId,
-                streamId
-              });
-            } catch (error) {
-              console.error("admin delete stream relay teardown failed", error);
-            }
-          })()
-        );
+        await deleteRoomBestEffort(roomService, roomNameForStream(programId, streamId));
         return new Response(null, { status: 204 });
       } catch (error) {
         return repositoryErrorResponse(error);

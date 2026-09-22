@@ -49,38 +49,34 @@ async function seedProgram(streamCount = 1): Promise<SeededProgram> {
   const programId = `program_presence_${suffix}`;
   const slug = `presence-program-${suffix}`;
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO programs
     (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(programId, slug, "Presence Event", "Hall", "2026-08-01", "live", "", now, now)
-    .run();
+  ).run(programId, slug, "Presence Event", "Hall", "2026-08-01", "live", "", now, now);
 
   const streamIds: string[] = [];
   for (let index = 0; index < streamCount; index += 1) {
     const streamId = `stream_${index}_${suffix}`;
     streamIds.push(streamId);
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `INSERT INTO language_streams
       (id, program_id, language_name, language_code, display_order, is_active,
        is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(
-        streamId,
-        programId,
-        `Lang ${index}`,
-        `l${index}`,
-        index,
-        1,
-        0,
-        null,
-        null,
-        now,
-        now
-      )
-      .run();
+    ).run(
+      streamId,
+      programId,
+      `Lang ${index}`,
+      `l${index}`,
+      index,
+      1,
+      0,
+      null,
+      null,
+      now,
+      now
+    );
   }
 
   return { programId, streamIds };
@@ -111,11 +107,9 @@ async function seedRequestedListener(
 
 /** Reads the raw last_seen_at column for a connection. */
 async function readLastSeenAt(connectionId: string): Promise<string | null> {
-  const row = await testEnv.DB.prepare(
+  const row = testEnv.DB.prepare(
     "SELECT last_seen_at as lastSeenAt FROM listener_connections WHERE id = ?"
-  )
-    .bind(connectionId)
-    .first<{ lastSeenAt: string | null }>();
+  ).get(connectionId) as { lastSeenAt: string | null } | undefined;
   return row?.lastSeenAt ?? null;
 }
 
@@ -124,11 +118,9 @@ async function setLastSeenAt(
   connectionId: string,
   isoTimestamp: string
 ): Promise<void> {
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     "UPDATE listener_connections SET last_seen_at = ? WHERE id = ?"
-  )
-    .bind(isoTimestamp, connectionId)
-    .run();
+  ).run(isoTimestamp, connectionId);
 }
 
 async function insertConnectionWithoutDeviceLabel(
@@ -138,45 +130,41 @@ async function insertConnectionWithoutDeviceLabel(
   createdAt: string
 ): Promise<string> {
   const id = `legacy_connection_${crypto.randomUUID()}`;
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO listener_connections
     (id, program_id, language_stream_id, client_id, token_issued_at,
      subscription_status, connected_at, disconnected_at, disconnect_reason,
      switch_from_connection_id, reconnect_of_connection_id, listener_ip,
      user_agent, device_label, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      id,
-      programId,
-      streamId,
-      `client_${id}`,
-      createdAt,
-      "requested",
-      null,
-      null,
-      null,
-      null,
-      null,
-      "203.0.113.1",
-      userAgent,
-      null,
-      createdAt,
-      createdAt
-    )
-    .run();
+  ).run(
+    id,
+    programId,
+    streamId,
+    `client_${id}`,
+    createdAt,
+    "requested",
+    null,
+    null,
+    null,
+    null,
+    null,
+    "203.0.113.1",
+    userAgent,
+    null,
+    createdAt,
+    createdAt
+  );
 
   return id;
 }
 
 async function listRawConnections(programId: string): Promise<RawConnection[]> {
-  const { results } = await testEnv.DB.prepare(
+  const results = testEnv.DB.prepare(
     `SELECT user_agent as userAgent, device_label as deviceLabel
       FROM listener_connections
       WHERE program_id = ?`
-  )
-    .bind(programId)
-    .all<{ userAgent: string; deviceLabel: string | null }>();
+  ).all(programId) as Array<{ userAgent: string; deviceLabel: string | null }>;
 
   return results.map((row) => ({
     userAgent: row.userAgent,
@@ -368,13 +356,11 @@ describe("ListenerRepository presence tracking", () => {
         userAgent
       });
 
-      const row = await testEnv.DB.prepare(
+      const row = testEnv.DB.prepare(
         `SELECT device_label as deviceLabel
         FROM listener_connections
         WHERE id = ?`
-      )
-        .bind(connection.id)
-        .first<{ deviceLabel: string | null }>();
+      ).get(connection.id) as { deviceLabel: string | null } | undefined;
 
       expect(row?.deviceLabel).toBe(deviceLabelFromUserAgent(userAgent));
     });

@@ -10,6 +10,7 @@ import {
 } from "../src/db/listenerRepository";
 import { deviceLabelFromUserAgent } from "../src/domain/deviceLabel";
 import { deviceModelNameFromCode } from "../src/domain/deviceModelName";
+import type { Database } from "../src/db/sqlite";
 import { testEnv } from "./test-env";
 
 interface SeededProgram {
@@ -27,17 +28,17 @@ interface SeededReportRow {
 }
 
 async function resetDb(): Promise<void> {
-  await testEnv.DB.exec("DELETE FROM listener_access");
-  await testEnv.DB.exec("DELETE FROM listener_realtime_cleanup_targets");
-  await testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
-  await testEnv.DB.exec("DELETE FROM translator_sessions");
-  await testEnv.DB.exec("DELETE FROM stream_events");
-  await testEnv.DB.exec("DELETE FROM listener_connections");
-  await testEnv.DB.exec("DELETE FROM admin_sessions");
-  await testEnv.DB.exec("DELETE FROM translator_stream_assignments");
-  await testEnv.DB.exec("DELETE FROM translators");
-  await testEnv.DB.exec("DELETE FROM language_streams");
-  await testEnv.DB.exec("DELETE FROM programs");
+  testEnv.DB.exec("DELETE FROM listener_access");
+  testEnv.DB.exec("DELETE FROM listener_realtime_cleanup_targets");
+  testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
+  testEnv.DB.exec("DELETE FROM translator_sessions");
+  testEnv.DB.exec("DELETE FROM stream_events");
+  testEnv.DB.exec("DELETE FROM listener_connections");
+  testEnv.DB.exec("DELETE FROM admin_sessions");
+  testEnv.DB.exec("DELETE FROM translator_stream_assignments");
+  testEnv.DB.exec("DELETE FROM translators");
+  testEnv.DB.exec("DELETE FROM language_streams");
+  testEnv.DB.exec("DELETE FROM programs");
 }
 
 async function seedProgram(
@@ -49,59 +50,35 @@ async function seedProgram(
   const now = new Date().toISOString();
   const [streamA, streamB] = [`stream_a_${suffix}`, `stream_b_${suffix}`];
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO programs
     (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      programId,
-      slug,
-      "Report repository test program",
-      "Main Hall",
-      "2026-08-01",
-      status,
-      "",
-      now,
-      now
-    )
-    .run();
+  ).run(
+    programId,
+    slug,
+    "Report repository test program",
+    "Main Hall",
+    "2026-08-01",
+    status,
+    "",
+    now,
+    now
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO language_streams
     (id, program_id, language_name, language_code, display_order, is_active,
      is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)`
-  )
-    .bind(
-      streamA,
-      programId,
-      "Hindi",
-      "hi",
-      1,
-      1,
-      now,
-      now
-    )
-    .run();
+  ).run(streamA, programId, "Hindi", "hi", 1, 1, now, now);
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO language_streams
     (id, program_id, language_name, language_code, display_order, is_active,
      is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)`
-  )
-    .bind(
-      streamB,
-      programId,
-      "Tamil",
-      "ta",
-      2,
-      1,
-      now,
-      now
-    )
-    .run();
+  ).run(streamB, programId, "Tamil", "ta", 2, 1, now, now);
 
   return { programId, streams: [streamA, streamB] };
 }
@@ -125,7 +102,7 @@ async function insertConnection(input: {
   disconnectReason?: string | null;
   listenerIp?: string;
 }): Promise<void> {
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO listener_connections
     (id, program_id, language_stream_id, client_id, token_issued_at,
      subscription_status, connected_at, last_seen_at, disconnected_at, disconnect_reason,
@@ -133,31 +110,29 @@ async function insertConnection(input: {
      user_agent, device_label, client_device_model, client_platform,
      client_platform_version, client_browser_full_version, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      input.id,
-      input.programId,
-      input.streamId,
-      input.clientId ?? `client_${input.id}`,
-      input.createdAt,
-      input.subscriptionStatus,
-      input.connectedAt ?? null,
-      input.lastSeenAt ?? null,
-      input.disconnectedAt ?? null,
-      input.disconnectReason ?? null,
-      null,
-      null,
-      input.listenerIp ?? "203.0.113.10",
-      input.userAgent,
-      input.deviceLabel ?? null,
-      input.deviceModel ?? null,
-      input.platform ?? null,
-      input.platformVersion ?? null,
-      input.browserFullVersion ?? null,
-      input.createdAt,
-      input.createdAt
-    )
-    .run();
+  ).run(
+    input.id,
+    input.programId,
+    input.streamId,
+    input.clientId ?? `client_${input.id}`,
+    input.createdAt,
+    input.subscriptionStatus,
+    input.connectedAt ?? null,
+    input.lastSeenAt ?? null,
+    input.disconnectedAt ?? null,
+    input.disconnectReason ?? null,
+    null,
+    null,
+    input.listenerIp ?? "203.0.113.10",
+    input.userAgent,
+    input.deviceLabel ?? null,
+    input.deviceModel ?? null,
+    input.platform ?? null,
+    input.platformVersion ?? null,
+    input.browserFullVersion ?? null,
+    input.createdAt,
+    input.createdAt
+  );
 }
 
 async function insertListenerAccess(input: {
@@ -174,27 +149,25 @@ async function insertListenerAccess(input: {
   revokedAt?: string | null;
   supersededAt?: string | null;
 }): Promise<void> {
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO listener_access
     (id, program_id, client_id, short_code, claim_secret_hash, status,
      access_token_hash, created_at, approved_at, approved_via, revoked_at, superseded_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      input.id,
-      input.programId,
-      input.clientId,
-      input.shortCode ?? crypto.randomUUID().replaceAll("-", "").slice(0, 6).toUpperCase(),
-      input.claimSecretHash ?? `hash_${input.id}`,
-      input.status,
-      input.accessTokenHash ?? null,
-      input.createdAt,
-      input.approvedAt ?? null,
-      input.approvedVia ?? null,
-      input.revokedAt ?? null,
-      input.supersededAt ?? null
-    )
-    .run();
+  ).run(
+    input.id,
+    input.programId,
+    input.clientId,
+    input.shortCode ?? crypto.randomUUID().replaceAll("-", "").slice(0, 6).toUpperCase(),
+    input.claimSecretHash ?? `hash_${input.id}`,
+    input.status,
+    input.accessTokenHash ?? null,
+    input.createdAt,
+    input.approvedAt ?? null,
+    input.approvedVia ?? null,
+    input.revokedAt ?? null,
+    input.supersededAt ?? null
+  );
 }
 
 async function insertEvent(input: {
@@ -205,32 +178,28 @@ async function insertEvent(input: {
   occurredAt: string;
   metadata?: Record<string, unknown>;
 }): Promise<void> {
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO stream_events
     (id, program_id, stream_program_id, language_stream_id, event_type,
      occurred_at, metadata_json)
     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      input.id,
-      input.programId,
-      input.streamId ? input.programId : null,
-      input.streamId,
-      input.eventType,
-      input.occurredAt,
-      JSON.stringify(input.metadata ?? {})
-    )
-    .run();
+  ).run(
+    input.id,
+    input.programId,
+    input.streamId ? input.programId : null,
+    input.streamId,
+    input.eventType,
+    input.occurredAt,
+    JSON.stringify(input.metadata ?? {})
+  );
 }
 
 async function subscribedEventCount(connectionId: string): Promise<number> {
-  const { results } = await testEnv.DB.prepare(
+  const results = testEnv.DB.prepare(
     `SELECT id FROM stream_events
     WHERE event_type = 'listener_subscribed'
       AND json_extract(metadata_json, '$.connectionId') = ?`
-  )
-    .bind(connectionId)
-    .all<{ id: string }>();
+  ).all(connectionId) as { id: string }[];
   return results.length;
 }
 
@@ -264,30 +233,26 @@ function reportConnectionRow(
 
 function stubCsvDb(
   results: Array<Omit<ListenerReportConnection, "deviceLabel"> & { deviceLabel: string | null }>
-): { db: D1Database; boundValues: unknown[] } {
+): { db: Database; boundValues: unknown[] } {
   const boundValues: unknown[] = [];
   const db = {
     prepare() {
       return {
-        bind(...values: unknown[]) {
+        all(...values: unknown[]) {
           boundValues.push(...values);
-          return {
-            async all() {
-              return { results };
-            }
-          };
+          return results;
         }
       };
     }
-  } as unknown as D1Database;
+  } as unknown as Database;
 
   return { db, boundValues };
 }
 
 function capturePreparedSql(
-  db: D1Database,
+  db: Database,
   onPrepare: (sql: string) => void
-): D1Database {
+): Database {
   return new Proxy(db, {
     get(target, property) {
       if (property === "prepare") {
@@ -516,11 +481,11 @@ describe("ListenerRepository pagination/filtering/report helpers", () => {
       throw new Error("expected listener report SQL to be prepared");
     }
 
-    const { results } = await testEnv.DB.prepare(
+    const results = testEnv.DB.prepare(
       `EXPLAIN QUERY PLAN ${reportSql}`
-    )
-      .bind(program.programId, program.programId, MAX_CSV_ROWS + 1)
-      .all<{ detail: string }>();
+    ).all(program.programId, program.programId, MAX_CSV_ROWS + 1) as {
+      detail: string;
+    }[];
     const plan = results.map((row) => row.detail).join("\n");
 
     expect(plan).toContain(
@@ -1313,9 +1278,10 @@ describe("ListenerRepository pagination/filtering/report helpers", () => {
     await seedConnections(program);
     const deletedAt = "2026-07-01T00:00:00.000Z";
 
-    await testEnv.DB.prepare("UPDATE programs SET deleted_at = ? WHERE id = ?")
-      .bind(deletedAt, program.programId)
-      .run();
+    testEnv.DB.prepare("UPDATE programs SET deleted_at = ? WHERE id = ?").run(
+      deletedAt,
+      program.programId
+    );
 
     await expect(
       repo.listProgramConnectionsPage(program.programId, {}, 1)

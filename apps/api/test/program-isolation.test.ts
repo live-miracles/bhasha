@@ -1,24 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { env } from "cloudflare:workers";
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
-import worker from "../src/index";
+import { createApp } from "../src/index";
 import {
   DEFAULT_TEST_ORG_ID,
   ORG_ADMIN_TEST_EMAIL,
   VIEWER_TEST_EMAIL,
   adminCookie,
+  buildTestEnv,
   seedOrg,
   seedOrgAdmin,
   seedPlatformAdmin,
   seedProgram,
-  seedViewer
+  seedViewer,
+  testEnv
 } from "./test-env";
-
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
-type TestEnv = Env & { ADMIN_TEST_PASSWORD: string };
-
-const testEnv = env as TestEnv;
 
 type ProgramIsolationIds = {
   programId: string;
@@ -244,17 +238,11 @@ function pathIds() {
   };
 }
 
-type RequestInitBody = IncomingRequestInit;
+type RequestInitBody = RequestInit;
 
 async function request(path: string, init: RequestInitBody = {}): Promise<Response> {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    testEnv,
-    ctx
-  );
-  await waitOnExecutionContext(ctx);
-  return response;
+  const app = createApp(buildTestEnv());
+  return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
 describe("program admin endpoint multi-tenant isolation", () => {

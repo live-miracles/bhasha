@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import { testEnv } from "./test-env";
 
 import migration from "../migrations/0001_initial.sql?raw";
 import migration2 from "../migrations/0002_realtime_control_plane.sql?raw";
@@ -37,7 +37,7 @@ async function execute(
   sql: string,
   ...bindings: Array<number | string | null>
 ): Promise<void> {
-  await (env as Env).DB.prepare(sql)
+  await testEnv.DB.prepare(sql)
     .bind(...bindings)
     .run();
 }
@@ -46,9 +46,9 @@ async function countRows(
   sql: string,
   ...bindings: Array<number | string>
 ): Promise<number> {
-  const row = await (env as Env).DB.prepare(sql)
+  const row = await testEnv.DB.prepare(sql)
     .bind(...bindings)
-    .first<{ count: number }>();
+    .get() as { count: number } | undefined;
   return row?.count ?? 0;
 }
 
@@ -57,7 +57,7 @@ async function executeMigrationSql(sql: string): Promise<void> {
     .split(";")
     .map((part) => part.trim())
     .filter(Boolean)) {
-    await (env as Env).DB.prepare(statement).run();
+    await testEnv.DB.prepare(statement).run();
   }
 }
 
@@ -542,17 +542,17 @@ WHERE reconnect_of_connection_id IS NOT NULL`
 
     await execute("DELETE FROM language_streams WHERE id = ?", graph.p1Stream);
 
-    const event = await (env as Env).DB.prepare(
+    const event = await testEnv.DB.prepare(
       `SELECT program_id, stream_program_id, language_stream_id
       FROM stream_events
       WHERE id = ?`
     )
       .bind(eventId)
-      .first<{
+      .get() as {
         program_id: string;
         stream_program_id: string | null;
         language_stream_id: string | null;
-      }>();
+      } | undefined;
 
     expect(event).toEqual({
       program_id: graph.p1,
@@ -601,9 +601,9 @@ describe("realtime control-plane D1 schema", () => {
 
     try {
       await executeMigrationSql(scratchMigration);
-      const { results: columns } = await (env as Env).DB.prepare(
+      const columns = await testEnv.DB.prepare(
         `PRAGMA table_info(${scratchTable})`
-      ).all<{ name: string; type: string; notnull: number; pk: number }>();
+      ).all() as Array<{ name: string; type: string; notnull: number; pk: number }>;
       expect(columns).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -625,9 +625,9 @@ describe("realtime control-plane D1 schema", () => {
         ])
       );
 
-      const { results: foreignKeys } = await (env as Env).DB.prepare(
+      const foreignKeys = await testEnv.DB.prepare(
         `PRAGMA foreign_key_list(${scratchTable})`
-      ).all<{ table: string; from: string; to: string; on_delete: string }>();
+      ).all() as Array<{ table: string; from: string; to: string; on_delete: string }>;
       expect(foreignKeys).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -639,7 +639,7 @@ describe("realtime control-plane D1 schema", () => {
         ])
       );
     } finally {
-      await (env as Env).DB.exec(`DROP TABLE IF EXISTS ${scratchTable}`);
+      await testEnv.DB.exec(`DROP TABLE IF EXISTS ${scratchTable}`);
     }
   });
 
@@ -692,7 +692,7 @@ describe("realtime control-plane D1 schema", () => {
 
     try {
       await executeMigrationSql(scratchMigration);
-      const { results } = await (env as Env).DB.prepare(
+      const results = await testEnv.DB.prepare(
         `SELECT connection_id as connectionId,
           cloudflare_session_id as cloudflareSessionId,
           cloudflare_track_mid as cloudflareTrackMid,
@@ -701,12 +701,12 @@ describe("realtime control-plane D1 schema", () => {
         WHERE connection_id = ?`
       )
         .bind(connectionId)
-        .all<{
+        .all() as Array<{
           connectionId: string;
           cloudflareSessionId: string;
           cloudflareTrackMid: string;
           cleanupState: string;
-        }>();
+        }>;
 
       expect(results).toEqual([
         {
@@ -717,14 +717,14 @@ describe("realtime control-plane D1 schema", () => {
         }
       ]);
     } finally {
-      await (env as Env).DB.exec(`DROP TABLE IF EXISTS ${scratchTable}`);
+      await testEnv.DB.exec(`DROP TABLE IF EXISTS ${scratchTable}`);
     }
   });
 
   it("applies the listener realtime track column to D1", async () => {
-    const { results } = await (env as Env).DB.prepare(
+    const results = await testEnv.DB.prepare(
       "PRAGMA table_info(listener_connections)"
-    ).all<{ name: string; type: string }>();
+    ).all() as Array<{ name: string; type: string }>;
 
     expect(results).toContainEqual(
       expect.objectContaining({
@@ -854,9 +854,9 @@ describe("retention D1 schema", () => {
   });
 
   it("applies the retention columns to D1", async () => {
-    const { results } = await (env as Env).DB.prepare(
+    const results = await testEnv.DB.prepare(
       "PRAGMA table_info(programs)"
-    ).all<{ name: string; type: string }>();
+    ).all() as Array<{ name: string; type: string }>;
     const columnNames = results.map((column) => column.name);
     expect(columnNames).toEqual(
       expect.arrayContaining([
@@ -887,9 +887,9 @@ describe("program readiness D1 schema", () => {
   });
 
   it("applies the program readiness table to D1", async () => {
-    const { results } = await (env as Env).DB.prepare(
+    const results = await testEnv.DB.prepare(
       "PRAGMA table_info(program_readiness_checks)"
-    ).all<{ name: string; type: string; pk: number }>();
+    ).all() as Array<{ name: string; type: string; pk: number }>;
     const byName = new Map(results.map((column) => [column.name, column]));
 
     expect(byName.get("program_id")).toMatchObject({ type: "TEXT", pk: 1 });
@@ -1190,25 +1190,25 @@ describe("translator email D1 schema", () => {
   });
 
   it("applies the email column to D1 as nullable TEXT", async () => {
-    const { results } = await (env as Env).DB.prepare(
+    const results = await testEnv.DB.prepare(
       "PRAGMA table_info(translators)"
-    ).all<{ name: string; type: string; notnull: number }>();
+    ).all() as Array<{ name: string; type: string; notnull: number }>;
     const byName = new Map(results.map((column) => [column.name, column]));
     expect(byName.get("email")).toMatchObject({ type: "TEXT", notnull: 0 });
   });
 
   it("creates a unique index over (program_id, email)", async () => {
-    const { results: indexes } = await (env as Env).DB.prepare(
+    const indexes = await testEnv.DB.prepare(
       "PRAGMA index_list(translators)"
-    ).all<{ name: string; unique: number }>();
+    ).all() as Array<{ name: string; unique: number }>;
     const emailIndex = indexes.find(
       (index) => index.name === "idx_translators_program_email"
     );
     expect(emailIndex).toMatchObject({ unique: 1 });
 
-    const { results: columns } = await (env as Env).DB.prepare(
+    const columns = await testEnv.DB.prepare(
       "PRAGMA index_info(idx_translators_program_email)"
-    ).all<{ name: string }>();
+    ).all() as Array<{ name: string }>;
     expect(columns.map((column) => column.name)).toEqual([
       "program_id",
       "email"
@@ -1263,9 +1263,9 @@ describe("stream native name D1 schema", () => {
   });
 
   it("applies the native_name column to D1 as NOT NULL TEXT defaulting to empty", async () => {
-    const { results } = await (env as Env).DB.prepare(
+    const results = await testEnv.DB.prepare(
       "PRAGMA table_info(language_streams)"
-    ).all<{ name: string; type: string; notnull: number; dflt_value: string }>();
+    ).all() as Array<{ name: string; type: string; notnull: number; dflt_value: string }>;
     const columnNames = results.map((column) => column.name);
     expect(columnNames).toEqual(expect.arrayContaining(["native_name"]));
 
@@ -1278,11 +1278,11 @@ describe("stream native name D1 schema", () => {
 
   it("backfills existing rows with an empty native name", async () => {
     const graph = await seedProgramGraph();
-    const row = await (env as Env).DB.prepare(
+    const row = await testEnv.DB.prepare(
       "SELECT native_name as nativeName FROM language_streams WHERE id = ?"
     )
       .bind(graph.p1Stream)
-      .first<{ nativeName: string }>();
+      .get() as { nativeName: string } | undefined;
     expect(row?.nativeName).toBe("");
   });
 });
@@ -1311,20 +1311,20 @@ describe("stream native name backfill D1 schema", () => {
     // Migrations auto-apply on an empty table at setup, so re-run the backfill
     // statement after seeding legacy rows to verify it derives native script.
     const updateSql = migration9.slice(migration9.indexOf("UPDATE"));
-    await (env as Env).DB.prepare(updateSql).run();
+    await testEnv.DB.prepare(updateSql).run();
 
-    const hindi = await (env as Env).DB.prepare(
+    const hindi = await testEnv.DB.prepare(
       "SELECT native_name as nativeName FROM language_streams WHERE id = ?"
     )
       .bind(graph.p1Stream)
-      .first<{ nativeName: string }>();
+      .get() as { nativeName: string } | undefined;
     expect(hindi?.nativeName).toBe("हिन्दी");
 
-    const english = await (env as Env).DB.prepare(
+    const english = await testEnv.DB.prepare(
       "SELECT native_name as nativeName FROM language_streams WHERE id = ?"
     )
       .bind(graph.p2Stream)
-      .first<{ nativeName: string }>();
+      .get() as { nativeName: string } | undefined;
     expect(english?.nativeName).toBe("English");
   });
 });
@@ -1381,24 +1381,24 @@ describe("listener access control D1 schema", () => {
   });
 
   it("applies the listener access control schema to D1", async () => {
-    const programColumns = await (env as Env).DB.prepare(
+    const programColumns = await testEnv.DB.prepare(
       "PRAGMA table_info(programs)"
-    ).all<{
+    ).all() as Array<{
       name: string;
       type: string;
       notnull: number;
       dflt_value: string | null;
-    }>();
+    }>;
     expect(
-      programColumns.results.find(
+      programColumns.find(
         (column) => column.name === "access_control_enabled"
       )
     ).toMatchObject({ type: "INTEGER", notnull: 1, dflt_value: "0" });
 
-    const tables = await (env as Env).DB.prepare(
+    const tables = await testEnv.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table'"
-    ).all<{ name: string }>();
-    expect(tables.results.map((row) => row.name)).toEqual(
+    ).all() as Array<{ name: string }>;
+    expect(tables.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "volunteer_accounts",
         "volunteer_sessions",
@@ -1448,18 +1448,18 @@ describe("listener access control D1 schema", () => {
       ]
     } as const;
     for (const [table, columns] of Object.entries(expectedColumns)) {
-      const tableInfo = await (env as Env).DB.prepare(
+      const tableInfo = await testEnv.DB.prepare(
         `PRAGMA table_info(${table})`
-      ).all<{ name: string }>();
-      expect(tableInfo.results.map((column) => column.name)).toEqual(
+      ).all() as Array<{ name: string }>;
+      expect(tableInfo.map((column) => column.name)).toEqual(
         expect.arrayContaining(Array.from(columns))
       );
     }
 
-    const indexes = await (env as Env).DB.prepare(
+    const indexes = await testEnv.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'index'"
-    ).all<{ name: string }>();
-    expect(indexes.results.map((row) => row.name)).toEqual(
+    ).all() as Array<{ name: string }>;
+    expect(indexes.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "idx_volunteer_sessions_program",
         "idx_listener_access_program_code",
@@ -1470,11 +1470,11 @@ describe("listener access control D1 schema", () => {
       ])
     );
 
-    const tokenIndex = await (env as Env).DB.prepare(
+    const tokenIndex = await testEnv.DB.prepare(
       "SELECT sql FROM sqlite_master WHERE name = ?"
     )
       .bind("idx_listener_access_token")
-      .first<{ sql: string | null }>();
+      .get() as { sql: string | null } | undefined;
     expect(tokenIndex?.sql).toContain(
       "WHERE access_token_hash IS NOT NULL"
     );

@@ -1,7 +1,52 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RetentionRepository } from "../src/db/retentionRepository";
+import type { Database } from "../src/db/sqlite";
 import { testEnv } from "./test-env";
+
+/**
+ * The better-sqlite3 port of RetentionRepository's chunked-delete loops
+ * prepares each chunk-delete statement ONCE and then calls `.run()` on it
+ * repeatedly until a batch returns 0 changes (see `deleteInChunks` /
+ * `deleteDailyAccessInChunks` in src/db/retentionRepository.ts) -- unlike the
+ * old D1 code, which re-prepared the statement on every loop iteration. So
+ * counting `db.prepare()` calls no longer proves multiple chunks ran; this
+ * wraps `db` so every `.run()` call on a prepared statement is tallied by its
+ * originating SQL text instead.
+ */
+function countRunCallsBySql(db: Database): {
+  db: Database;
+  runCallCounts: () => Map<string, number>;
+} {
+  const counts = new Map<string, number>();
+  const wrapped = new Proxy(db, {
+    get(target, property, receiver) {
+      if (property !== "prepare") {
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+
+      return (sql: string) => {
+        const statement = target.prepare(sql);
+        return new Proxy(statement, {
+          get(stmtTarget, stmtProperty, stmtReceiver) {
+            if (stmtProperty !== "run") {
+              const value = Reflect.get(stmtTarget, stmtProperty, stmtReceiver);
+              return typeof value === "function" ? value.bind(stmtTarget) : value;
+            }
+
+            return (...args: unknown[]) => {
+              counts.set(sql, (counts.get(sql) ?? 0) + 1);
+              return (stmtTarget.run as (...a: unknown[]) => unknown)(...args);
+            };
+          }
+        });
+      };
+    }
+  }) as Database;
+
+  return { db: wrapped, runCallCounts: () => counts };
+}
 
 type ForeignKeyRow = {
   table: string;
@@ -70,7 +115,7 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
     (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at, deleted_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(
+    .run(
       programId,
       programId,
       "Program for retention prune",
@@ -81,30 +126,28 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
       now,
       now,
       deletedAt
-    )
-    .run();
+    );
 
   await testEnv.DB.prepare(
     `INSERT INTO volunteer_accounts
     (program_id, login_id, password_hash, password_updated_at, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)`
   )
-    .bind(
+    .run(
       programId,
       `${programId}@example.com`,
       "sha256:volunteer-placeholder",
       now,
       now,
       now
-    )
-    .run();
+    );
 
   await testEnv.DB.prepare(
     `INSERT INTO volunteer_sessions
     (id, session_hash, program_id, absolute_expires_at, expires_at, last_seen_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(
+    .run(
       `volunteer_session_${crypto.randomUUID()}`,
       `volunteer_hash_${crypto.randomUUID()}`,
       programId,
@@ -112,31 +155,28 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
       now,
       now,
       now
-    )
-    .run();
+    );
 
   await testEnv.DB.prepare(
     `INSERT INTO volunteer_login_attempts
     (program_id, ip_hash, window_start, attempt_count, locked_until)
     VALUES (?, ?, ?, ?, ?)`
   )
-    .bind(programId, `ip_hash_${crypto.randomUUID()}`, now, 1, null)
-    .run();
+    .run(programId, `ip_hash_${crypto.randomUUID()}`, now, 1, null);
 
   await testEnv.DB.prepare(
     `INSERT INTO listener_access
     (id, program_id, client_id, short_code, claim_secret_hash, status, created_at)
     VALUES (?, ?, ?, ?, ?, 'pending', ?)`
   )
-    .bind(
+    .run(
       `listener_access_${crypto.randomUUID()}`,
       programId,
       `client_${crypto.randomUUID()}`,
       "ABC123",
       `claim_hash_${crypto.randomUUID()}`,
       now
-    )
-    .run();
+    );
 
   await testEnv.DB.prepare(
     `INSERT INTO language_streams
@@ -144,15 +184,14 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
      is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)`
   )
-    .bind(streamId, programId, "Hindi", "hi", 1, 1, now, now)
-    .run();
+    .run(streamId, programId, "Hindi", "hi", 1, 1, now, now);
 
   await testEnv.DB.prepare(
     `INSERT INTO translators
     (id, program_id, name, email, password_hash, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(
+    .run(
       translatorId,
       programId,
       "Hindi translator",
@@ -160,16 +199,14 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
       "sha256:placeholder",
       now,
       now
-    )
-    .run();
+    );
 
   await testEnv.DB.prepare(
     `INSERT INTO translator_stream_assignments
     (program_id, translator_id, language_stream_id, created_at)
     VALUES (?, ?, ?, ?)`
   )
-    .bind(programId, translatorId, streamId, now)
-    .run();
+    .run(programId, translatorId, streamId, now);
 
   await testEnv.DB.prepare(
     `INSERT INTO listener_connections
@@ -180,7 +217,7 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
      cloudflare_session_id, cloudflare_track_mid)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`
   )
-    .bind(
+    .run(
       connectionId,
       programId,
       streamId,
@@ -191,31 +228,28 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
       "connection",
       now,
       now
-    )
-    .run();
+    );
 
   await testEnv.DB.prepare(
     `INSERT INTO stream_events
     (id, program_id, stream_program_id, language_stream_id, event_type, occurred_at, metadata_json)
     VALUES (?, ?, ?, ?, ?, ?, '{}')`
   )
-    .bind(
+    .run(
       `event_${crypto.randomUUID()}`,
       programId,
       programId,
       streamId,
       "listener_subscribed",
       now
-    )
-    .run();
+    );
 
   await testEnv.DB.prepare(
     `INSERT INTO program_readiness_checks
     (program_id, realtime_smoke_tested_at, mobile_field_tested_at, updated_at)
     VALUES (?, ?, ?, ?)`
   )
-    .bind(programId, now, now, now)
-    .run();
+    .run(programId, now, now, now);
 
   await testEnv.DB.prepare(
     `INSERT INTO translator_sessions
@@ -223,7 +257,7 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
      expires_at, last_seen_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(
+    .run(
       `translator_session_${crypto.randomUUID()}`,
       `hash-${crypto.randomUUID()}`,
       programId,
@@ -232,8 +266,7 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
       now,
       now,
       now
-    )
-    .run();
+    );
 
   await testEnv.DB.prepare(
     `INSERT INTO realtime_publish_sessions
@@ -241,7 +274,7 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
      closed_at, created_at, updated_at)
     VALUES (?, ?, ?, ?, 'published', ?, NULL, ?, ?)`
   )
-    .bind(
+    .run(
       `publish_session_${crypto.randomUUID()}`,
       programId,
       streamId,
@@ -249,16 +282,14 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
       now,
       now,
       now
-    )
-    .run();
+    );
 
   await testEnv.DB.prepare(
     `INSERT INTO listener_realtime_cleanup_targets
     (connection_id, cloudflare_session_id, cloudflare_track_mid, cleanup_state, created_at, updated_at, closed_at)
     VALUES (?, ?, ?, 'pending', ?, ?, NULL)`
   )
-    .bind(connectionId, "session-prune", "track-prune", now, now)
-    .run();
+    .run(connectionId, "session-prune", "track-prune", now, now);
 
   return { programId, streamId, translatorId };
 }
@@ -277,15 +308,14 @@ async function seedStreamEvents(input: {
 
   for (let index = 0; index < input.count; index += 1) {
     await statement
-      .bind(
+      .run(
         `event_bulk_${input.programId}_${index}`,
         input.programId,
         input.programId,
         input.streamId,
         "listener_subscribed",
         now
-      )
-      .run();
+      );
   }
 }
 
@@ -297,8 +327,7 @@ async function countForProgram(
     const row = await testEnv.DB.prepare(
       "SELECT COUNT(*) as count FROM programs WHERE id = ?"
     )
-      .bind(programId)
-      .first<{ count: number }>();
+      .get(programId) as { count: number } | undefined;
     return row?.count ?? 0;
   }
 
@@ -308,30 +337,28 @@ async function countForProgram(
       FROM listener_realtime_cleanup_targets
       WHERE connection_id IN (SELECT id FROM listener_connections WHERE program_id = ?)`
     )
-      .bind(programId)
-      .first<{ count: number }>();
+      .get(programId) as { count: number } | undefined;
     return row?.count ?? 0;
   }
 
   const row = await testEnv.DB
     .prepare(`SELECT COUNT(*) as count FROM ${table} WHERE program_id = ?`)
-    .bind(programId)
-    .first<{ count: number }>();
+    .get(programId) as { count: number } | undefined;
   return row?.count ?? 0;
 }
 
 async function programFkTablesFromPragma(): Promise<string[]> {
-  const tables = await testEnv.DB.prepare(
+  const tables = testEnv.DB.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-  ).all<{ name: string }>();
+  ).all() as Array<{ name: string }>;
 
   const result: string[] = [];
-  for (const table of tables.results) {
-    const foreignKeys = await testEnv.DB
+  for (const table of tables) {
+    const foreignKeys = testEnv.DB
       .prepare(`PRAGMA foreign_key_list(${table.name})`)
-      .all<ForeignKeyRow>();
+      .all() as ForeignKeyRow[];
 
-    const referencesProgramsByProgramId = foreignKeys.results.some(
+    const referencesProgramsByProgramId = foreignKeys.some(
       (fk) =>
         fk.table === "programs" && fk.from === "program_id" && fk.to === "id"
     );
@@ -343,13 +370,13 @@ async function programFkTablesFromPragma(): Promise<string[]> {
 }
 
 async function programFkTablesFallbackFromSchema(): Promise<string[]> {
-  const tables = await testEnv.DB
+  const tables = testEnv.DB
     .prepare(
       "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
     )
-    .all<D1PragmaTableRow>();
+    .all() as D1PragmaTableRow[];
 
-  const result = tables.results
+  const result = tables
     .filter((row) => {
       const definition = (row.sql ?? "").toLowerCase();
       return (
@@ -422,7 +449,7 @@ describe("retention prune behavior", () => {
         (id, program_id, client_id, short_code, claim_secret_hash, status, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-        .bind(
+        .run(
           `${programId}_access_${suffix}`,
           programId,
           `${programId}_history_client`,
@@ -430,8 +457,7 @@ describe("retention prune behavior", () => {
           `${programId}_claim_${suffix}`,
           status,
           createdAt
-        )
-        .run();
+        );
     }
     expect(await countForProgram("listener_access", programId)).toBe(4);
     const pruneBefore = new Date("2026-06-01T00:00:00.000Z").toISOString();
@@ -450,8 +476,7 @@ describe("retention prune behavior", () => {
     // eligibility gate must short-circuit BEFORE deleting any child rows.
     const { programId } = await seedProgram();
     await testEnv.DB.prepare("UPDATE programs SET deleted_at = NULL WHERE id = ?")
-      .bind(programId)
-      .run();
+      .run(programId);
     const pruneBefore = new Date("2026-06-01T00:00:00.000Z").toISOString();
 
     const retention = new RetentionRepository(testEnv.DB);
@@ -502,25 +527,29 @@ describe("retention prune behavior", () => {
     await seedStreamEvents({ programId, streamId, count: 620 });
     const pruneBefore = new Date("2026-06-01T00:00:00.000Z").toISOString();
 
-    // Spy on prepare and count how many times the stream_events chunk-delete
-    // statement is issued. Each loop iteration prepares the same SQL once.
-    const prepareSpy = vi.spyOn(testEnv.DB, "prepare");
+    // Count how many times the stream_events chunk-delete statement's
+    // `.run()` is invoked (the statement itself is prepared once; see
+    // countRunCallsBySql above).
     const isStreamEventChunkDelete = (sql: string): boolean =>
       /DELETE FROM stream_events\b/i.test(sql) &&
       /LIMIT/i.test(sql) &&
       /SELECT id FROM stream_events/i.test(sql);
+    const { db: countingDb, runCallCounts } = countRunCallsBySql(testEnv.DB);
 
-    const retention = new RetentionRepository(testEnv.DB);
+    const retention = new RetentionRepository(countingDb);
     await retention.pruneProgram(programId, pruneBefore);
 
-    const streamEventChunkCalls = prepareSpy.mock.calls.filter(([sql]) =>
-      isStreamEventChunkDelete(sql)
-    );
+    let streamEventChunkRunCalls = 0;
+    for (const [sql, count] of runCallCounts()) {
+      if (isStreamEventChunkDelete(sql)) {
+        streamEventChunkRunCalls += count;
+      }
+    }
     // First iteration deletes 500, second deletes 120, third returns 0 and
-    // terminates — so >= 2 batches that actually changed rows. The spy counts
-    // every prepare of the chunk statement (including the terminating one), so
-    // assert >= 2 to prove more than a single unbounded delete ran.
-    expect(streamEventChunkCalls.length).toBeGreaterThanOrEqual(2);
+    // terminates — so >= 2 run() calls that actually changed rows plus the
+    // terminating call. Assert >= 2 to prove more than a single unbounded
+    // delete ran.
+    expect(streamEventChunkRunCalls).toBeGreaterThanOrEqual(2);
 
     const streamEventCount = await countForProgram("stream_events", programId);
     expect(streamEventCount).toBe(0);
@@ -546,7 +575,7 @@ describe("retention prune behavior", () => {
         (id, program_id, client_id, short_code, claim_secret_hash, status, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-        .bind(
+        .run(
           `${programId}_${suffix}`,
           programId,
           `client_${suffix}`,
@@ -554,8 +583,7 @@ describe("retention prune behavior", () => {
           `claim_${suffix}`,
           status,
           createdAt
-        )
-        .run();
+        );
     }
 
     const retention = new RetentionRepository(testEnv.DB);
@@ -563,11 +591,10 @@ describe("retention prune behavior", () => {
       new Date("2026-08-26T12:00:00.000Z")
     );
 
-    const { results } = await testEnv.DB.prepare(
+    const results = testEnv.DB.prepare(
       "SELECT id FROM listener_access WHERE program_id = ? ORDER BY id"
     )
-      .bind(programId)
-      .all<{ id: string }>();
+      .all(programId) as { id: string }[];
     expect(results.map((row) => row.id)).toEqual([
       `${programId}_boundary_pending`,
       `${programId}_old_approved`,
@@ -587,21 +614,20 @@ describe("retention prune behavior", () => {
         (id, program_id, client_id, short_code, claim_secret_hash, status, created_at)
         VALUES (?, ?, ?, ?, ?, 'pending', ?)`
       )
-        .bind(
+        .run(
           `${programId}_access_${index}`,
           programId,
           `client_${index}`,
           `CHNK${index}`,
           `claim_${index}`,
           stale
-        )
-        .run();
+        );
       await testEnv.DB.prepare(
         `INSERT INTO volunteer_sessions
         (id, session_hash, program_id, absolute_expires_at, expires_at, last_seen_at, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-        .bind(
+        .run(
           `${programId}_session_${index}`,
           `${programId}_hash_${index}`,
           programId,
@@ -609,19 +635,17 @@ describe("retention prune behavior", () => {
           expired,
           stale,
           stale
-        )
-        .run();
+        );
       await testEnv.DB.prepare(
         `INSERT INTO volunteer_login_attempts
         (program_id, ip_hash, window_start, attempt_count, locked_until)
         VALUES (?, ?, ?, 1, NULL)`
       )
-        .bind(programId, `ip_${index}`, stale)
-        .run();
+        .run(programId, `ip_${index}`, stale);
     }
 
-    const prepareSpy = vi.spyOn(testEnv.DB, "prepare");
-    const retention = new RetentionRepository(testEnv.DB);
+    const { db: countingDb, runCallCounts } = countRunCallsBySql(testEnv.DB);
+    const retention = new RetentionRepository(countingDb);
     await retention.pruneDailyAccessData(
       new Date("2026-08-26T12:00:00.000Z"),
       { chunkSize: 2 }
@@ -633,13 +657,17 @@ describe("retention prune behavior", () => {
       "volunteer_login_attempts"
     ]) {
       expect(await countForProgram(table, programId)).toBe(0);
-      const chunkCalls = prepareSpy.mock.calls.filter(
-        ([sql]) =>
+      let chunkRunCalls = 0;
+      for (const [sql, count] of runCallCounts()) {
+        if (
           new RegExp(`DELETE FROM ${table}\\b`, "i").test(sql) &&
           /SELECT rowid/i.test(sql) &&
           /LIMIT 2/i.test(sql)
-      );
-      expect(chunkCalls.length).toBeGreaterThanOrEqual(3);
+        ) {
+          chunkRunCalls += count;
+        }
+      }
+      expect(chunkRunCalls).toBeGreaterThanOrEqual(3);
     }
   });
 
@@ -661,7 +689,7 @@ describe("retention prune behavior", () => {
         (id, session_hash, program_id, absolute_expires_at, expires_at, last_seen_at, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-        .bind(
+        .run(
           `${programId}_${suffix}`,
           `hash_${programId}_${suffix}`,
           programId,
@@ -669,8 +697,7 @@ describe("retention prune behavior", () => {
           expiresAt,
           boundary,
           boundary
-        )
-        .run();
+        );
     }
 
     const retention = new RetentionRepository(testEnv.DB);
@@ -678,11 +705,10 @@ describe("retention prune behavior", () => {
       new Date("2026-08-26T12:00:00.000Z")
     );
 
-    const { results } = await testEnv.DB.prepare(
+    const results = testEnv.DB.prepare(
       "SELECT id FROM volunteer_sessions WHERE program_id = ? ORDER BY id"
     )
-      .bind(programId)
-      .all<{ id: string }>();
+      .all(programId) as { id: string }[];
     expect(results.map((row) => row.id)).toEqual([`${programId}_future`]);
   });
 
@@ -709,8 +735,7 @@ describe("retention prune behavior", () => {
         (program_id, ip_hash, window_start, attempt_count, locked_until)
         VALUES (?, ?, ?, 1, ?)`
       )
-        .bind(programId, ipHash, windowStart, lockedUntil)
-        .run();
+        .run(programId, ipHash, windowStart, lockedUntil);
     }
 
     const retention = new RetentionRepository(testEnv.DB);
@@ -718,11 +743,10 @@ describe("retention prune behavior", () => {
       new Date("2026-08-26T12:00:00.000Z")
     );
 
-    const { results } = await testEnv.DB.prepare(
+    const results = testEnv.DB.prepare(
       "SELECT ip_hash as ipHash FROM volunteer_login_attempts WHERE program_id = ? ORDER BY ip_hash"
     )
-      .bind(programId)
-      .all<{ ipHash: string }>();
+      .all(programId) as { ipHash: string }[];
     expect(results.map((row) => row.ipHash)).toEqual([
       "boundary_unlocked",
       "old_future_lock",

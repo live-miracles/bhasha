@@ -1,7 +1,7 @@
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import worker from "../src/index";
+import type { Env } from "../src/env";
+import { createApp } from "../src/index";
 import {
   escapeCsvField,
   isRetentionEligible,
@@ -13,22 +13,13 @@ import { parseListenerReportQuery } from "../src/routes/admin";
 import { adminCookie, buildTestEnv, seedPlatformAdmin, testEnv } from "./test-env";
 import { ListenerRepository } from "../src/db/listenerRepository";
 
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
-
 async function request(
   path: string,
-  init: IncomingRequestInit = {},
-  workerEnv: Env = testEnv
-) {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    workerEnv,
-    ctx
-  );
-  await waitOnExecutionContext(ctx);
-  return response;
+  init: RequestInit = {},
+  workerEnv: Env = buildTestEnv()
+): Promise<Response> {
+  const app = createApp(workerEnv);
+  return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
 async function resetDb(): Promise<void> {
@@ -179,20 +170,6 @@ async function insertEvent(input: {
       input.translatorUserAgent ?? null
     )
     .run();
-}
-
-async function joinPresence(
-  programId: string,
-  streamId: string,
-  connectionId: string
-): Promise<void> {
-  const id = testEnv.PROGRAM_PRESENCE.idFromName(programId);
-  const stub = testEnv.PROGRAM_PRESENCE.get(id);
-  const response = await stub.fetch("https://presence.internal/join", {
-    method: "POST",
-    body: JSON.stringify({ connectionId, streamId })
-  });
-  expect(response.status).toBe(200);
 }
 
 async function seedReportProgram(
@@ -512,7 +489,7 @@ describe("admin report summary and event feed routes", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       programId: string;
       totals: {
         activeListeners: number;
@@ -531,7 +508,7 @@ describe("admin report summary and event feed routes", () => {
       }>;
       generatedAt: string;
       presenceSource: string;
-    }>();
+    };
 
     expect(body.programId).toBe(programId);
     expect(body.presenceSource).toBe("durable_object");
@@ -646,7 +623,7 @@ describe("admin report summary and event feed routes", () => {
       `/api/admin/programs/${programId}/report/summary`,
       { headers: { Cookie: cookie } }
     );
-    const noRange = await noRangeResponse.json<{
+    const noRange = (await noRangeResponse.json()) as {
       totals: {
         activeListeners: number;
         totalConnections: number;
@@ -654,7 +631,7 @@ describe("admin report summary and event feed routes", () => {
         dropouts: number;
         reconnects: number;
       };
-    }>();
+    };
 
     const response = await request(
       `/api/admin/programs/${programId}/report/summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
@@ -662,7 +639,7 @@ describe("admin report summary and event feed routes", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       totals: {
         activeListeners: number;
         totalConnections: number;
@@ -676,7 +653,7 @@ describe("admin report summary and event feed routes", () => {
         dropouts: number;
         reconnects: number;
       }>;
-    }>();
+    };
 
     expect(noRange.totals).toEqual({
       activeListeners: 2,
@@ -753,9 +730,9 @@ describe("admin report summary and event feed routes", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       totals: { totalConnections: number; uniqueDevices: number };
-    }>();
+    };
 
     expect(body.totals.totalConnections).toBe(3);
     expect(body.totals.uniqueDevices).toBe(2);
@@ -808,7 +785,7 @@ describe("admin report summary and event feed routes", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       events: Array<{
         id: string;
         eventType: string;
@@ -820,7 +797,7 @@ describe("admin report summary and event feed routes", () => {
       page: number;
       pageSize: number;
       totalPages: number;
-    }>();
+    };
 
     expect(body.total).toBe(3);
     expect(body.page).toBe(1);
@@ -868,9 +845,9 @@ describe("admin report summary and event feed routes", () => {
     });
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       events: Array<{ translatorName: string | null; translatorDeviceLabel: string | null }>;
-    }>();
+    };
     expect(body.events[0]?.translatorName).toBe("Ananya Rao");
     expect(body.events[0]?.translatorDeviceLabel).toBeNull();
   });
@@ -892,9 +869,9 @@ describe("admin report summary and event feed routes", () => {
     });
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       events: Array<{ translatorName: string | null; translatorDeviceLabel: string | null }>;
-    }>();
+    };
     expect(body.events[0]?.translatorName).toBe("Deleted translator");
     expect(body.events[0]?.translatorDeviceLabel).toBeNull();
   });
@@ -923,9 +900,9 @@ describe("admin report summary and event feed routes", () => {
     });
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       events: Array<{ translatorName: string | null; translatorDeviceLabel: string | null }>;
-    }>();
+    };
     expect(body.events[0]?.translatorName).toBe("Device Translator");
     expect(body.events[0]?.translatorDeviceLabel).toBe(
       deviceLabelFromUserAgent(ua)
@@ -984,9 +961,9 @@ describe("admin report summary and event feed routes", () => {
     });
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       events: Array<{ translatorName: string | null; translatorDeviceLabel: string | null }>;
-    }>();
+    };
     expect(body.events[0]?.translatorName).toBeNull();
     expect(body.events[0]?.translatorDeviceLabel).toBeNull();
   });
@@ -1012,12 +989,12 @@ describe("admin report summary and event feed routes", () => {
       { headers: { Cookie: cookie } }
     );
     expect(defaultResponse.status).toBe(200);
-    const defaultBody = await defaultResponse.json<{
+    const defaultBody = (await defaultResponse.json()) as {
       events: unknown[];
       total: number;
       pageSize: number;
       totalPages: number;
-    }>();
+    };
     expect(defaultBody.events).toHaveLength(20);
     expect(defaultBody.total).toBe(101);
     expect(defaultBody.pageSize).toBe(20);
@@ -1028,12 +1005,12 @@ describe("admin report summary and event feed routes", () => {
       { headers: { Cookie: cookie } }
     );
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       events: unknown[];
       total: number;
       pageSize: number;
       totalPages: number;
-    }>();
+    };
     expect(body.events).toHaveLength(100);
     expect(body.total).toBe(101);
     expect(body.pageSize).toBe(100);
@@ -1076,13 +1053,13 @@ describe("admin report summary and event feed routes", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       events: Array<{ id: string; eventType: string; metadata: Record<string, unknown> }>;
       total: number;
       page: number;
       pageSize: number;
       totalPages: number;
-    }>();
+    };
     expect(body).toMatchObject({
       total: 1,
       page: 1,
@@ -1131,10 +1108,10 @@ describe("admin report summary and event feed routes", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       events: Array<{ id: string; eventType: string }>;
       total: number;
-    }>();
+    };
     expect(body.total).toBe(2);
     expect(body.events.map((event) => event.id)).toEqual([
       "ev_disconnected",
@@ -1171,10 +1148,10 @@ describe("admin report summary and event feed routes", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       events: Array<{ id: string; eventType: string }>;
       total: number;
-    }>();
+    };
     expect(body.total).toBe(1);
     expect(body.events.map((event) => event.id)).toEqual([
       "ev_connected_single"
@@ -1205,10 +1182,10 @@ describe("admin report summary and event feed routes", () => {
       { headers: { Cookie: cookie } }
     );
     expect(mixedResponse.status).toBe(200);
-    const mixedBody = await mixedResponse.json<{
+    const mixedBody = (await mixedResponse.json()) as {
       events: Array<{ id: string }>;
       total: number;
-    }>();
+    };
     expect(mixedBody.total).toBe(2);
     expect(mixedBody.events.map((event) => event.id)).toEqual([
       "ev_audio_started_valid",
@@ -1220,10 +1197,10 @@ describe("admin report summary and event feed routes", () => {
       { headers: { Cookie: cookie } }
     );
     expect(invalidOnlyResponse.status).toBe(200);
-    const invalidOnlyBody = await invalidOnlyResponse.json<{
+    const invalidOnlyBody = (await invalidOnlyResponse.json()) as {
       events: Array<{ id: string }>;
       total: number;
-    }>();
+    };
     expect(invalidOnlyBody.total).toBe(2);
     expect(invalidOnlyBody.events.map((event) => event.id)).toEqual([
       "ev_audio_started_valid",
@@ -1274,13 +1251,13 @@ describe("admin report summary and event feed routes", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       events: Array<{ id: string; eventType: string }>;
       total: number;
       page: number;
       pageSize: number;
       totalPages: number;
-    }>();
+    };
     expect(body.total).toBe(2);
     expect(body.page).toBe(1);
     expect(body.pageSize).toBe(10);
@@ -1366,13 +1343,13 @@ describe("admin listener report route", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       connections: Array<Record<string, unknown>>;
       total: number;
       page: number;
       pageSize: number;
       totalPages: number;
-    }>();
+    };
 
     expect(body.total).toBe(105);
     expect(body.page).toBe(2);
@@ -1404,12 +1381,12 @@ describe("admin listener report route", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       total: number;
       page: number;
       pageSize: number;
       totalPages: number;
-    }>();
+    };
     expect(body.total).toBe(1);
     expect(body.page).toBe(1);
   });
@@ -1593,12 +1570,12 @@ async function readProgramRow(programId: string): Promise<{
     FROM programs WHERE id = ?`
   )
     .bind(programId)
-    .first<{
+    .get() as {
       status: string;
       archivedAt: string | null;
       retentionProcessedAt: string | null;
       aggregateSummaryJson: string | null;
-    }>();
+    } | undefined;
   if (!row) {
     throw new Error("program not found");
   }
@@ -1642,10 +1619,10 @@ describe("admin archive snapshot and retention", () => {
       { headers: { Cookie: cookie } }
     );
     expect(summaryResponse.status).toBe(200);
-    const summary = await summaryResponse.json<{
+    const summary = (await summaryResponse.json()) as {
       presenceSource: string;
       totals: { activeListeners: number; totalConnections: number };
-    }>();
+    };
     expect(summary.presenceSource).toBe("archived_snapshot");
     expect(summary.totals.activeListeners).toBeGreaterThan(0);
     expect(summary.totals.totalConnections).toBe(1);
@@ -1679,10 +1656,10 @@ describe("admin archive snapshot and retention", () => {
     );
 
     expect(response.status).toBe(200);
-    const summary = await response.json<{
+    const summary = (await response.json()) as {
       presenceSource: string;
       totals: { uniqueDevices: unknown };
-    }>();
+    };
     expect(summary.presenceSource).toBe("archived_snapshot");
     expect(summary.totals.uniqueDevices).toBe(0);
     expect(typeof summary.totals.uniqueDevices).toBe("number");
@@ -1717,9 +1694,9 @@ describe("admin archive snapshot and retention", () => {
     );
 
     expect(response.status).toBe(200);
-    const summary = await response.json<{
+    const summary = (await response.json()) as {
       totals: { uniqueDevices: unknown };
-    }>();
+    };
     expect(summary.totals.uniqueDevices).toBe(4);
     expect(typeof summary.totals.uniqueDevices).toBe("number");
   });
@@ -1797,23 +1774,23 @@ describe("admin archive snapshot and retention", () => {
     );
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       programId: string;
       processed: boolean;
       anonymizedConnections: number;
       retentionProcessedAt: string | null;
-    }>();
+    };
     expect(body.programId).toBe(programId);
     expect(body.processed).toBe(true);
     expect(body.anonymizedConnections).toBe(2);
     expect(body.retentionProcessedAt).not.toBeNull();
 
-    const { results: rows } = await testEnv.DB.prepare(
+    const rows = await testEnv.DB.prepare(
       `SELECT listener_ip as listenerIp, user_agent as userAgent
       FROM listener_connections WHERE program_id = ? ORDER BY id ASC`
     )
       .bind(programId)
-      .all<{ listenerIp: string; userAgent: string }>();
+      .all() as Array<{ listenerIp: string; userAgent: string }>;
     expect(rows).toHaveLength(2);
     for (const row of rows) {
       expect(row.listenerIp).toBe("[redacted]");
@@ -1825,9 +1802,9 @@ describe("admin archive snapshot and retention", () => {
       `/api/admin/programs/${programId}/report/summary`,
       { headers: { Cookie: cookie } }
     );
-    const summary = await summaryResponse.json<{
+    const summary = (await summaryResponse.json()) as {
       totals: { totalConnections: number; dropouts: number; reconnects: number };
-    }>();
+    };
     expect(summary.totals.totalConnections).toBe(2);
     expect(summary.totals.dropouts).toBe(1);
     expect(summary.totals.reconnects).toBe(1);
@@ -1837,10 +1814,10 @@ describe("admin archive snapshot and retention", () => {
       `/api/admin/programs/${programId}/retention/run`,
       { method: "POST", headers: { Cookie: cookie } }
     );
-    const secondBody = await second.json<{
+    const secondBody = (await second.json()) as {
       processed: boolean;
       anonymizedConnections: number;
-    }>();
+    };
     expect(secondBody.processed).toBe(false);
     expect(secondBody.anonymizedConnections).toBe(0);
   });
@@ -1863,10 +1840,10 @@ describe("admin archive snapshot and retention", () => {
       `/api/admin/programs/${programId}/retention/run`,
       { method: "POST", headers: { Cookie: cookie } }
     );
-    const body = await response.json<{
+    const body = (await response.json()) as {
       processed: boolean;
       anonymizedConnections: number;
-    }>();
+    };
     expect(body.processed).toBe(false);
     expect(body.anonymizedConnections).toBe(0);
 
@@ -1882,10 +1859,10 @@ describe("admin archive snapshot and retention", () => {
       `/api/admin/programs/${programId}/retention/run`,
       { method: "POST", headers: { Cookie: cookie } }
     );
-    const body = await response.json<{
+    const body = (await response.json()) as {
       processed: boolean;
       anonymizedConnections: number;
-    }>();
+    };
     expect(body.processed).toBe(false);
     expect(body.anonymizedConnections).toBe(0);
   });

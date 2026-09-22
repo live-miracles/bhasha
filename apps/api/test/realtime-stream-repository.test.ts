@@ -7,6 +7,7 @@ import {
   RealtimeStreamRepository,
   StreamAlreadyPublishedError
 } from "../src/db/realtimeStreamRepository";
+import type { Database } from "../src/db/sqlite";
 import { testEnv } from "./test-env";
 
 type TranslatorGraph = {
@@ -44,60 +45,52 @@ async function seedTranslatorGraph(): Promise<TranslatorGraph> {
   const streamId = `stream_${suffix}`;
   const translatorId = `translator_${suffix}`;
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO programs
     (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      programId,
-      `program-${suffix}`,
-      "Patna Event 2026",
-      "Main Hall",
-      "2026-08-01",
-      "draft",
-      "",
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    programId,
+    `program-${suffix}`,
+    "Patna Event 2026",
+    "Main Hall",
+    "2026-08-01",
+    "draft",
+    "",
+    timestamp,
+    timestamp
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO language_streams
     (id, program_id, language_name, language_code, display_order, is_active,
      is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      streamId,
-      programId,
-      "Hindi",
-      "hi",
-      1,
-      1,
-      0,
-      null,
-      null,
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    streamId,
+    programId,
+    "Hindi",
+    "hi",
+    1,
+    1,
+    0,
+    null,
+    null,
+    timestamp,
+    timestamp
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO translators
     (id, program_id, name, password_hash, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)`
-  )
-    .bind(translatorId, programId, "Hindi translator", "hash", timestamp, timestamp)
-    .run();
+  ).run(translatorId, programId, "Hindi translator", "hash", timestamp, timestamp);
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO translator_stream_assignments
     (program_id, translator_id, language_stream_id, created_at)
     VALUES (?, ?, ?, ?)`
-  )
-    .bind(programId, translatorId, streamId, timestamp)
-    .run();
+  ).run(programId, translatorId, streamId, timestamp);
 
   return { programId, streamId, translatorId };
 }
@@ -106,22 +99,20 @@ async function insertExpiredReservation(graph: TranslatorGraph): Promise<string>
   const timestamp = new Date(Date.now() - 5 * 60_000).toISOString();
   const publishSessionId = `realtime_publish_session_${crypto.randomUUID()}`;
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO realtime_publish_sessions
     (id, program_id, language_stream_id, translator_id, state, expires_at,
      created_at, updated_at)
     VALUES (?, ?, ?, ?, 'reserved', ?, ?, ?)`
-  )
-    .bind(
-      publishSessionId,
-      graph.programId,
-      graph.streamId,
-      graph.translatorId,
-      timestamp,
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    publishSessionId,
+    graph.programId,
+    graph.streamId,
+    graph.translatorId,
+    timestamp,
+    timestamp,
+    timestamp
+  );
 
   return publishSessionId;
 }
@@ -132,53 +123,42 @@ async function insertExpiredPublishedPublisher(
   const timestamp = new Date(Date.now() - 5 * 60_000).toISOString();
   const publishSessionId = `realtime_publish_session_${crypto.randomUUID()}`;
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO realtime_publish_sessions
     (id, program_id, language_stream_id, translator_id, cloudflare_session_id,
      published_track_name, published_track_mid, state, expires_at, created_at,
      updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?)`
-  )
-    .bind(
-      publishSessionId,
-      graph.programId,
-      graph.streamId,
-      graph.translatorId,
-      "cf_expired_session",
-      "expired-track",
-      "0",
-      timestamp,
-      timestamp,
-      timestamp
-    )
-    .run();
+  ).run(
+    publishSessionId,
+    graph.programId,
+    graph.streamId,
+    graph.translatorId,
+    "cf_expired_session",
+    "expired-track",
+    "0",
+    timestamp,
+    timestamp,
+    timestamp
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `UPDATE language_streams
     SET is_live = 1, cloudflare_session_id = ?, current_track_id = ?
     WHERE program_id = ? AND id = ?`
-  )
-    .bind(
-      "cf_expired_session",
-      "expired-track",
-      graph.programId,
-      graph.streamId
-    )
-    .run();
+  ).run("cf_expired_session", "expired-track", graph.programId, graph.streamId);
 
   return publishSessionId;
 }
 
 async function streamRow(graph: TranslatorGraph): Promise<StreamRow> {
-  const row = await testEnv.DB.prepare(
+  const row = testEnv.DB.prepare(
     `SELECT is_live as isLive,
       cloudflare_session_id as cloudflareSessionId,
       current_track_id as currentTrackId
     FROM language_streams
     WHERE program_id = ? AND id = ?`
-  )
-    .bind(graph.programId, graph.streamId)
-    .first<StreamRow>();
+  ).get(graph.programId, graph.streamId) as StreamRow | undefined;
 
   if (!row) {
     throw new Error("language stream missing");
@@ -190,7 +170,7 @@ async function streamRow(graph: TranslatorGraph): Promise<StreamRow> {
 async function publishSessionRow(
   publishSessionId: string
 ): Promise<PublishSessionRow> {
-  const row = await testEnv.DB.prepare(
+  const row = testEnv.DB.prepare(
     `SELECT state,
       cloudflare_session_id as cloudflareSessionId,
       published_track_name as publishedTrackName,
@@ -199,9 +179,7 @@ async function publishSessionRow(
       closed_at as closedAt
     FROM realtime_publish_sessions
     WHERE id = ?`
-  )
-    .bind(publishSessionId)
-    .first<PublishSessionRow>();
+  ).get(publishSessionId) as PublishSessionRow | undefined;
 
   if (!row) {
     throw new Error("publish session missing");
@@ -233,7 +211,7 @@ async function publishToLive(
 }
 
 async function streamEvents(graph: TranslatorGraph): Promise<StreamEventRow[]> {
-  const { results } = await testEnv.DB.prepare(
+  const results = testEnv.DB.prepare(
     `SELECT event_type as eventType,
       metadata_json as metadataJson,
       translator_name as translatorName,
@@ -241,9 +219,7 @@ async function streamEvents(graph: TranslatorGraph): Promise<StreamEventRow[]> {
     FROM stream_events
     WHERE program_id = ? AND language_stream_id = ?
     ORDER BY rowid ASC`
-  )
-    .bind(graph.programId, graph.streamId)
-    .all<StreamEventRow>();
+  ).all(graph.programId, graph.streamId) as StreamEventRow[];
 
   return results;
 }
@@ -256,24 +232,22 @@ async function insertTranslatorSession(input: {
 }): Promise<void> {
   const now = new Date().toISOString();
   const expiresAt = new Date(Date.now() + 8 * 60 * 60_000).toISOString();
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO translator_sessions
     (id, session_hash, program_id, translator_id, absolute_expires_at,
      expires_at, last_seen_at, created_at, user_agent)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      input.sessionId,
-      `hash_${input.sessionId}`,
-      input.programId,
-      input.translatorId,
-      expiresAt,
-      expiresAt,
-      now,
-      now,
-      input.userAgent
-    )
-    .run();
+  ).run(
+    input.sessionId,
+    `hash_${input.sessionId}`,
+    input.programId,
+    input.translatorId,
+    expiresAt,
+    expiresAt,
+    now,
+    now,
+    input.userAgent
+  );
 }
 
 function translatorSessionExpiresAt(): string {
@@ -285,31 +259,32 @@ async function setPublisherCloudflareSession(
   cloudflareSessionId: string
 ): Promise<void> {
   const timestamp = new Date().toISOString();
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `UPDATE realtime_publish_sessions
     SET cloudflare_session_id = ?, updated_at = ?
     WHERE id = ?`
-  )
-    .bind(cloudflareSessionId, timestamp, publishSessionId)
-    .run();
+  ).run(cloudflareSessionId, timestamp, publishSessionId);
 }
 
 async function setPublisherExpiry(
   publishSessionId: string,
   expiresAt: string
 ): Promise<void> {
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `UPDATE realtime_publish_sessions SET expires_at = ? WHERE id = ?`
-  )
-    .bind(expiresAt, publishSessionId)
-    .run();
+  ).run(expiresAt, publishSessionId);
 }
 
-function batchThrowingDb(message: string): D1Database {
+// Simulates a failure of the atomic multi-statement update the repository
+// runs via `db.transaction(fn)()` for publish/clear (previously a D1
+// `db.batch([...])`). Overriding `transaction` to return a function that
+// throws means the wrapped statements never execute -- same "all or nothing"
+// failure shape the old `batch` override produced.
+function transactionThrowingDb(message: string): Database {
   return new Proxy(testEnv.DB, {
     get(target, property, receiver) {
-      if (property === "batch") {
-        return async () => {
+      if (property === "transaction") {
+        return () => () => {
           throw new Error(message);
         };
       }
@@ -317,7 +292,7 @@ function batchThrowingDb(message: string): D1Database {
       const value = Reflect.get(target, property, receiver);
       return typeof value === "function" ? value.bind(target) : value;
     }
-  }) as D1Database;
+  }) as Database;
 }
 
 async function expectOwnershipOrNotFound(
@@ -339,16 +314,16 @@ async function expectOwnershipOrNotFound(
 }
 
 describe("RealtimeStreamRepository", () => {
-  beforeEach(async () => {
-    await testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
-    await testEnv.DB.exec("DELETE FROM translator_sessions");
-    await testEnv.DB.exec("DELETE FROM stream_events");
-    await testEnv.DB.exec("DELETE FROM listener_connections");
-    await testEnv.DB.exec("DELETE FROM admin_sessions");
-    await testEnv.DB.exec("DELETE FROM translator_stream_assignments");
-    await testEnv.DB.exec("DELETE FROM translators");
-    await testEnv.DB.exec("DELETE FROM language_streams");
-    await testEnv.DB.exec("DELETE FROM programs");
+  beforeEach(() => {
+    testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
+    testEnv.DB.exec("DELETE FROM translator_sessions");
+    testEnv.DB.exec("DELETE FROM stream_events");
+    testEnv.DB.exec("DELETE FROM listener_connections");
+    testEnv.DB.exec("DELETE FROM admin_sessions");
+    testEnv.DB.exec("DELETE FROM translator_stream_assignments");
+    testEnv.DB.exec("DELETE FROM translators");
+    testEnv.DB.exec("DELETE FROM language_streams");
+    testEnv.DB.exec("DELETE FROM programs");
   });
 
   it("reserves a stream for one active publisher", async () => {
@@ -539,7 +514,7 @@ describe("RealtimeStreamRepository", () => {
     const reservation = await repo.reservePublisher(graph);
     await setPublisherCloudflareSession(reservation.id, "cf_pub_session");
     const failingRepo = new RealtimeStreamRepository(
-      batchThrowingDb("publish batch failed")
+      transactionThrowingDb("publish batch failed")
     );
 
     await expect(
@@ -767,7 +742,7 @@ describe("RealtimeStreamRepository", () => {
       expiresAt: translatorSessionExpiresAt()
     });
     const failingRepo = new RealtimeStreamRepository(
-      batchThrowingDb("clear batch failed")
+      transactionThrowingDb("clear batch failed")
     );
 
     await expect(
@@ -960,13 +935,11 @@ describe("RealtimeStreamRepository", () => {
       expiresAt: translatorSessionExpiresAt()
     });
     const timestamp = new Date().toISOString();
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `UPDATE realtime_publish_sessions
       SET state = 'closed', closed_at = ?, updated_at = ?
       WHERE id = ?`
-    )
-      .bind(timestamp, timestamp, reservation.id)
-      .run();
+    ).run(timestamp, timestamp, reservation.id);
 
     await expect(streamRow(graph)).resolves.toEqual({
       isLive: 1,

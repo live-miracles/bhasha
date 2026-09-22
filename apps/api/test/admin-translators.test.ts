@@ -1,31 +1,19 @@
-import { env } from "cloudflare:workers";
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { sha256Hex } from "../src/auth/crypto";
-import worker from "../src/index";
+import { createApp } from "../src/index";
 import {
   adminCookie,
+  buildTestEnv,
   seedPlatformAdmin,
-  seedProgram
+  seedProgram,
+  testEnv
 } from "./test-env";
 
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
-
-type AdminTranslatorTestEnv = Env & {
-  ADMIN_TEST_PASSWORD: string;
-};
-
-const testEnv = env as AdminTranslatorTestEnv;
-
-async function request(path: string, init: IncomingRequestInit = {}) {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    testEnv,
-    ctx
+async function request(path: string, init: RequestInit = {}) {
+  const app = createApp(buildTestEnv());
+  const response = await app.fetch(
+    new Request(`https://bhasha.test${path}`, init)
   );
-  await waitOnExecutionContext(ctx);
   return response;
 }
 
@@ -39,7 +27,7 @@ async function createProgram(
     adminNotes: string;
   }> = {}
 ): Promise<{ id: string; slug: string }> {
-  const program = await seedProgram(testEnv, {
+  const program = await seedProgram(buildTestEnv(), {
     slug: `program-${crypto.randomUUID()}`,
     name: "Patna Event 2026",
     venue: "Main Hall",
@@ -72,7 +60,7 @@ async function createStream(
     })
   });
   expect(response.status).toBe(201);
-  return response.json();
+  return (await response.json()) as { id: string };
 }
 
 async function createTranslator(
@@ -98,7 +86,12 @@ async function createTranslator(
     }
   );
   expect(response.status).toBe(201);
-  return response.json();
+  return (await response.json()) as {
+    id: string;
+    email: string;
+    name: string;
+    assignments: [];
+  };
 }
 
 async function translatorLogin(
@@ -119,13 +112,11 @@ async function passwordHashFor(
   programId: string,
   email: string
 ): Promise<string> {
-  const row = await testEnv.DB.prepare(
+  const row = testEnv.DB.prepare(
     `SELECT password_hash as passwordHash
     FROM translators
     WHERE program_id = ? AND email = ?`
-  )
-    .bind(programId, email)
-    .first<{ passwordHash: string }>();
+  ).get(programId, email) as { passwordHash: string } | undefined;
   if (!row) {
     throw new Error("translator row missing");
   }
@@ -137,13 +128,11 @@ async function rowCount(
   programId: string,
   translatorId: string
 ): Promise<number> {
-  const row = await testEnv.DB.prepare(
+  const row = testEnv.DB.prepare(
     `SELECT COUNT(*) as count
     FROM ${table}
     WHERE program_id = ? AND translator_id = ?`
-  )
-    .bind(programId, translatorId)
-    .first<{ count: number }>();
+  ).get(programId, translatorId) as { count: number } | undefined;
   return row?.count ?? 0;
 }
 
@@ -157,39 +146,37 @@ async function seedPublishSession(input: {
   closedAt?: string | null;
 }): Promise<void> {
   const now = new Date().toISOString();
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO realtime_publish_sessions
     (id, program_id, language_stream_id, translator_id, state, expires_at,
      closed_at, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      input.id,
-      input.programId,
-      input.streamId,
-      input.translatorId,
-      input.state,
-      input.expiresAt,
-      input.closedAt ?? null,
-      now,
-      now
-    )
-    .run();
+  ).run(
+    input.id,
+    input.programId,
+    input.streamId,
+    input.translatorId,
+    input.state,
+    input.expiresAt,
+    input.closedAt ?? null,
+    now,
+    now
+  );
 }
 
 describe("admin translator API", () => {
   beforeEach(async () => {
-    await testEnv.DB.exec("DELETE FROM listener_realtime_cleanup_targets");
-    await testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
-    await testEnv.DB.exec("DELETE FROM translator_sessions");
-    await testEnv.DB.exec("DELETE FROM admin_sessions");
-    await testEnv.DB.exec("DELETE FROM stream_events");
-    await testEnv.DB.exec("DELETE FROM listener_connections");
-    await testEnv.DB.exec("DELETE FROM translator_stream_assignments");
-    await testEnv.DB.exec("DELETE FROM translators");
-    await testEnv.DB.exec("DELETE FROM language_streams");
-    await testEnv.DB.exec("DELETE FROM programs");
-    await seedPlatformAdmin(testEnv);
+    testEnv.DB.exec("DELETE FROM listener_realtime_cleanup_targets");
+    testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
+    testEnv.DB.exec("DELETE FROM translator_sessions");
+    testEnv.DB.exec("DELETE FROM admin_sessions");
+    testEnv.DB.exec("DELETE FROM stream_events");
+    testEnv.DB.exec("DELETE FROM listener_connections");
+    testEnv.DB.exec("DELETE FROM translator_stream_assignments");
+    testEnv.DB.exec("DELETE FROM translators");
+    testEnv.DB.exec("DELETE FROM language_streams");
+    testEnv.DB.exec("DELETE FROM programs");
+    await seedPlatformAdmin(buildTestEnv());
   });
 
   it("creates a translator with a plaintext password, stores only a peppered hash, and allows translator login", async () => {
@@ -210,7 +197,7 @@ describe("admin translator API", () => {
     );
 
     expect(create.status).toBe(201);
-    const body = await create.json<{ id: string }>();
+    const body = (await create.json()) as { id: string };
     expect(body).toEqual({
       id: expect.stringMatching(/^translator_/),
       email: "hindi@example.com",
@@ -267,7 +254,7 @@ describe("admin translator API", () => {
       }
     );
     expect(createPatnaTranslator.status).toBe(201);
-    const patnaTranslator = await createPatnaTranslator.json<{ id: string }>();
+    const patnaTranslator = (await createPatnaTranslator.json()) as { id: string };
     expect(patnaTranslator).toEqual({
       id: expect.stringMatching(/^translator_/),
       email: "hindi@example.com",
@@ -288,7 +275,7 @@ describe("admin translator API", () => {
       }
     );
     expect(createDelhiTranslator.status).toBe(201);
-    const delhiTranslator = await createDelhiTranslator.json<{ id: string }>();
+    const delhiTranslator = (await createDelhiTranslator.json()) as { id: string };
     expect(delhiTranslator).toEqual({
       id: expect.stringMatching(/^translator_/),
       email: "hindi@example.com",
@@ -447,7 +434,7 @@ describe("admin translator API", () => {
       }
     );
     expect(list.status).toBe(200);
-    const listBody = await list.json<{ translators: unknown }>();
+    const listBody = (await list.json()) as { translators: unknown };
     expect(listBody).toEqual({
       translators: [
         {
@@ -466,7 +453,7 @@ describe("admin translator API", () => {
       headers: { Cookie: cookie }
     });
     expect(detail.status).toBe(200);
-    const detailBody = await detail.json<{ translators: unknown }>();
+    const detailBody = (await detail.json()) as { translators: unknown };
     expect(detailBody.translators).toEqual(listBody.translators);
 
     const text = JSON.stringify({ listBody, detailBody });

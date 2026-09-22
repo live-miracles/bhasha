@@ -1,9 +1,8 @@
-import { env } from "cloudflare:workers";
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { Env } from "../src/env";
+import { createApp } from "../src/index";
 import { ProgramRepository } from "../src/db/programRepository";
 import { sha256Hex } from "../src/auth/crypto";
-import worker from "../src/index";
 import {
   ORG_ADMIN_TEST_EMAIL,
   VIEWER_TEST_EMAIL,
@@ -14,66 +13,17 @@ import {
   seedPlatformAdmin,
   seedProgram,
   seedViewer,
+  testEnv,
   DEFAULT_TEST_ORG_ID
 } from "./test-env";
 
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
-
-type AdminTestEnv = Env & {
-  ADMIN_TEST_PASSWORD: string;
-};
-
-type RelayDoCall = {
-  url: string;
-  method: string | undefined;
-  body: BodyInit | null | undefined;
-};
-
-type EnvWithRelay = ReturnType<typeof buildTestEnv>;
-
-const testEnv = env as AdminTestEnv;
-
 async function request(
   path: string,
-  init: IncomingRequestInit = {},
-  requestEnv: EnvWithRelay = testEnv as EnvWithRelay
-) {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    requestEnv,
-    ctx
-  );
-  await waitOnExecutionContext(ctx);
-  return response;
-}
-
-function makeMockRelayNamespace(handler: (
-  call: RelayDoCall
-) => Promise<Response> | Response): {
-  calls: RelayDoCall[];
-  namespace: NonNullable<EnvWithRelay["RELAY"]>;
-} {
-  const calls: RelayDoCall[] = [];
-  const namespace = {
-    idFromName: (value: string) => value,
-    get: () => ({
-      fetch: (async (
-        input: RequestInfo | URL,
-        init?: RequestInit
-      ): Promise<Response> => {
-        const call = {
-          url: String(input),
-          method: init?.method,
-          body: init?.body
-        };
-        calls.push(call);
-        return await handler(call);
-      }) as typeof fetch
-    })
-  } as unknown as NonNullable<EnvWithRelay["RELAY"]>;
-  return { calls, namespace };
+  init: RequestInit = {},
+  workerEnv: Env = buildTestEnv()
+): Promise<Response> {
+  const app = createApp(workerEnv);
+  return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
 async function seedProgramDetailGraph(): Promise<{
@@ -221,7 +171,7 @@ async function createProgram(
     })
   });
   expect(response.status).toBe(201);
-  return response.json();
+  return (await response.json()) as { id: string; slug: string };
 }
 
 async function createStream(
@@ -246,7 +196,7 @@ async function createStream(
     })
   });
   expect(response.status).toBe(201);
-  return response.json();
+  return (await response.json()) as { id: string };
 }
 
 async function setProgramStatus(
@@ -264,17 +214,8 @@ async function rowCount(table: string, programId: string): Promise<number> {
     `SELECT COUNT(*) as count FROM ${table} WHERE ${programColumn} = ?`
   )
     .bind(programId)
-    .first<{ count: number }>();
+    .get() as { count: number } | undefined;
   return row?.count ?? 0;
-}
-
-async function readProgramStatus(programId: string): Promise<string | null> {
-  const row = await testEnv.DB.prepare(
-    "SELECT status AS status FROM programs WHERE id = ?"
-  )
-    .bind(programId)
-    .first<{ status: string }>();
-  return row?.status ?? null;
 }
 
 async function countLiveStreams(programId: string): Promise<number> {
@@ -283,7 +224,7 @@ async function countLiveStreams(programId: string): Promise<number> {
      WHERE program_id = ? AND is_live = 1`
   )
     .bind(programId)
-    .first<{ count: number }>();
+    .get() as { count: number } | undefined;
   return row?.count ?? 0;
 }
 
@@ -292,7 +233,7 @@ async function deletedAt(programId: string): Promise<string | null> {
     "SELECT deleted_at as deletedAt FROM programs WHERE id = ?"
   )
     .bind(programId)
-    .first<{ deletedAt: string | null }>();
+    .get() as { deletedAt: string | null } | undefined;
 
   return row?.deletedAt ?? null;
 }
@@ -306,11 +247,11 @@ async function readProgramArchiveFields(programId: string): Promise<{
     "SELECT archived_at AS archivedAt, retention_processed_at AS retentionProcessedAt, aggregate_summary_json AS aggregateSummaryJson FROM programs WHERE id = ?"
   )
     .bind(programId)
-    .first<{
+    .get() as {
       archivedAt: string | null;
       retentionProcessedAt: string | null;
       aggregateSummaryJson: string | null;
-    }>();
+    } | undefined;
 
   return {
     archivedAt: row?.archivedAt ?? null,
@@ -324,7 +265,7 @@ async function readProgramFirstLiveAt(programId: string): Promise<string | null>
     "SELECT first_live_at AS firstLiveAt FROM programs WHERE id = ?"
   )
     .bind(programId)
-    .first<{ firstLiveAt: string | null }>();
+    .get() as { firstLiveAt: string | null } | undefined;
 
   return row?.firstLiveAt ?? null;
 }
@@ -334,8 +275,8 @@ async function streamExists(programId: string, streamId: string): Promise<boolea
     "SELECT id FROM language_streams WHERE program_id = ? AND id = ?"
   )
     .bind(programId, streamId)
-    .first<{ id: string }>();
-  return row !== null;
+    .get() as { id: string } | undefined;
+  return row !== undefined;
 }
 
 async function seedTranslator(programId: string, translatorId: string): Promise<void> {
@@ -426,7 +367,7 @@ describe("program and stream admin API", () => {
     });
 
     expect(allPrograms.status).toBe(200);
-    const list = await allPrograms.json<{ programs: { id: string; orgId: string | null }[] }>();
+    const list = (await allPrograms.json()) as { programs: { id: string; orgId: string | null }[] };
     expect(list.programs.map((program) => program.id)).toEqual(
       expect.arrayContaining([platformProgram.id, otherProgram.id])
     );
@@ -456,7 +397,7 @@ describe("program and stream admin API", () => {
     });
 
     expect(response.status).toBe(200);
-    const body = await response.json<{ programs: { id: string; orgId: string | null }[] }>();
+    const body = (await response.json()) as { programs: { id: string; orgId: string | null }[] };
     expect(body.programs.map((program) => program.id)).toEqual(
       expect.arrayContaining([ownProgram.id])
     );
@@ -484,7 +425,7 @@ describe("program and stream admin API", () => {
     });
 
     expect(response.status).toBe(200);
-    const body = await response.json<{ programs: { id: string; orgId: string | null }[] }>();
+    const body = (await response.json()) as { programs: { id: string; orgId: string | null }[] };
     expect(body.programs.map((program) => program.id)).toEqual(
       expect.arrayContaining([ownProgram.id])
     );
@@ -544,7 +485,7 @@ describe("program and stream admin API", () => {
     });
 
     expect(response.status).toBe(201);
-    const body = await response.json<{ orgId: string; slug: string }>();
+    const body = (await response.json()) as { orgId: string; slug: string };
     expect(body.orgId).toBe(orgAdmin.orgId);
   });
 
@@ -581,7 +522,7 @@ describe("program and stream admin API", () => {
     });
 
     expect(response.status).toBe(200);
-    const body = await response.json<{ programs: { id: string; orgId: string | null }[] }>();
+    const body = (await response.json()) as { programs: { id: string; orgId: string | null }[] };
     const ids = body.programs.map((program) => program.id);
     expect(ids).toEqual(expect.arrayContaining([ownDeleted.id]));
     // org filter composes: the OTHER org's deleted program is absent...
@@ -609,11 +550,11 @@ describe("program and stream admin API", () => {
     });
 
     expect(create.status).toBe(201);
-    const created = await create.json<{
+    const created = (await create.json()) as {
       id: string;
       slug: string;
       accessControlEnabled: boolean;
-    }>();
+    };
     expect(created.slug).toBe("patna-event-2026");
     expect(created.accessControlEnabled).toBe(true);
 
@@ -681,7 +622,7 @@ describe("program and stream admin API", () => {
         eventDate: "2026-08-01"
       })
     });
-    const program = await createProgram.json<{ id: string }>();
+    const program = (await createProgram.json()) as { id: string };
 
     const createStream = await request(
       `/api/admin/programs/${program.id}/streams`,
@@ -758,7 +699,7 @@ describe("program and stream admin API", () => {
         eventDate: "2026-08-01"
       })
     });
-    const program = await createProgram.json<{ id: string }>();
+    const program = (await createProgram.json()) as { id: string };
 
     const createStream = await request(
       `/api/admin/programs/${program.id}/streams`,
@@ -781,17 +722,15 @@ describe("program and stream admin API", () => {
     });
   });
 
-  it("creates a stream for a live program and calls relay ensure", async () => {
+  it("creates a stream for a live program", async () => {
+    // NOTE(slice-3): this used to also assert a Cloudflare Realtime relay
+    // "ensure" call fired on stream creation. Relay orchestration was removed
+    // from routes/admin.ts in the Node/better-sqlite3 migration (TODO(slice-3)
+    // marks the call site) with no replacement yet, so only the DB-visible
+    // behavior (stream creation still succeeds for a live program) remains.
     const cookie = await adminCookie();
     const program = await createProgram(cookie);
     await setProgramStatus(program.id, "live");
-    const { calls, namespace } = makeMockRelayNamespace(() => {
-      return new Response("{}", { status: 200 });
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
 
     const response = await request(`/api/admin/programs/${program.id}/streams`, {
       method: "POST",
@@ -802,65 +741,7 @@ describe("program and stream admin API", () => {
         displayOrder: 1,
         isActive: true
       })
-    }, relayEnv);
-
-    expect(response.status).toBe(201);
-    const stream = await response.json<{ id: string }>();
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
-      method: "POST",
-      url: `https://bhasha.test/api/relay/${program.id}:${stream.id}/ensure`
     });
-  });
-
-  it("does not call relay ensure when creating a stream on a draft program", async () => {
-    const cookie = await adminCookie();
-    const program = await createProgram(cookie);
-    const { calls, namespace } = makeMockRelayNamespace(() => {
-      return new Response("{}", { status: 200 });
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
-    const response = await request(`/api/admin/programs/${program.id}/streams`, {
-      method: "POST",
-      headers: { Cookie: cookie },
-      body: JSON.stringify({
-        languageName: "Hindi",
-        languageCode: "hi",
-        displayOrder: 1,
-        isActive: true
-      })
-    }, relayEnv);
-
-    expect(response.status).toBe(201);
-    expect(calls).toHaveLength(0);
-  });
-
-  it("does not fail stream creation when relay ensure rejects", async () => {
-    const cookie = await adminCookie();
-    const program = await createProgram(cookie);
-    await setProgramStatus(program.id, "live");
-    const { namespace } = makeMockRelayNamespace(() => {
-      return Promise.reject(new Error("relay unavailable"));
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
-    const response = await request(`/api/admin/programs/${program.id}/streams`, {
-      method: "POST",
-      headers: { Cookie: cookie },
-      body: JSON.stringify({
-        languageName: "Hindi",
-        languageCode: "hi",
-        displayOrder: 1,
-        isActive: true
-      })
-    }, relayEnv);
 
     expect(response.status).toBe(201);
   });
@@ -1079,7 +960,12 @@ describe("program and stream admin API", () => {
     expect(await rowCount("programs", program.id)).toBe(1);
   });
 
-  it("tears down relay for deleted streams regardless of program status", async () => {
+  it("deletes streams regardless of program status", async () => {
+    // NOTE(slice-3): this used to also assert a relay "teardown" call fired
+    // for each delete. Relay orchestration has been removed (see the
+    // TODO(slice-3) comment at the DELETE stream route); only the DB-visible
+    // behavior (deletion succeeds for both live and archived programs)
+    // remains meaningful here.
     const cookie = await adminCookie();
     const liveProgram = await createProgram(cookie, {
       slug: "relay-live-program",
@@ -1100,21 +986,12 @@ describe("program and stream admin API", () => {
     await setProgramStatus(liveProgram.id, "live");
     await setProgramStatus(archivedProgram.id, "archived");
 
-    const { calls, namespace } = makeMockRelayNamespace(() => {
-      return new Response("{}", { status: 200 });
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
     const liveDelete = await request(
       `/api/admin/programs/${liveProgram.id}/streams/${liveStream.id}`,
       {
         method: "DELETE",
         headers: { Cookie: cookie }
-      },
-      relayEnv
+      }
     );
     expect(liveDelete.status).toBe(204);
 
@@ -1123,45 +1000,9 @@ describe("program and stream admin API", () => {
       {
         method: "DELETE",
         headers: { Cookie: cookie }
-      },
-      relayEnv
+      }
     );
     expect(archivedDelete.status).toBe(204);
-
-    expect(calls).toHaveLength(2);
-    expect(calls[0]).toMatchObject({
-      method: "POST",
-      url: `https://bhasha.test/api/relay/${liveProgram.id}:${liveStream.id}/teardown`
-    });
-    expect(calls[1]).toMatchObject({
-      method: "POST",
-      url: `https://bhasha.test/api/relay/${archivedProgram.id}:${archivedStream.id}/teardown`
-    });
-  });
-
-  it("does not fail stream delete when relay teardown rejects", async () => {
-    const cookie = await adminCookie();
-    const program = await createProgram(cookie);
-    const stream = await createStream(cookie, program.id);
-    const { namespace } = makeMockRelayNamespace(() => {
-      return Promise.reject(new Error("relay unavailable"));
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
-    const response = await request(
-      `/api/admin/programs/${program.id}/streams/${stream.id}`,
-      {
-        method: "DELETE",
-        headers: { Cookie: cookie }
-      },
-      relayEnv
-    );
-
-    expect(response.status).toBe(204);
-    expect(await streamExists(program.id, stream.id)).toBe(false);
   });
 
   it("returns program_not_found when deleting a stream for a missing program", async () => {
@@ -1506,9 +1347,9 @@ describe("program and stream admin API", () => {
       body: JSON.stringify({ status: "live" })
     });
     expect(firstLive.status).toBe(200);
-    const firstLiveBody = await firstLive.json<{
+    const firstLiveBody = (await firstLive.json()) as {
       program: { firstLiveAt: string | null };
-    }>();
+    };
     expect(firstLiveBody.program.firstLiveAt).not.toBeNull();
     const stampedAt = firstLiveBody.program.firstLiveAt as string;
 
@@ -1525,9 +1366,9 @@ describe("program and stream admin API", () => {
       body: JSON.stringify({ status: "live" })
     });
     expect(secondLive.status).toBe(200);
-    const secondLiveBody = await secondLive.json<{
+    const secondLiveBody = (await secondLive.json()) as {
       program: { firstLiveAt: string | null };
-    }>();
+    };
     expect(secondLiveBody.program.firstLiveAt).toBe(stampedAt);
   });
 
@@ -1570,9 +1411,9 @@ describe("program and stream admin API", () => {
       body: JSON.stringify({ status: "live" })
     });
     expect(firstLive.status).toBe(200);
-    const firstLiveBody = await firstLive.json<{
+    const firstLiveBody = (await firstLive.json()) as {
       program: { firstLiveAt: string | null };
-    }>();
+    };
     const stampedAt = firstLiveBody.program.firstLiveAt;
 
     const archived = await request(`/api/admin/programs/${program.id}`, {
@@ -1581,7 +1422,7 @@ describe("program and stream admin API", () => {
       body: JSON.stringify({ status: "archived" })
     });
     expect(archived.status).toBe(200);
-    const archivedBody = await archived.json<{ program: { firstLiveAt: string | null } }>();
+    const archivedBody = (await archived.json()) as { program: { firstLiveAt: string | null } };
     expect(archivedBody.program.firstLiveAt).toBe(stampedAt);
 
     const draft = await request(`/api/admin/programs/${program.id}`, {
@@ -1590,124 +1431,20 @@ describe("program and stream admin API", () => {
       body: JSON.stringify({ status: "draft" })
     });
     expect(draft.status).toBe(200);
-    const draftBody = await draft.json<{ program: { firstLiveAt: string | null } }>();
+    const draftBody = (await draft.json()) as { program: { firstLiveAt: string | null } };
     expect(draftBody.program.firstLiveAt).toBe(stampedAt);
   });
 
-  it("calls relay ensure for draft->live status changes", async () => {
-    const cookie = await adminCookie();
-    const program = await createProgram(cookie);
-    const stream = await createStream(cookie, program.id);
-    const { calls, namespace } = makeMockRelayNamespace(() => {
-      return new Response("{}", { status: 200 });
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
-    const patch = await request(
-      `/api/admin/programs/${program.id}`,
-      {
-        method: "PATCH",
-        headers: { Cookie: cookie },
-        body: JSON.stringify({ status: "live" })
-      },
-      relayEnv
-    );
-
-    expect(patch.status).toBe(200);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
-      method: "POST",
-      url: `https://bhasha.test/api/relay/${program.id}:${stream.id}/ensure`
-    });
-  });
-
-  it("calls relay teardown for live->draft status changes", async () => {
-    const cookie = await adminCookie();
-    const program = await createProgram(cookie);
-    const stream = await createStream(cookie, program.id);
-    const { calls, namespace } = makeMockRelayNamespace(() => {
-      return new Response("{}", { status: 200 });
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
-    await setProgramStatus(program.id, "live");
-    const patch = await request(
-      `/api/admin/programs/${program.id}`,
-      {
-        method: "PATCH",
-        headers: { Cookie: cookie },
-        body: JSON.stringify({ status: "draft" })
-      },
-      relayEnv
-    );
-
-    expect(patch.status).toBe(200);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
-      method: "POST",
-      url: `https://bhasha.test/api/relay/${program.id}:${stream.id}/teardown`
-    });
-  });
-
-  it("does not call relay orchestration when status is unchanged", async () => {
-    const cookie = await adminCookie();
-    const program = await createProgram(cookie);
-    const { calls, namespace } = makeMockRelayNamespace(() => {
-      return new Response("{}", { status: 200 });
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
-    const patch = await request(
-      `/api/admin/programs/${program.id}`,
-      {
-        method: "PATCH",
-        headers: { Cookie: cookie },
-        body: JSON.stringify({ adminNotes: "same status" })
-      },
-      relayEnv
-    );
-
-    expect(patch.status).toBe(200);
-    expect(calls).toHaveLength(0);
-  });
-
-  it("survives relay errors during status transition and keeps status persisted", async () => {
-    const cookie = await adminCookie();
-    const program = await createProgram(cookie);
-    const { namespace } = makeMockRelayNamespace((call) => {
-      if (call.url.includes("/teardown")) {
-        return Promise.reject(new Error("relay unavailable"));
-      }
-      return new Response("{}", { status: 200 });
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
-    await setProgramStatus(program.id, "live");
-    const patch = await request(
-      `/api/admin/programs/${program.id}`,
-      {
-        method: "PATCH",
-        headers: { Cookie: cookie },
-        body: JSON.stringify({ status: "draft" })
-      },
-      relayEnv
-    );
-
-    expect(patch.status).toBe(200);
-    expect((await readProgramStatus(program.id)) ?? "").toBe("draft");
-  });
+  // NOTE(slice-3): this suite used to have four tests here asserting that
+  // status transitions (draft->live, live->draft, unchanged, and errored)
+  // drove a Cloudflare Realtime relay ensure/teardown call. Relay
+  // orchestration has been removed from the PATCH status route (see the
+  // TODO(slice-3) comment there) with no replacement, so those relay-only
+  // assertions no longer apply. Status persistence itself is already covered
+  // by "keeps slug locked in draft for programs that have ever been live",
+  // "does not clear firstLiveAt when leaving archived", and
+  // "patches mutable program metadata and returns updated URL and QR
+  // metadata" below.
 
   it("patches mutable program metadata and returns updated URL and QR metadata", async () => {
     const cookie = await adminCookie();
@@ -1949,7 +1686,11 @@ describe("program and stream admin API", () => {
     expect(await rowCount("stream_events", program.id)).toBe(1);
   });
 
-  it("tears down relays and clears all program streams on archive", async () => {
+  it("clears all program streams' live state on archive", async () => {
+    // NOTE(slice-3): this used to also assert a relay "teardown" call fired
+    // for the active stream. Relay orchestration has been removed from the
+    // archive route (TODO(slice-3) comment there); the DB-visible behavior
+    // (all streams' is_live cleared) is unaffected and still asserted below.
     const cookie = await adminCookie();
     const program = await createProgram(cookie);
     const activeStream = await createStream(cookie, program.id);
@@ -1971,28 +1712,13 @@ describe("program and stream admin API", () => {
       program.id
     ).run();
 
-    const { calls, namespace } = makeMockRelayNamespace(() => {
-      return new Response("{}", { status: 200 });
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
     await setProgramStatus(program.id, "live");
     const archive = await request(`/api/admin/programs/${program.id}/archive`, {
       method: "POST",
       headers: { Cookie: cookie }
-    },
-    relayEnv
-    );
+    });
 
     expect(archive.status).toBe(200);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
-      method: "POST",
-      url: `https://bhasha.test/api/relay/${program.id}:${activeStream.id}/teardown`
-    });
     expect(await countLiveStreams(program.id)).toBe(0);
   });
 
@@ -2086,7 +1812,7 @@ describe("program and stream admin API", () => {
     const adminActive = await request("/api/admin/programs", {
       headers: { Cookie: cookie }
     });
-    const activeBody = await adminActive.json<{ programs: { id: string }[] }>();
+    const activeBody = (await adminActive.json()) as { programs: { id: string }[] };
     expect(activeBody.programs.some((program) => program.id === activeProgram.id)).toBe(
       true
     );
@@ -2097,7 +1823,7 @@ describe("program and stream admin API", () => {
     const adminDeleted = await request("/api/admin/programs?deleted=true", {
       headers: { Cookie: cookie }
     });
-    const deletedBody = await adminDeleted.json<{ programs: { id: string }[] }>();
+    const deletedBody = (await adminDeleted.json()) as { programs: { id: string }[] };
     expect(deletedBody.programs.some((program) => program.id === softDeletedProgram.id)).toBe(
       true
     );
@@ -2139,7 +1865,7 @@ describe("program and stream admin API", () => {
     const programs = await request("/api/admin/programs", {
       headers: { Cookie: cookie }
     });
-    const body = await programs.json<{ programs: { id: string }[] }>();
+    const body = (await programs.json()) as { programs: { id: string }[] };
     expect(
       body.programs.some((listed) => listed.id === program.id)
     ).toBe(false);
@@ -2151,7 +1877,12 @@ describe("program and stream admin API", () => {
     expect(await detail.json()).toEqual({ error: "program_not_found" });
   });
 
-  it("soft-deletes a live program, clears all stream is_live, and tears down relays", async () => {
+  it("soft-deletes a live program and clears all stream is_live", async () => {
+    // NOTE(slice-3): this used to also assert relay "teardown" calls fired
+    // for each live stream. Relay orchestration has been removed from the
+    // soft-delete route (TODO(slice-3) comment there); the DB-visible
+    // behavior (soft-delete + is_live cleared) is unaffected and still
+    // asserted below.
     const cookie = await adminCookie();
     const program = await createProgram(cookie);
     const hindiStream = await createStream(cookie, program.id, {
@@ -2192,42 +1923,25 @@ describe("program and stream admin API", () => {
       tamilStream.id
     ).run();
 
-    const { calls, namespace } = makeMockRelayNamespace(() => {
-      return new Response("{}", { status: 200 });
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
     const deleted = await request(`/api/admin/programs/${program.id}`, {
       method: "DELETE",
       headers: { Cookie: cookie }
-    }, relayEnv);
+    });
 
     expect(deleted.status).toBe(200);
     expect(await deletedAt(program.id)).not.toBeNull();
     expect(await countLiveStreams(program.id)).toBe(0);
-    expect(calls).toHaveLength(2);
   });
 
-  it("does not tear down relays for soft-deleting draft or archived programs", async () => {
+  it("hard-deletes draft programs and soft-deletes archived programs on delete", async () => {
     const cookie = await adminCookie();
-    const { calls, namespace } = makeMockRelayNamespace(() => {
-      return new Response("{}", { status: 200 });
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
     const draftProgram = await createProgram(cookie);
     const draftStream = await createStream(cookie, draftProgram.id);
     const archivedProgram = await createProgram(cookie, {
       slug: "draft-or-archived-program",
       eventDate: "2026-08-02"
     });
-    const archivedStream = await createStream(cookie, archivedProgram.id);
+    await createStream(cookie, archivedProgram.id);
     await setProgramStatus(archivedProgram.id, "archived");
 
     const draftDelete = await request(
@@ -2235,8 +1949,7 @@ describe("program and stream admin API", () => {
       {
         method: "DELETE",
         headers: { Cookie: cookie }
-      },
-      relayEnv
+      }
     );
     expect(draftDelete.status).toBe(204);
     expect(await streamExists(draftProgram.id, draftStream.id)).toBe(false);
@@ -2246,44 +1959,10 @@ describe("program and stream admin API", () => {
       {
         method: "DELETE",
         headers: { Cookie: cookie }
-      },
-      relayEnv
+      }
     );
     expect(archivedDelete.status).toBe(200);
     expect(await deletedAt(archivedProgram.id)).not.toBeNull();
-
-    expect(calls).toHaveLength(0);
-  });
-
-  it("does not fail soft-delete when relay sync rejects", async () => {
-    const cookie = await adminCookie();
-    const program = await createProgram(cookie);
-    await setProgramStatus(program.id, "live");
-    const stream = await createStream(cookie, program.id);
-    const now = new Date().toISOString();
-    await testEnv.DB.prepare(
-      `UPDATE language_streams
-      SET is_live = 1,
-          cloudflare_session_id = ?,
-          current_track_id = ?,
-          updated_at = ?
-      WHERE id = ?`
-    ).bind(`cf_${stream.id}`, `track_${stream.id}`, now, stream.id).run();
-    const { namespace } = makeMockRelayNamespace(() => {
-      return Promise.reject(new Error("relay unavailable"));
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
-    const deleted = await request(`/api/admin/programs/${program.id}`, {
-      method: "DELETE",
-      headers: { Cookie: cookie }
-    }, relayEnv);
-
-    expect(deleted.status).toBe(200);
-    expect(await deletedAt(program.id)).not.toBeNull();
   });
 
   it("restores a soft-deleted program", async () => {
@@ -2316,149 +1995,14 @@ describe("program and stream admin API", () => {
     expect(detail.status).toBe(200);
   });
 
-  it("re-enables active streams on restore of a live program", async () => {
-    const cookie = await adminCookie();
-    const program = await createProgram(cookie);
-    await setProgramStatus(program.id, "live");
-    const activeStream = await createStream(cookie, program.id);
-    const activeStreamTwo = await createStream(cookie, program.id, {
-      languageName: "French",
-      languageCode: "fr",
-      displayOrder: 2
-    });
-
-    const { calls, namespace } = makeMockRelayNamespace(() => {
-      return new Response("ok", { status: 200 });
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
-    const deleted = await request(
-      `/api/admin/programs/${program.id}`,
-      {
-        method: "DELETE",
-        headers: { Cookie: cookie }
-      },
-      relayEnv
-    );
-    expect(deleted.status).toBe(200);
-    expect(await deletedAt(program.id)).not.toBeNull();
-
-    const restored = await request(
-      `/api/admin/programs/${program.id}/restore`,
-      {
-        method: "POST",
-        headers: { Cookie: cookie }
-      },
-      relayEnv
-    );
-
-    expect(restored.status).toBe(200);
-    expect(await deletedAt(program.id)).toBeNull();
-
-    const ensureCalls = calls.filter((call) => call.url.includes("/ensure"));
-    expect(ensureCalls).toHaveLength(2);
-    expect(ensureCalls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          url: `https://bhasha.test/api/relay/${program.id}:${activeStream.id}/ensure`
-        }),
-        expect.objectContaining({
-          url: `https://bhasha.test/api/relay/${program.id}:${activeStreamTwo.id}/ensure`
-        })
-      ])
-    );
-  });
-
-  it.each(["draft", "archived"] as const)(
-    "does not re-enable relays when restoring a %s program",
-    async (status) => {
-      const cookie = await adminCookie();
-      const program = await createProgram(cookie);
-      await setProgramStatus(program.id, status);
-      await createStream(cookie, program.id);
-      const { calls, namespace } = makeMockRelayNamespace(() => {
-        return new Response("ok", { status: 200 });
-      });
-      const relayEnv = buildTestEnv({
-        RELAY_ENABLED: "true",
-        RELAY: namespace
-      });
-
-      if (status === "draft") {
-        const now = new Date().toISOString();
-        await testEnv.DB.prepare(
-          "UPDATE programs SET deleted_at = ?, updated_at = ? WHERE id = ?"
-        )
-          .bind(now, now, program.id)
-          .run();
-      } else {
-        const deleted = await request(
-          `/api/admin/programs/${program.id}`,
-          {
-            method: "DELETE",
-            headers: { Cookie: cookie }
-          },
-          relayEnv
-        );
-        expect(deleted.status).toBe(200);
-      }
-
-      expect(await deletedAt(program.id)).not.toBeNull();
-
-      const restored = await request(
-        `/api/admin/programs/${program.id}/restore`,
-        {
-          method: "POST",
-          headers: { Cookie: cookie }
-        },
-        relayEnv
-      );
-
-      expect(restored.status).toBe(200);
-      expect(await deletedAt(program.id)).toBeNull();
-      expect(calls.filter((call) => call.url.includes("/ensure"))).toHaveLength(0);
-    }
-  );
-
-  it("keeps restore 200 when relay re-enable fails", async () => {
-    const cookie = await adminCookie();
-    const program = await createProgram(cookie);
-    await setProgramStatus(program.id, "live");
-    await createStream(cookie, program.id);
-
-    const { namespace } = makeMockRelayNamespace(() => {
-      throw new Error("relay unavailable");
-    });
-    const relayEnv = buildTestEnv({
-      RELAY_ENABLED: "true",
-      RELAY: namespace
-    });
-
-    const deleted = await request(
-      `/api/admin/programs/${program.id}`,
-      {
-        method: "DELETE",
-        headers: { Cookie: cookie }
-      },
-      relayEnv
-    );
-    expect(deleted.status).toBe(200);
-
-    const restored = await request(
-      `/api/admin/programs/${program.id}/restore`,
-      {
-        method: "POST",
-        headers: { Cookie: cookie }
-      },
-      relayEnv
-    );
-
-    expect(restored.status).toBe(200);
-    expect(await deletedAt(program.id)).toBeNull();
-  });
+  // NOTE(slice-3): three tests used to live here asserting that restoring a
+  // soft-deleted program drove a relay "ensure" call for each active stream
+  // (for a live program), and that draft/archived restores and a failing
+  // relay call did not break the 200 response. Relay orchestration has been
+  // removed from the restore route (TODO(slice-3) comment there) with no
+  // replacement, so those relay-only assertions no longer apply. The
+  // remaining DB-visible behavior (restore succeeds and clears deleted_at)
+  // is already covered by "restores a soft-deleted program" above.
 
   it("rejects hard-delete for draft programs with listener or stream event history", async () => {
     const cookie = await adminCookie();

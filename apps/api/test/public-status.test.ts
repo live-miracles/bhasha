@@ -1,56 +1,49 @@
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import worker from "../src/index";
+import type { Env } from "../src/env";
+import { createApp } from "../src/index";
+import type { PresenceStatusSnapshot } from "../src/presence/status";
+import * as presenceStatus from "../src/presence/status";
 import { buildTestEnv, testEnv } from "./test-env";
-
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
 
 async function request(
   path: string,
-  init: IncomingRequestInit = {},
-  workerEnv: Env = testEnv
-) {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    workerEnv,
-    ctx
-  );
-  await waitOnExecutionContext(ctx);
-  return response;
+  init: RequestInit = {},
+  workerEnv: Env = buildTestEnv()
+): Promise<Response> {
+  const app = createApp(workerEnv);
+  return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
 async function resetDb(): Promise<void> {
-  await testEnv.DB.exec("DELETE FROM listener_realtime_cleanup_targets");
-  await testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
-  await testEnv.DB.exec("DELETE FROM translator_sessions");
-  await testEnv.DB.exec("DELETE FROM stream_events");
-  await testEnv.DB.exec("DELETE FROM listener_connections");
-  await testEnv.DB.exec("DELETE FROM admin_sessions");
-  await testEnv.DB.exec("DELETE FROM translator_stream_assignments");
-  await testEnv.DB.exec("DELETE FROM translators");
-  await testEnv.DB.exec("DELETE FROM language_streams");
-  await testEnv.DB.exec("DELETE FROM programs");
+  testEnv.DB.exec("DELETE FROM listener_realtime_cleanup_targets");
+  testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
+  testEnv.DB.exec("DELETE FROM translator_sessions");
+  testEnv.DB.exec("DELETE FROM stream_events");
+  testEnv.DB.exec("DELETE FROM listener_connections");
+  testEnv.DB.exec("DELETE FROM admin_sessions");
+  testEnv.DB.exec("DELETE FROM translator_stream_assignments");
+  testEnv.DB.exec("DELETE FROM translators");
+  testEnv.DB.exec("DELETE FROM language_streams");
+  testEnv.DB.exec("DELETE FROM programs");
 }
 
-async function reportAudioActivity(
+// The PROGRAM_PRESENCE Durable Object is gone; reporting audio activity used
+// to mean POSTing to its /audio-activity endpoint. reportAudioActivity is now
+// a plain in-process function (src/presence/status.ts) that routes/translator.ts
+// calls directly, so this helper calls it directly too instead of going
+// through a DO stub's fetch.
+async function reportAudioActivityDirect(
   programId: string,
   streamId: string,
   publishSessionId: string,
   active: boolean
 ): Promise<void> {
-  const id = testEnv.PROGRAM_PRESENCE.idFromName(programId);
-  const stub = testEnv.PROGRAM_PRESENCE.get(id);
-  const response = await stub.fetch(
-    "https://presence.internal/audio-activity",
-    {
-      method: "POST",
-      body: JSON.stringify({ streamId, publishSessionId, active })
-    }
-  );
-  expect(response.status).toBe(200);
+  await presenceStatus.reportAudioActivity(buildTestEnv(), programId, {
+    streamId,
+    publishSessionId,
+    active
+  });
 }
 
 async function insertPublishedSession(input: {
@@ -70,7 +63,7 @@ async function insertPublishedSession(input: {
      created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, NULL, ?, ?)`
   )
-    .bind(
+    .run(
       input.publishSessionId,
       input.programId,
       input.streamId,
@@ -81,8 +74,7 @@ async function insertPublishedSession(input: {
       expiresAt,
       now,
       now
-    )
-    .run();
+    );
 }
 
 async function seedPublicProgram(
@@ -112,7 +104,7 @@ async function seedPublicProgram(
     (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(
+    .run(
       programId,
       slug,
       "Patna Event 2026",
@@ -122,8 +114,7 @@ async function seedPublicProgram(
       "admin-only public status notes",
       now,
       now
-    )
-    .run();
+    );
 
   for (const stream of [
     {
@@ -166,7 +157,7 @@ async function seedPublicProgram(
        is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-      .bind(
+      .run(
         stream.id,
         programId,
         stream.languageName,
@@ -179,8 +170,7 @@ async function seedPublicProgram(
         stream.currentTrackId,
         now,
         now
-      )
-      .run();
+      );
   }
 
   await testEnv.DB.prepare(
@@ -188,8 +178,7 @@ async function seedPublicProgram(
     (id, program_id, name, password_hash, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)`
   )
-    .bind(translatorId, programId, "Translator", "hash", now, now)
-    .run();
+    .run(translatorId, programId, "Translator", "hash", now, now);
 
   // English has a current published publisher pointer (the authoritative
   // source for "live"/"silent" derivation).
@@ -235,8 +224,7 @@ async function expirePublishedSession(publishSessionId: string): Promise<void> {
   await testEnv.DB.prepare(
     `UPDATE realtime_publish_sessions SET expires_at = ? WHERE id = ?`
   )
-    .bind(new Date(Date.now() - 1_000).toISOString(), publishSessionId)
-    .run();
+    .run(new Date(Date.now() - 1_000).toISOString(), publishSessionId);
 }
 
 async function connectListener(
@@ -251,7 +239,7 @@ async function connectListener(
       clientId: `status_client_${crypto.randomUUID()}`
     })
   });
-  const { connectionId } = await requested.json<{ connectionId: string }>();
+  const { connectionId } = (await requested.json()) as { connectionId: string };
   const connected = await request("/api/listeners/connected", {
     method: "POST",
     body: JSON.stringify({ connectionId })
@@ -259,35 +247,33 @@ async function connectListener(
   expect(connected.status).toBe(200);
 }
 
-function failingPresenceNamespace(): DurableObjectNamespace {
-  return new Proxy(testEnv.PROGRAM_PRESENCE, {
-    get(target, property, receiver) {
-      if (property !== "get") {
-        const value = Reflect.get(target, property, receiver);
-        return typeof value === "function" ? value.bind(target) : value;
-      }
-
-      return (id: DurableObjectId) => {
-        const stub = target.get(id);
-        return new Proxy(stub, {
-          get(stubTarget, stubProperty, stubReceiver) {
-            if (stubProperty !== "fetch") {
-              return Reflect.get(stubTarget, stubProperty, stubReceiver);
-            }
-
-            return async () => {
-              throw new Error("presence unavailable");
-            };
-          }
-        });
-      };
-    }
-  }) as DurableObjectNamespace;
+// The old PROGRAM_PRESENCE Durable Object failure mode (a failing DO fetch)
+// has no equivalent any more: readPresenceStatusSnapshot in
+// src/presence/status.ts is a plain in-process Map read that never throws.
+// routes/public.ts's publicProgramStatus doesn't wrap the presence read in
+// its own try/catch either (a thrown error there would 500 the whole route,
+// not degrade), so the only way left to exercise the "degraded" branch is to
+// force readPresenceStatusSnapshot's RETURN VALUE via vi.spyOn -- see the
+// "returns degraded stale zero-count status" test below.
+function degradedSnapshot(): PresenceStatusSnapshot {
+  return {
+    total: 0,
+    streams: {},
+    audioActivity: {},
+    updatedAt: null,
+    stale: true,
+    degraded: true,
+    serverTime: new Date().toISOString()
+  };
 }
 
 describe("public program status", () => {
   beforeEach(async () => {
     await resetDb();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("returns active public streams with counts, state, freshness, and no private telemetry", async () => {
@@ -301,7 +287,7 @@ describe("public program status", () => {
       privateValues
     } = await seedPublicProgram();
     await connectListener(programId, englishStreamId);
-    await reportAudioActivity(
+    await reportAudioActivityDirect(
       programId,
       englishStreamId,
       englishPublishSessionId,
@@ -326,8 +312,7 @@ describe("public program status", () => {
           languageCode: "hi",
           isActive: true,
           state: "offline",
-          publisherVersion: null,
-          relayVersion: null
+          publisherVersion: null
         },
         {
           id: englishStreamId,
@@ -336,8 +321,7 @@ describe("public program status", () => {
           languageCode: "en",
           isActive: true,
           state: "live",
-          publisherVersion: expect.any(String),
-          relayVersion: null
+          publisherVersion: expect.any(String)
         }
       ],
       stale: false,
@@ -421,8 +405,7 @@ describe("public program status", () => {
           languageCode: "hi",
           isActive: true,
           state: "offline",
-          publisherVersion: null,
-          relayVersion: null
+          publisherVersion: null
         },
         {
           id: englishStreamId,
@@ -431,8 +414,7 @@ describe("public program status", () => {
           languageCode: "en",
           isActive: true,
           state: "silent",
-          publisherVersion: expect.any(String),
-          relayVersion: null
+          publisherVersion: expect.any(String)
         }
       ],
       stale: true,
@@ -449,13 +431,13 @@ describe("public program status", () => {
     const response = await request(`/api/public/programs/${slug}/status`);
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       streams: Array<{
         id: string;
         state: string;
         publisherVersion: string | null;
       }>;
-    }>();
+    };
     const english = body.streams.find(
       (stream) => stream.id === englishStreamId
     );
@@ -469,7 +451,7 @@ describe("public program status", () => {
     const { programId, slug, englishStreamId, englishPublishSessionId } =
       await seedPublicProgram();
     await connectListener(programId, englishStreamId);
-    await reportAudioActivity(
+    await reportAudioActivityDirect(
       programId,
       englishStreamId,
       englishPublishSessionId,
@@ -482,13 +464,13 @@ describe("public program status", () => {
     const response = await request(`/api/public/programs/${slug}/status`);
 
     expect(response.status).toBe(200);
-    const body = await response.json<{
+    const body = (await response.json()) as {
       streams: Array<{
         id: string;
         state: string;
         publisherVersion: string | null;
       }>;
-    }>();
+    };
     const english = body.streams.find(
       (stream) => stream.id === englishStreamId
     );
@@ -500,7 +482,7 @@ describe("public program status", () => {
 
   it("does not let stale audio for an old publish session make the stream live", async () => {
     const { programId, slug, englishStreamId } = await seedPublicProgram();
-    await reportAudioActivity(
+    await reportAudioActivityDirect(
       programId,
       englishStreamId,
       "realtime_publish_session_stale_previous",
@@ -509,9 +491,9 @@ describe("public program status", () => {
 
     const response = await request(`/api/public/programs/${slug}/status`);
 
-    const body = await response.json<{
+    const body = (await response.json()) as {
       streams: Array<{ id: string; state: string }>;
-    }>();
+    };
     const english = body.streams.find(
       (stream) => stream.id === englishStreamId
     );
@@ -520,16 +502,11 @@ describe("public program status", () => {
 
   it("returns degraded stale zero-count status if presence cannot be read", async () => {
     const { slug, hindiStreamId, englishStreamId } = await seedPublicProgram();
-    const degradedEnv = buildTestEnv({
-      DB: testEnv.DB,
-      PROGRAM_PRESENCE: failingPresenceNamespace()
-    });
-
-    const response = await request(
-      `/api/public/programs/${slug}/status`,
-      {},
-      degradedEnv
+    vi.spyOn(presenceStatus, "readPresenceStatusSnapshot").mockResolvedValue(
+      degradedSnapshot()
     );
+
+    const response = await request(`/api/public/programs/${slug}/status`);
 
     expect(response.status).toBe(200);
     const body = await response.json();
@@ -614,8 +591,7 @@ describe("public program status", () => {
           updated_at = ?
       WHERE id = ?`
     )
-      .bind(new Date().toISOString(), new Date().toISOString(), programId)
-      .run();
+      .run(new Date().toISOString(), new Date().toISOString(), programId);
 
     const response = await request(`/api/public/programs/${slug}/status`);
 

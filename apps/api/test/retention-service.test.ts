@@ -1,15 +1,10 @@
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import worker from "../src/index";
 import { ListenerRepository } from "../src/db/listenerRepository";
 import { ProgramRepository } from "../src/db/programRepository";
 import { RetentionRepository } from "../src/db/retentionRepository";
 import { RETENTION_DAYS, RETENTION_REDACTED_VALUE } from "../src/domain/reports";
-import {
-  runScheduledRetention,
-  type RetentionDeps
-} from "../src/domain/retentionService";
+import { runScheduledRetention } from "../src/domain/retentionService";
 import { testEnv } from "./test-env";
 
 type SeededProgram = {
@@ -50,7 +45,7 @@ async function seedProgram(input: {
      updated_at, archived_at, retention_processed_at, deleted_at, aggregate_summary_json)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(
+    .run(
       id,
       slug,
       "Retention Service Program",
@@ -64,8 +59,7 @@ async function seedProgram(input: {
       input.retentionProcessedAt ?? null,
       input.deletedAt ?? null,
       null
-    )
-    .run();
+    );
 
   return { id, slug };
 }
@@ -82,7 +76,7 @@ async function seedStream(input: {
      is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)`
   )
-    .bind(
+    .run(
       streamId,
       input.programId,
       "Hindi",
@@ -91,8 +85,7 @@ async function seedStream(input: {
       1,
       now,
       now
-    )
-    .run();
+    );
 
   return streamId;
 }
@@ -114,7 +107,7 @@ async function seedListenerConnection(input: {
      disconnected_at, disconnect_reason, switch_from_connection_id, reconnect_of_connection_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`
   )
-    .bind(
+    .run(
       input.connectionId,
       input.programId,
       input.streamId,
@@ -125,8 +118,7 @@ async function seedListenerConnection(input: {
       input.userAgent,
       now,
       now
-    )
-    .run();
+    );
 }
 
 async function readRetentionProcessedAt(
@@ -135,8 +127,7 @@ async function readRetentionProcessedAt(
   const row = await testEnv.DB.prepare(
     "SELECT retention_processed_at AS retentionProcessedAt FROM programs WHERE id = ?"
   )
-    .bind(programId)
-    .first<{ retentionProcessedAt: string | null }>();
+    .get(programId) as { retentionProcessedAt: string | null } | undefined;
 
   return row?.retentionProcessedAt ?? null;
 }
@@ -145,8 +136,7 @@ async function readDeletedAt(programId: string): Promise<string | null> {
   const row = await testEnv.DB.prepare(
     "SELECT deleted_at AS deletedAt FROM programs WHERE id = ?"
   )
-    .bind(programId)
-    .first<{ deletedAt: string | null }>();
+    .get(programId) as { deletedAt: string | null } | undefined;
 
   return row?.deletedAt ?? null;
 }
@@ -159,12 +149,11 @@ interface ListenerConnectionRow {
 async function readListenerConnections(
   programId: string
 ): Promise<ListenerConnectionRow[]> {
-  const { results } = await testEnv.DB
+  const results = testEnv.DB
     .prepare(
       "SELECT listener_ip as listenerIp, user_agent as userAgent FROM listener_connections WHERE program_id = ? ORDER BY id ASC"
     )
-    .bind(programId)
-    .all<ListenerConnectionRow>();
+    .all(programId) as ListenerConnectionRow[];
   return results;
 }
 
@@ -219,8 +208,7 @@ describe("retention scheduled service orchestration", () => {
         pruneProgram: async (programId, beforeIso) => {
           await testEnv.DB
             .prepare("UPDATE programs SET deleted_at = NULL WHERE id = ?")
-            .bind(programId)
-            .run();
+            .run(programId);
           return retention.pruneProgram(programId, beforeIso);
         },
         anonymizeProgramTelemetry: listeners.anonymizeProgramTelemetry.bind(listeners),
@@ -386,48 +374,60 @@ describe("retention scheduled service orchestration", () => {
     });
   });
 
-  it("scheduled handler triggers full retention run through index", async () => {
+  // NOTE(slice-1) in src/index.ts: the retention cron (`triggers.crons` /
+  // `env.scheduled`) is intentionally NOT reintroduced in this slice, so
+  // there is no `worker.scheduled()` to invoke any more -- the cron wiring
+  // will come back later as `node-cron` calling these same, DB-agnostic
+  // functions directly. This test now drives that combination itself:
+  // `runScheduledRetention` against the cron's nominal `now` (matching the
+  // fixture's absolute deletedAt timestamps), and `pruneDailyAccessData`
+  // against the real wall clock (matching the fixture's relative "25 hours
+  // ago" listener_access row) -- mirroring how the old scheduled handler
+  // combined the two.
+  it("runs the grace/redact sweep and the daily access prune back to back", async () => {
     const now = new Date("2026-06-23T00:00:00.000Z");
     const expiredDeletedAt = new Date(
       now.getTime() - 10 * 24 * 60 * 60 * 1000
     ).toISOString();
     await seedProgram({ status: "live", deletedAt: expiredDeletedAt });
     const dailyProgram = await seedProgram({ status: "live" });
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `INSERT INTO listener_access
       (id, program_id, client_id, short_code, claim_secret_hash, status, created_at)
       VALUES (?, ?, ?, ?, ?, 'pending', ?)`
-    )
-      .bind(
-        `stale_access_${crypto.randomUUID()}`,
-        dailyProgram.id,
-        `client_${crypto.randomUUID()}`,
-        "STALE1",
-        `claim_${crypto.randomUUID()}`,
-        new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
-      )
-      .run();
-
-    const ctx = createExecutionContext();
-    await worker.scheduled(
-      {
-        cron: "17 3 * * *",
-        scheduledTime: now.getTime(),
-        noRetry: false
-      } as unknown as ScheduledEvent,
-      testEnv,
-      ctx
+    ).run(
+      `stale_access_${crypto.randomUUID()}`,
+      dailyProgram.id,
+      `client_${crypto.randomUUID()}`,
+      "STALE1",
+      `claim_${crypto.randomUUID()}`,
+      new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
     );
-    await waitOnExecutionContext(ctx);
 
-    const row = await testEnv.DB.prepare("SELECT COUNT(*) as count FROM programs")
-      .first<{ count: number }>();
+    const programs = new ProgramRepository(testEnv.DB);
+    const listeners = new ListenerRepository(testEnv.DB);
+    const retention = new RetentionRepository(testEnv.DB);
+
+    await runScheduledRetention(
+      {
+        listProgramsToPrune: retention.listProgramsToPrune.bind(retention),
+        listProgramsToRedact: retention.listProgramsToRedact.bind(retention),
+        pruneProgram: retention.pruneProgram.bind(retention),
+        anonymizeProgramTelemetry:
+          listeners.anonymizeProgramTelemetry.bind(listeners),
+        markRetentionProcessed: programs.markRetentionProcessed.bind(programs)
+      },
+      now
+    );
+    await retention.pruneDailyAccessData(new Date());
+
+    const row = testEnv.DB.prepare(
+      "SELECT COUNT(*) as count FROM programs"
+    ).get() as { count: number } | undefined;
     expect(row?.count ?? 0).toBe(1);
-    const accessRow = await testEnv.DB.prepare(
+    const accessRow = testEnv.DB.prepare(
       "SELECT COUNT(*) as count FROM listener_access WHERE program_id = ?"
-    )
-      .bind(dailyProgram.id)
-      .first<{ count: number }>();
+    ).get(dailyProgram.id) as { count: number } | undefined;
     expect(accessRow?.count ?? 0).toBe(0);
   });
 });

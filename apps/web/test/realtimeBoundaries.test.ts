@@ -23,21 +23,18 @@ describe("role-specific realtime client boundaries", () => {
     expect("mute" in client).toBe(false);
   });
 
-  it("requires listener methods to accept role-specific inputs and ICE servers", () => {
+  it("requires listener methods to accept role-specific inputs", () => {
     expectTypeOf<Parameters<ListenerRealtimeClient["subscribe"]>[0]>().toMatchTypeOf<{
       programSlug: string;
       streamId: string;
       clientId: string;
-      iceServers?: RTCIceServer[];
     }>();
     expectTypeOf<Parameters<ListenerRealtimeClient["switch"]>[0]>().toMatchTypeOf<{
       connectionId: string;
       nextStreamId: string;
-      iceServers?: RTCIceServer[];
     }>();
     expectTypeOf<Parameters<ListenerRealtimeClient["reconnect"]>[0]>().toMatchTypeOf<{
       connectionId: string;
-      iceServers?: RTCIceServer[];
     }>();
     expectTypeOf<Parameters<ListenerRealtimeClient["stop"]>[0]>().toMatchTypeOf<{
       connectionId: string;
@@ -57,11 +54,10 @@ describe("role-specific realtime client boundaries", () => {
     expect("switch" in client).toBe(false);
   });
 
-  it("requires translator methods to accept role-specific inputs and ICE servers", () => {
+  it("requires translator methods to accept role-specific inputs", () => {
     expectTypeOf<Parameters<TranslatorRealtimeClient["publish"]>[0]>().toMatchTypeOf<{
       streamId: string;
       track: MediaStreamTrack;
-      iceServers?: RTCIceServer[];
     }>();
     expectTypeOf<Parameters<TranslatorRealtimeClient["mute"]>[0]>().toMatchTypeOf<{
       track: MediaStreamTrack;
@@ -73,7 +69,6 @@ describe("role-specific realtime client boundaries", () => {
     expectTypeOf<Parameters<TranslatorRealtimeClient["reconnect"]>[0]>().toMatchTypeOf<{
       publishSessionId: string;
       streamId: string;
-      iceServers?: RTCIceServer[];
     }>();
   });
 });

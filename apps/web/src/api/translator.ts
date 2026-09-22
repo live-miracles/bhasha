@@ -1,10 +1,5 @@
 import { apiClient } from "./client";
 
-export interface TranslatorSessionDescription {
-  type: RTCSdpType;
-  sdp: string;
-}
-
 export interface TranslatorInfo {
   id: string;
   programId: string;
@@ -30,43 +25,23 @@ export interface TranslatorSessionResponse {
   assignedStreams: AssignedStream[];
 }
 
-export interface TranslatorRealtimeSessionResponse {
+// Response of the single LiveKit endpoint that replaced the old three-step SFU
+// handshake (`/realtime/session` + `/realtime/publish` + `/realtime/track`).
+// `url`/`token` are handed straight to livekit-client's `Room.connect()`.
+export interface TranslatorRealtimeTokenResponse {
   publishSessionId: string;
-  streamId: string;
-  iceServers?: RTCIceServer[];
+  token: string;
+  url: string;
+  roomName: string;
 }
 
-export interface TranslatorRealtimeSessionOptions {
+export interface TranslatorRealtimeTokenOptions {
   reclaim?: boolean;
-}
-
-export interface TranslatorRealtimePublishTrack {
-  mid: string;
-  trackName: string;
-}
-
-export interface TranslatorRealtimePublishResponse {
-  streamId: string;
-  publishSessionId: string;
-  publishedTrack: { trackName: string; mid: string };
-  sessionDescription: TranslatorSessionDescription;
-  requiresImmediateRenegotiation: boolean;
 }
 
 export interface TranslatorRealtimeStopResponse {
   ok: true;
   cleanup: "closed" | "failed";
-}
-
-export interface TranslatorRealtimeTrackMetadata {
-  sessionId: string;
-  trackName: string;
-  mid: string;
-}
-
-export interface TranslatorRealtimeTrackResponse {
-  publishSessionId: string;
-  streamId: string;
 }
 
 export interface TranslatorAudioActivityResponse {
@@ -85,24 +60,14 @@ export interface TranslatorApi {
     password: string
   ): Promise<TranslatorLoginResponse>;
   session(): Promise<TranslatorSessionResponse>;
-  realtimeSession(
+  realtimeToken(
     streamId: string,
-    options?: TranslatorRealtimeSessionOptions
-  ): Promise<TranslatorRealtimeSessionResponse>;
-  realtimePublish(
-    streamId: string,
-    publishSessionId: string,
-    sessionDescription: RTCSessionDescriptionInit,
-    track: TranslatorRealtimePublishTrack
-  ): Promise<TranslatorRealtimePublishResponse>;
+    options?: TranslatorRealtimeTokenOptions
+  ): Promise<TranslatorRealtimeTokenResponse>;
   realtimeStop(
     streamId: string,
     publishSessionId: string
   ): Promise<TranslatorRealtimeStopResponse>;
-  realtimeTrack(
-    streamId: string,
-    metadata: TranslatorRealtimeTrackMetadata
-  ): Promise<TranslatorRealtimeTrackResponse>;
   audioActivity(
     streamId: string,
     publishSessionId: string,
@@ -134,36 +99,19 @@ export function createTranslatorApi(
     session() {
       return client.get<TranslatorSessionResponse>("/api/translator/session");
     },
-    realtimeSession(streamId, options) {
-      return client.post<TranslatorRealtimeSessionResponse>(
-        "/api/translator/realtime/session",
+    realtimeToken(streamId, options) {
+      return client.post<TranslatorRealtimeTokenResponse>(
+        "/api/translator/realtime/token",
         {
           streamId,
           ...(options?.reclaim ? { reclaim: true } : {})
         }
       );
     },
-    realtimePublish(streamId, publishSessionId, sessionDescription, track) {
-      return client.post<TranslatorRealtimePublishResponse>(
-        "/api/translator/realtime/publish",
-        { streamId, publishSessionId, sessionDescription, track }
-      );
-    },
     realtimeStop(streamId, publishSessionId) {
       return client.post<TranslatorRealtimeStopResponse>(
         "/api/translator/realtime/stop",
         { streamId, publishSessionId }
-      );
-    },
-    realtimeTrack(streamId, metadata) {
-      return client.post<TranslatorRealtimeTrackResponse>(
-        "/api/translator/realtime/track",
-        {
-          streamId,
-          sessionId: metadata.sessionId,
-          trackName: metadata.trackName,
-          mid: metadata.mid
-        }
       );
     },
     audioActivity(streamId, publishSessionId, active) {

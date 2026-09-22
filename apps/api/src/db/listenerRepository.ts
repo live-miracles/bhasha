@@ -7,6 +7,7 @@ import {
 import { deviceLabelFromUserAgent } from "../domain/deviceLabel";
 import { deviceModelNameFromCode } from "../domain/deviceModelName";
 import type { ListenerAccessStatus } from "./listenerAccessRepository";
+import type { Database } from "./sqlite";
 
 export type ListenerSubscriptionStatus =
   | "requested"
@@ -232,7 +233,7 @@ export class ListenerReplacementSuccessorExistsError extends Error {
 }
 
 export class ListenerRepository {
-  constructor(private readonly db: D1Database | D1DatabaseSession) {}
+  constructor(private readonly db: Database) {}
 
   async validateRequestedConnection(
     input: CreateListenerConnectionInput
@@ -263,7 +264,7 @@ export class ListenerRepository {
     const deviceLabel = deviceLabelFromUserAgent(input.userAgent);
 
     try {
-      await this.db
+      this.db
         .prepare(
           `INSERT INTO listener_connections
           (id, program_id, language_stream_id, client_id, token_issued_at,
@@ -272,7 +273,7 @@ export class ListenerRepository {
            user_agent, device_label, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .bind(
+        .run(
           connection.id,
           connection.programId,
           connection.streamId,
@@ -289,8 +290,7 @@ export class ListenerRepository {
           deviceLabel,
           connection.createdAt,
           connection.updatedAt
-        )
-        .run();
+        );
     } catch (error) {
       if (isReplacementSuccessorConstraintError(error)) {
         throw new ListenerReplacementSuccessorExistsError();
@@ -308,33 +308,33 @@ export class ListenerRepository {
   async backfillDeviceLabels(
     batchSize = 200
   ): Promise<{ updated: number; remaining: number }> {
-    const { results: rowsToBackfill } = await this.db
+    const rowsToBackfill = this.db
       .prepare(
         `SELECT id, user_agent as userAgent
         FROM listener_connections
         WHERE device_label IS NULL
         LIMIT ?`
       )
-      .bind(batchSize)
-      .all<{ id: string; userAgent: string }>();
+      .all(batchSize) as Array<{ id: string; userAgent: string }>;
 
-    const updates = rowsToBackfill.map((row) =>
-      this.db
-        .prepare(`UPDATE listener_connections SET device_label = ? WHERE id = ?`)
-        .bind(deviceLabelFromUserAgent(row.userAgent), row.id)
-    );
-
-    if (updates.length > 0) {
-      await this.db.batch(updates);
+    if (rowsToBackfill.length > 0) {
+      const backfill = this.db.transaction(() => {
+        for (const row of rowsToBackfill) {
+          this.db
+            .prepare(`UPDATE listener_connections SET device_label = ? WHERE id = ?`)
+            .run(deviceLabelFromUserAgent(row.userAgent), row.id);
+        }
+      });
+      backfill();
     }
 
-    const remainingRow = await this.db
+    const remainingRow = this.db
       .prepare(
         `SELECT COUNT(*) as remaining
         FROM listener_connections
         WHERE device_label IS NULL`
       )
-      .first<{ remaining: number }>();
+      .get() as { remaining: number } | undefined;
 
     return {
       updated: rowsToBackfill.length,
@@ -349,8 +349,8 @@ export class ListenerRepository {
     connection: ListenerConnectionRecord;
     changed: boolean;
   }> {
-    const result = await applyConnectedUpdate(
-      this.db as D1Database,
+    const result = applyConnectedUpdate(
+      this.db,
       connectionId,
       clientHints,
       false
@@ -392,7 +392,7 @@ export class ListenerRepository {
     const statusGuard = acceptRequested
       ? "subscription_status NOT IN ('disconnected','failed')"
       : "subscription_status = 'connected'";
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE listener_connections
         SET last_seen_at = ?,
@@ -404,7 +404,7 @@ export class ListenerRepository {
         WHERE id = ? AND ${statusGuard}
         RETURNING program_id AS programId, language_stream_id AS streamId`
       )
-      .bind(
+      .get(
         timestamp,
         clientHints.deviceModel ?? null,
         clientHints.platform ?? null,
@@ -412,8 +412,7 @@ export class ListenerRepository {
         clientHints.browserFullVersion ?? null,
         timestamp,
         connectionId
-      )
-      .first<{ programId: string; streamId: string }>();
+      ) as { programId: string; streamId: string } | undefined;
 
     if (!result) {
       throw new ListenerInvalidStateError();
@@ -441,7 +440,7 @@ export class ListenerRepository {
       Date.now() - windowSeconds * 1000
     ).toISOString();
 
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT language_stream_id as streamId, COUNT(*) as count
         FROM listener_connections
@@ -450,8 +449,7 @@ export class ListenerRepository {
           AND last_seen_at > ?
         GROUP BY language_stream_id`
       )
-      .bind(programId, threshold)
-      .all<{ streamId: string; count: number }>();
+      .all(programId, threshold) as Array<{ streamId: string; count: number }>;
 
     const streams: ActiveListenerStreamCount[] = results.map((row) => ({
       streamId: row.streamId,
@@ -472,7 +470,7 @@ export class ListenerRepository {
     // disambiguating SELECT distinguishes missing (NotFound) from wrong-state
     // (InvalidState) — preserving the two-error contract the pre-SELECT enforced.
     const timestamp = nowIso();
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE listener_connections
         SET cloudflare_session_id = ?,
@@ -481,10 +479,9 @@ export class ListenerRepository {
           AND subscription_status = 'requested'
           AND cloudflare_session_id IS NULL`
       )
-      .bind(cloudflareSessionId, timestamp, connectionId)
-      .run();
+      .run(cloudflareSessionId, timestamp, connectionId);
 
-    if (result.meta.changes === 0) {
+    if (result.changes === 0) {
       const existing = await this.getConnection(connectionId);
       if (!existing) {
         throw new ListenerConnectionNotFoundError();
@@ -502,7 +499,7 @@ export class ListenerRepository {
     // (subscribeTrack) discards the row. On 0 rows, one disambiguating SELECT
     // distinguishes missing (NotFound) from every wrong-state case (InvalidState).
     const timestamp = nowIso();
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE listener_connections
         SET cloudflare_track_mid = ?,
@@ -512,10 +509,9 @@ export class ListenerRepository {
           AND cloudflare_session_id IS NOT NULL
           AND cloudflare_track_mid IS NULL`
       )
-      .bind(mid, timestamp, connectionId)
-      .run();
+      .run(mid, timestamp, connectionId);
 
-    if (result.meta.changes === 0) {
+    if (result.changes === 0) {
       const existing = await this.getConnection(connectionId);
       if (!existing) {
         throw new ListenerConnectionNotFoundError();
@@ -534,7 +530,7 @@ export class ListenerRepository {
     }
 
     const timestamp = nowIso();
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE listener_connections
         SET subscription_status = 'failed',
@@ -544,19 +540,18 @@ export class ListenerRepository {
         WHERE id = ?
           AND subscription_status NOT IN ('disconnected', 'failed')`
       )
-      .bind(timestamp, reason, timestamp, connectionId)
-      .run();
+      .run(timestamp, reason, timestamp, connectionId);
 
     return {
       connection: await this.requireConnection(connectionId),
-      changed: result.meta.changes > 0
+      changed: result.changes > 0
     };
   }
 
   async getRealtimeCleanupTarget(
     connectionId: string
   ): Promise<ListenerRealtimeCleanupTarget> {
-    const target = await this.db
+    const target = this.db
       .prepare(
         `SELECT id,
           program_id as programId,
@@ -567,8 +562,7 @@ export class ListenerRepository {
         FROM listener_connections
         WHERE id = ?`
       )
-      .bind(connectionId)
-      .first<ListenerRealtimeCleanupTarget>();
+      .get(connectionId) as ListenerRealtimeCleanupTarget | undefined;
 
     if (!target) {
       throw new ListenerConnectionNotFoundError();
@@ -583,7 +577,7 @@ export class ListenerRepository {
     const currentTarget = await this.getRealtimeCleanupTarget(connectionId);
     const cleaned = new Set<string>();
 
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT cloudflare_session_id as cloudflareSessionId,
           cloudflare_track_mid as cloudflareTrackMid,
@@ -592,8 +586,7 @@ export class ListenerRepository {
         WHERE connection_id = ?
         ORDER BY created_at ASC`
       )
-      .bind(connectionId)
-      .all<RealtimeCleanupMarker>();
+      .all(connectionId) as RealtimeCleanupMarker[];
 
     for (const target of results) {
       if (target.cleanupState !== "closed") {
@@ -639,23 +632,22 @@ export class ListenerRepository {
   ): Promise<void> {
     await this.requireConnection(connectionId);
     const timestamp = nowIso();
-    await this.db
+    this.db
       .prepare(
         `INSERT OR IGNORE INTO listener_realtime_cleanup_targets
         (connection_id, cloudflare_session_id, cloudflare_track_mid,
          cleanup_state, created_at, updated_at, closed_at)
         VALUES (?, ?, ?, 'pending', ?, ?, NULL)`
       )
-      .bind(
+      .run(
         connectionId,
         cloudflareSessionId,
         cloudflareTrackMid,
         timestamp,
         timestamp
-      )
-      .run();
+      );
 
-    await this.db
+    this.db
       .prepare(
         `UPDATE listener_realtime_cleanup_targets
         SET cleanup_state = 'pending',
@@ -666,8 +658,7 @@ export class ListenerRepository {
           AND cloudflare_track_mid = ?
           AND cleanup_state != 'closed'`
       )
-      .bind(timestamp, connectionId, cloudflareSessionId, cloudflareTrackMid)
-      .run();
+      .run(timestamp, connectionId, cloudflareSessionId, cloudflareTrackMid);
   }
 
   async recordRealtimeCleanupSuccess(
@@ -677,24 +668,23 @@ export class ListenerRepository {
   ): Promise<void> {
     await this.requireConnection(connectionId);
     const timestamp = nowIso();
-    await this.db
+    this.db
       .prepare(
         `INSERT OR IGNORE INTO listener_realtime_cleanup_targets
         (connection_id, cloudflare_session_id, cloudflare_track_mid,
          cleanup_state, created_at, updated_at, closed_at)
         VALUES (?, ?, ?, 'closed', ?, ?, ?)`
       )
-      .bind(
+      .run(
         connectionId,
         cloudflareSessionId,
         cloudflareTrackMid,
         timestamp,
         timestamp,
         timestamp
-      )
-      .run();
+      );
 
-    await this.db
+    this.db
       .prepare(
         `UPDATE listener_realtime_cleanup_targets
         SET cleanup_state = 'closed',
@@ -704,14 +694,13 @@ export class ListenerRepository {
           AND cloudflare_session_id = ?
           AND cloudflare_track_mid = ?`
       )
-      .bind(
+      .run(
         timestamp,
         timestamp,
         connectionId,
         cloudflareSessionId,
         cloudflareTrackMid
-      )
-      .run();
+      );
   }
 
   async recordConnectionFailure(
@@ -738,7 +727,7 @@ export class ListenerRepository {
     }
 
     const timestamp = nowIso();
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE listener_connections
         SET subscription_status = 'disconnected',
@@ -747,10 +736,9 @@ export class ListenerRepository {
             updated_at = ?
         WHERE id = ? AND subscription_status != 'disconnected'`
       )
-      .bind(timestamp, reason, timestamp, connectionId)
-      .run();
+      .run(timestamp, reason, timestamp, connectionId);
 
-    if (result.meta.changes === 0) {
+    if (result.changes === 0) {
       return {
         connection: await this.requireConnection(connectionId),
         changed: false
@@ -782,10 +770,9 @@ export class ListenerRepository {
   async getConnection(
     connectionId: string
   ): Promise<ListenerConnectionRecord | null> {
-    return this.db
+    return (this.db
       .prepare(`${CONNECTION_SELECT} WHERE id = ?`)
-      .bind(connectionId)
-      .first<ListenerConnectionRecord>();
+      .get(connectionId) as ListenerConnectionRecord | undefined) ?? null;
   }
 
   async listProgramConnections(
@@ -795,7 +782,7 @@ export class ListenerRepository {
       throw new ListenerProgramNotFoundError();
     }
 
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT id,
           program_id as programId,
@@ -812,8 +799,7 @@ export class ListenerRepository {
         WHERE program_id = ?
         ORDER BY created_at ASC`
       )
-      .bind(programId)
-      .all<Omit<ListenerReportConnection, "deviceLabel">>();
+      .all(programId) as Array<Omit<ListenerReportConnection, "deviceLabel">>;
 
     return results.map((row) => ({
       ...row,
@@ -891,10 +877,9 @@ export class ListenerRepository {
     pageSize: number;
     totalPages: number;
   }> {
-    const row = await this.db
+    const row = this.db
       .prepare("SELECT id FROM programs WHERE id = ? AND deleted_at IS NULL")
-      .bind(programId)
-      .first<{ id: string }>();
+      .get(programId);
     if (!row) {
       throw new ListenerProgramNotFoundError();
     }
@@ -909,7 +894,7 @@ export class ListenerRepository {
     const offset = (clampedPage - 1) * normalizedPageSize;
 
     const { where, binds } = this.buildConnectionFilterClause(programId, filters);
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT lc.id,
           lc.program_id as programId,
@@ -937,8 +922,7 @@ export class ListenerRepository {
         ORDER BY lc.created_at DESC, lc.id DESC
         LIMIT ? OFFSET ?`
       )
-      .bind(programId, ...binds, normalizedPageSize, offset)
-      .all<ListenerReportQueryRow>();
+      .all(programId, ...binds, normalizedPageSize, offset) as ListenerReportQueryRow[];
 
     return {
       connections: results.map(mapListenerReportRow),
@@ -955,15 +939,16 @@ export class ListenerRepository {
   ): Promise<number> {
     const { where, binds } = this.buildConnectionFilterClause(programId, filters);
     const needsAccessJoin = Boolean(filters.approvalStatuses?.length);
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT COUNT(*) as c
         FROM listener_connections lc
         ${needsAccessJoin ? LISTENER_ACCESS_REPORT_JOIN : ""}
         WHERE ${where}`
       )
-      .bind(...(needsAccessJoin ? [programId, ...binds] : binds))
-      .first<{ c: number }>();
+      .get(...(needsAccessJoin ? [programId, ...binds] : binds)) as
+      | { c: number }
+      | undefined;
 
     return row?.c ?? 0;
   }
@@ -973,7 +958,7 @@ export class ListenerRepository {
     filters: ListenerReportFilters
   ): Promise<ListenerReportCsvResult> {
     const { where, binds } = this.buildConnectionFilterClause(programId, filters);
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT lc.id,
           lc.program_id as programId,
@@ -1001,8 +986,7 @@ export class ListenerRepository {
         ORDER BY lc.created_at DESC, lc.id DESC
         LIMIT ?`
       )
-      .bind(programId, ...binds, MAX_CSV_ROWS + 1)
-      .all<ListenerReportQueryRow>();
+      .all(programId, ...binds, MAX_CSV_ROWS + 1) as ListenerReportQueryRow[];
 
     const truncated = results.length > MAX_CSV_ROWS;
     const rows = truncated ? results.slice(0, MAX_CSV_ROWS) : results;
@@ -1053,10 +1037,9 @@ export class ListenerRepository {
     opts: ProgramEventPageOptions
   ): Promise<number> {
     const { where, binds } = this.buildEventFilterClause(programId, opts);
-    const row = await this.db
+    const row = this.db
       .prepare(`SELECT COUNT(*) as c FROM stream_events se WHERE ${where}`)
-      .bind(...binds)
-      .first<{ c: number }>();
+      .get(...binds) as { c: number } | undefined;
 
     return row?.c ?? 0;
   }
@@ -1084,7 +1067,7 @@ export class ListenerRepository {
       throw new ListenerProgramNotFoundError();
     }
 
-    const { results: streamRows } = await this.db
+    const streamRows = this.db
       .prepare(
         `SELECT id as streamId,
           language_name as languageName,
@@ -1093,8 +1076,11 @@ export class ListenerRepository {
         WHERE program_id = ?
         ORDER BY display_order ASC, created_at ASC`
       )
-      .bind(programId)
-      .all<{ streamId: string; languageName: string; languageCode: string }>();
+      .all(programId) as Array<{
+      streamId: string;
+      languageName: string;
+      languageCode: string;
+    }>;
 
     const connectionWhere = ["program_id = ?"];
     const connectionBinds: unknown[] = [programId];
@@ -1107,15 +1093,14 @@ export class ListenerRepository {
       connectionBinds.push(range.to);
     }
 
-    const { results: connectionRows } = await this.db
+    const connectionRows = this.db
       .prepare(
         `SELECT language_stream_id as streamId, COUNT(*) as count
         FROM listener_connections
         WHERE ${connectionWhere.join(" AND ")}
         GROUP BY language_stream_id`
       )
-      .bind(...connectionBinds)
-      .all<{ streamId: string; count: number }>();
+      .all(...connectionBinds) as Array<{ streamId: string; count: number }>;
     const totalConnections = connectionRows.reduce(
       (sum, row) => sum + row.count,
       0
@@ -1123,7 +1108,7 @@ export class ListenerRepository {
     const connectionsByStream = new Map(
       connectionRows.map((row) => [row.streamId, row.count])
     );
-    const uniqueDeviceRow = await this.db
+    const uniqueDeviceRow = this.db
       .prepare(
         `SELECT COUNT(DISTINCT client_id) as count
         FROM listener_connections
@@ -1131,8 +1116,7 @@ export class ListenerRepository {
           AND client_id IS NOT NULL
           AND client_id != ''`
       )
-      .bind(...connectionBinds)
-      .first<{ count: number | null }>();
+      .get(...connectionBinds) as { count: number | null } | undefined;
     const uniqueDevices = uniqueDeviceRow?.count ?? 0;
 
     const eventWhere = ["program_id = ?"];
@@ -1146,7 +1130,7 @@ export class ListenerRepository {
       eventBinds.push(range.to);
     }
 
-    const { results: eventRows } = await this.db
+    const eventRows = this.db
       .prepare(
         `SELECT language_stream_id as streamId,
           SUM(CASE WHEN event_type = 'listener_reconnected' THEN 1 ELSE 0 END) as reconnects,
@@ -1155,8 +1139,11 @@ export class ListenerRepository {
         WHERE ${eventWhere.join(" AND ")}
         GROUP BY language_stream_id`
       )
-      .bind(...eventBinds)
-      .all<{ streamId: string | null; reconnects: number | null; dropouts: number | null }>();
+      .all(...eventBinds) as Array<{
+      streamId: string | null;
+      reconnects: number | null;
+      dropouts: number | null;
+    }>;
     const totalsEvents = eventRows.reduce(
       (totals, row) => ({
         reconnects: totals.reconnects + (row.reconnects ?? 0),
@@ -1233,7 +1220,7 @@ export class ListenerRepository {
     const offset = (page - 1) * pageSize;
 
     const { where, binds } = this.buildEventFilterClause(programId, opts);
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT se.id as id,
           se.event_type as eventType,
@@ -1252,18 +1239,17 @@ export class ListenerRepository {
         ORDER BY se.occurred_at DESC, se.id DESC
         LIMIT ? OFFSET ?`
       )
-      .bind(...binds, pageSize, offset)
-      .all<{
-        id: string;
-        eventType: string;
-        occurredAt: string;
-        streamId: string | null;
-        metadataJson: string | null;
-        languageName: string | null;
-        languageCode: string | null;
-        translatorName: string | null;
-        translatorUserAgent: string | null;
-      }>();
+      .all(...binds, pageSize, offset) as Array<{
+      id: string;
+      eventType: string;
+      occurredAt: string;
+      streamId: string | null;
+      metadataJson: string | null;
+      languageName: string | null;
+      languageCode: string | null;
+      translatorName: string | null;
+      translatorUserAgent: string | null;
+    }>;
 
     return {
       events: results.map((row) => {
@@ -1313,24 +1299,23 @@ export class ListenerRepository {
     }
 
     const timestamp = now.toISOString();
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE listener_connections
         SET listener_ip = ?, user_agent = ?, updated_at = ?
         WHERE program_id = ?
           AND (listener_ip != ? OR user_agent != ?)`
       )
-      .bind(
+      .run(
         RETENTION_REDACTED_VALUE,
         RETENTION_REDACTED_VALUE,
         timestamp,
         programId,
         RETENTION_REDACTED_VALUE,
         RETENTION_REDACTED_VALUE
-      )
-      .run();
+      );
 
-    return result.meta.changes ?? 0;
+    return result.changes;
   }
 
   async requireStream(programId: string, streamId: string): Promise<void> {
@@ -1350,40 +1335,37 @@ export class ListenerRepository {
   }
 
   private async programExists(programId: string): Promise<boolean> {
-    const row = await this.db
+    const row = this.db
       .prepare("SELECT id FROM programs WHERE id = ?")
-      .bind(programId)
-      .first<{ id: string }>();
-    return row !== null;
+      .get(programId);
+    return row !== undefined;
   }
 
   private async streamExists(
     programId: string,
     streamId: string
   ): Promise<boolean> {
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT id FROM language_streams
         WHERE program_id = ? AND id = ?`
       )
-      .bind(programId, streamId)
-      .first<{ id: string }>();
-    return row !== null;
+      .get(programId, streamId);
+    return row !== undefined;
   }
 
   private async connectionExists(connectionId: string): Promise<boolean> {
-    const row = await this.db
+    const row = this.db
       .prepare("SELECT id FROM listener_connections WHERE id = ?")
-      .bind(connectionId)
-      .first<{ id: string }>();
-    return row !== null;
+      .get(connectionId);
+    return row !== undefined;
   }
 
   private async findSuccessor(
     linkColumn: "switch_from_connection_id" | "reconnect_of_connection_id",
     input: FindListenerReplacementInput
   ): Promise<ListenerConnectionRecord | null> {
-    return this.db
+    return (this.db
       .prepare(
         `${CONNECTION_SELECT}
         WHERE ${linkColumn} = ?
@@ -1393,13 +1375,12 @@ export class ListenerRepository {
         ORDER BY created_at ASC
         LIMIT 1`
       )
-      .bind(
+      .get(
         input.previousConnectionId,
         input.programId,
         input.streamId,
         input.clientId
-      )
-      .first<ListenerConnectionRecord>();
+      ) as ListenerConnectionRecord | undefined) ?? null;
   }
 
   private async insertStreamEvent(
@@ -1408,14 +1389,14 @@ export class ListenerRepository {
     metadata: Record<string, unknown>
   ): Promise<void> {
     const timestamp = nowIso();
-    await this.db
+    this.db
       .prepare(
         `INSERT INTO stream_events
         (id, program_id, stream_program_id, language_stream_id, event_type,
          occurred_at, metadata_json)
         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-      .bind(
+      .run(
         id("stream_event"),
         connection.programId,
         connection.programId,
@@ -1423,14 +1404,13 @@ export class ListenerRepository {
         eventType,
         timestamp,
         JSON.stringify(metadata)
-      )
-      .run();
+      );
   }
 
   private async listLegacyRealtimeCleanupTargets(
     currentTarget: ListenerRealtimeCleanupTarget
   ): Promise<RealtimeCleanupMarker[]> {
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT metadata_json as metadataJson
         FROM stream_events
@@ -1439,8 +1419,9 @@ export class ListenerRepository {
           AND event_type = 'connection_failed'
         ORDER BY occurred_at ASC`
       )
-      .bind(currentTarget.programId, currentTarget.streamId)
-      .all<{ metadataJson: string }>();
+      .all(currentTarget.programId, currentTarget.streamId) as Array<{
+      metadataJson: string;
+    }>;
 
     const targets: RealtimeCleanupMarker[] = [];
     for (const event of results) {
@@ -1530,30 +1511,30 @@ export function buildRequestedConnectionRecord(
   };
 }
 
-export async function applyConnectedUpdate(
-  db: D1Database,
+export function applyConnectedUpdate(
+  db: Database,
   connectionId: string,
   clientHints: ListenerClientHints,
   fastPath: true
-): Promise<ApplyConnectedUpdateFastPathResult>;
-export async function applyConnectedUpdate(
-  db: D1Database,
+): ApplyConnectedUpdateFastPathResult;
+export function applyConnectedUpdate(
+  db: Database,
   connectionId: string,
   clientHints: ListenerClientHints,
   fastPath?: false
-): Promise<ApplyConnectedUpdateResult>;
-export async function applyConnectedUpdate(
-  db: D1Database,
+): ApplyConnectedUpdateResult;
+export function applyConnectedUpdate(
+  db: Database,
   connectionId: string,
   clientHints: ListenerClientHints,
   fastPath: boolean = false
-): Promise<ApplyConnectedUpdateResult | ApplyConnectedUpdateFastPathResult> {
+): ApplyConnectedUpdateResult | ApplyConnectedUpdateFastPathResult {
   // Single guarded UPDATE — no pre-SELECT. The `subscription_status =
   // 'requested'` guard enforces every precondition the old pre-SELECT checked,
   // mirroring `recordHeartbeat`. A SELECT happens only when the UPDATE matches
   // a row, to build the audit payload.
   const timestamp = nowIso();
-  const result = await db
+  const result = db
     .prepare(
       `UPDATE listener_connections
       SET subscription_status = 'connected',
@@ -1566,7 +1547,7 @@ export async function applyConnectedUpdate(
           updated_at = ?
       WHERE id = ? AND subscription_status = 'requested'`
     )
-    .bind(
+    .run(
       timestamp,
       timestamp,
       clientHints.deviceModel ?? null,
@@ -1575,9 +1556,8 @@ export async function applyConnectedUpdate(
       clientHints.browserFullVersion ?? null,
       timestamp,
       connectionId
-    )
-    .run();
-  const changes = result.meta.changes ?? 0;
+    );
+  const changes = result.changes;
 
   if (changes === 0 || fastPath) {
     return { changes };
@@ -1585,7 +1565,7 @@ export async function applyConnectedUpdate(
 
   // Happy path: one post-SELECT to build the stateful payload (programId,
   // streamId, clientId).
-  const updated = await requireConnection(db, connectionId);
+  const updated = requireConnection(db, connectionId);
 
   return { changes, connection: updated };
 }
@@ -1596,44 +1576,17 @@ function connectedUpdateChanged(
   return result.changes > 0;
 }
 
-async function requireConnection(
-  db: D1Database | D1DatabaseSession,
+function requireConnection(
+  db: Database,
   connectionId: string
-): Promise<ListenerConnectionRecord> {
-  const connection = await db
+): ListenerConnectionRecord {
+  const connection = db
     .prepare(`${CONNECTION_SELECT} WHERE id = ?`)
-    .bind(connectionId)
-    .first<ListenerConnectionRecord>();
+    .get(connectionId) as ListenerConnectionRecord | undefined;
   if (!connection) {
     throw new ListenerConnectionNotFoundError();
   }
   return connection;
-}
-
-async function insertStreamEvent(
-  db: D1Database | D1DatabaseSession,
-  connection: ListenerConnectionRecord,
-  eventType: ListenerStreamEventType,
-  metadata: Record<string, unknown>
-): Promise<void> {
-  const timestamp = nowIso();
-  await db
-    .prepare(
-      `INSERT INTO stream_events
-      (id, program_id, stream_program_id, language_stream_id, event_type,
-       occurred_at, metadata_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`
-    )
-    .bind(
-      id("stream_event"),
-      connection.programId,
-      connection.programId,
-      connection.streamId,
-      eventType,
-      timestamp,
-      JSON.stringify(metadata)
-    )
-    .run();
 }
 
 function nowIso(): string {
@@ -1645,7 +1598,7 @@ function id(prefix: string): string {
 }
 
 function cleanupTargetKey(cloudflareSessionId: string, trackMid: string): string {
-  return `${cloudflareSessionId}\u0000${trackMid}`;
+  return `${cloudflareSessionId} ${trackMid}`;
 }
 
 function addRealtimeCleanupTarget(

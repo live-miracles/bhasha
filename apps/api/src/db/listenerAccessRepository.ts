@@ -1,4 +1,5 @@
 import { sha256Hex } from "../auth/crypto";
+import type { Database } from "./sqlite";
 
 const CROCKFORD_BASE32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const SHORT_CODE_LENGTH = 6;
@@ -111,7 +112,7 @@ function nowIso(): string {
 
 export class ListenerAccessRepository {
   constructor(
-    private readonly db: D1Database,
+    private readonly db: Database,
     private readonly generateShortCode: () => string = randomShortCode,
   ) {}
 
@@ -129,14 +130,14 @@ export class ListenerAccessRepository {
       const timestamp = nowIso();
 
       try {
-        await this.db.batch([
+        this.db.transaction(() => {
           this.db
             .prepare(
               `UPDATE listener_access
               SET status = 'superseded', superseded_at = ?
               WHERE program_id = ? AND client_id = ? AND status = 'pending'`,
             )
-            .bind(timestamp, programId, clientId),
+            .run(timestamp, programId, clientId);
           this.db
             .prepare(
               `INSERT INTO listener_access
@@ -145,15 +146,15 @@ export class ListenerAccessRepository {
                revoked_at, superseded_at)
               VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?, NULL, NULL, NULL, NULL)`,
             )
-            .bind(
+            .run(
               id,
               programId,
               clientId,
               shortCode,
               claimSecretHash,
               timestamp,
-            ),
-        ]);
+            );
+        })();
         return { claimId: id, claimSecret, shortCode };
       } catch (error) {
         if (!isShortCodeCollision(error)) {
@@ -174,7 +175,7 @@ export class ListenerAccessRepository {
     claimSecret: string,
   ): Promise<ListenerAccessClaimRecord | null> {
     const claimSecretHash = await sha256Hex(claimSecret);
-    return this.db
+    return (this.db
       .prepare(
         `SELECT id as claimId,
           program_id as programId,
@@ -189,8 +190,9 @@ export class ListenerAccessRepository {
         FROM listener_access
         WHERE program_id = ? AND id = ? AND claim_secret_hash = ?`,
       )
-      .bind(programId, id, claimSecretHash)
-      .first<ListenerAccessClaimRow>();
+      .get(programId, id, claimSecretHash) as
+      | ListenerAccessClaimRow
+      | undefined) ?? null;
   }
 
   async mintAccessToken(
@@ -203,17 +205,16 @@ export class ListenerAccessRepository {
       sha256Hex(claimSecret),
       sha256Hex(token),
     ]);
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE listener_access
         SET access_token_hash = ?
         WHERE program_id = ? AND id = ? AND claim_secret_hash = ?
           AND status = 'approved'`,
       )
-      .bind(accessTokenHash, programId, id, claimSecretHash)
-      .run();
+      .run(accessTokenHash, programId, id, claimSecretHash);
 
-    return (result.meta.changes ?? 0) > 0 ? token : null;
+    return result.changes > 0 ? token : null;
   }
 
   async verifyAccessToken(
@@ -221,15 +222,14 @@ export class ListenerAccessRepository {
     accessToken: string,
   ): Promise<boolean> {
     const accessTokenHash = await sha256Hex(accessToken);
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT 1 as approved
         FROM listener_access
         WHERE access_token_hash = ? AND program_id = ? AND status = 'approved'`,
       )
-      .bind(accessTokenHash, programId)
-      .first<{ approved: number }>();
-    return row !== null;
+      .get(accessTokenHash, programId);
+    return row !== undefined;
   }
 
   async getStatusForAccessToken(
@@ -237,14 +237,13 @@ export class ListenerAccessRepository {
     accessToken: string,
   ): Promise<"approved" | "revoked" | "unknown"> {
     const accessTokenHash = await sha256Hex(accessToken);
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT status
         FROM listener_access
         WHERE access_token_hash = ? AND program_id = ?`,
       )
-      .bind(accessTokenHash, programId)
-      .first<ListenerAccessStatusRow>();
+      .get(accessTokenHash, programId) as ListenerAccessStatusRow | undefined;
 
     return row?.status === "approved" || row?.status === "revoked"
       ? row.status
@@ -258,26 +257,24 @@ export class ListenerAccessRepository {
   ): Promise<ListenerAccessApprovalResult> {
     const column = "claimId" in target ? "id" : "short_code";
     const value = "claimId" in target ? target.claimId : target.shortCode;
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE listener_access
         SET status = 'approved', approved_at = ?, approved_via = ?
         WHERE program_id = ? AND ${column} = ? AND status = 'pending'`,
       )
-      .bind(nowIso(), approvedVia, programId, value)
-      .run();
+      .run(nowIso(), approvedVia, programId, value);
 
-    if ((result.meta.changes ?? 0) > 0) {
+    if (result.changes > 0) {
       return { status: "approved", already: false };
     }
 
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT status FROM listener_access
         WHERE program_id = ? AND ${column} = ?`,
       )
-      .bind(programId, value)
-      .first<ListenerAccessStatusRow>();
+      .get(programId, value) as ListenerAccessStatusRow | undefined;
 
     if (row?.status === "approved") {
       return { status: "approved", already: true };
@@ -289,19 +286,18 @@ export class ListenerAccessRepository {
   }
 
   async revokeForClient(programId: string, clientId: string): Promise<number> {
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE listener_access
         SET status = 'revoked', revoked_at = ?
         WHERE program_id = ? AND client_id = ? AND status <> 'revoked'`,
       )
-      .bind(nowIso(), programId, clientId)
-      .run();
-    return result.meta.changes ?? 0;
+      .run(nowIso(), programId, clientId);
+    return result.changes;
   }
 
   async countByStatus(programId: string): Promise<ListenerAccessStatusCounts> {
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT
           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
@@ -310,8 +306,7 @@ export class ListenerAccessRepository {
         FROM listener_access
         WHERE program_id = ?`,
       )
-      .bind(programId)
-      .first<ListenerAccessCountRow>();
+      .get(programId) as ListenerAccessCountRow | undefined;
 
     return {
       pending: Number(row?.pending ?? 0),
@@ -324,21 +319,20 @@ export class ListenerAccessRepository {
     programId: string,
     cutoffIso: string,
   ): Promise<string[]> {
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT id as claimId
         FROM listener_access
         WHERE program_id = ? AND status = 'approved' AND approved_at >= ?
         ORDER BY approved_at ASC, id ASC`,
       )
-      .bind(programId, cutoffIso)
-      .all<ListenerAccessClaimIdRow>();
+      .all(programId, cutoffIso) as ListenerAccessClaimIdRow[];
     return results.map((row) => row.claimId);
   }
 }
 
 export async function requireListenerApproval(
-  db: D1Database,
+  db: Database,
   programId: string,
   accessToken?: string,
 ): Promise<void> {

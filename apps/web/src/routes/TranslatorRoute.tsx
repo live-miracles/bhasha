@@ -17,11 +17,11 @@ import {
 } from "../api/translator";
 import {
   createTranslatorRealtimeClient,
+  type RoomHandle,
   type TranslatorPublishSession,
-  type TranslatorRealtimeClient
+  type TranslatorRealtimeClient,
+  type TranslatorTransportState
 } from "../realtime/translatorClient";
-import { createPartytracksTranslatorClient } from "../realtime/partytracksTranslatorClient";
-import { usePartytracks } from "../config/featureFlags";
 import {
   loadTranslatorPrefs,
   saveTranslatorPrefs
@@ -78,7 +78,7 @@ type ScreenWakeLockNavigator = Navigator & {
 
 export type TranslatorConnectionStateHandler = (
   publishSessionId: string,
-  state: RTCPeerConnectionState
+  state: TranslatorTransportState
 ) => void;
 
 export interface TranslatorRouteProps {
@@ -86,6 +86,12 @@ export interface TranslatorRouteProps {
   publicApi?: PublicApi;
   translatorApi?: TranslatorApi;
   realtimeClient?: TranslatorRealtimeClient;
+  // Test seam: threaded into createTranslatorRealtimeClient when no
+  // `realtimeClient` override is given, so a test can exercise the REAL client
+  // construction/wiring (the one line that picks between the two) with a fake
+  // Room instead of also having to fake the whole TranslatorRealtimeClient
+  // interface. No-op in production (falls through to `new Room()`).
+  createRoom?: () => RoomHandle;
   createAudioMeter?: TranslatorAudioMeterFactory;
   createPublishGraph?: TranslatorPublishGraphFactory;
   meterPollMs?: number;
@@ -94,7 +100,6 @@ export interface TranslatorRouteProps {
   audioActivityReportMs?: number;
   publisherHeartbeatMs?: number;
   // Fast-recovery tuning (injectable for deterministic tests, like the listener).
-  recoveryGraceMs?: number;
   recoveryBaseMs?: number;
   recoveryMaxMs?: number;
   recoveryMaxAttempts?: number;
@@ -148,11 +153,12 @@ const DEFAULT_AUDIO_ACTIVITY_REPORT_MS = 2_500;
 // (90s) alive while live, regardless of speaking/silence, so a genuinely-live
 // publisher is never expired by the cap. Must be well under the TTL window.
 const DEFAULT_PUBLISHER_HEARTBEAT_MS = 30_000;
-// Fast-recovery: on transport failure re-publish quickly instead of waiting for
-// the browser's slow ICE self-heal. `failed` recovers immediately; `disconnected`
-// waits a short grace (often self-heals); exponential backoff bounded by cap +
-// max attempts so a persistently-down publisher never spins.
-const DEFAULT_RECOVERY_GRACE_MS = 3_000;
+// Fast-recovery: LiveKit's own Room already retries transient drops internally
+// (RoomEvent.Reconnecting/Reconnected) with no app-level timer needed. Only a
+// TERMINAL disconnect (LiveKit gave up, or the token's 1h TTL expired) reaches
+// scheduleRecovery, which mints a fresh token and republishes with exponential
+// backoff bounded by cap + max attempts so a persistently-down publisher never
+// spins.
 const DEFAULT_RECOVERY_BASE_MS = 500;
 const DEFAULT_RECOVERY_MAX_MS = 4_000;
 const DEFAULT_RECOVERY_MAX_ATTEMPTS = 6;
@@ -218,6 +224,7 @@ export function TranslatorRoute({
   publicApi: publicApiProp,
   translatorApi: translatorApiProp,
   realtimeClient: realtimeClientProp,
+  createRoom,
   createAudioMeter = createDefaultAudioMeter,
   createPublishGraph = createDefaultPublishGraph,
   meterPollMs = DEFAULT_METER_POLL_MS,
@@ -225,7 +232,6 @@ export function TranslatorRoute({
   silentWarningSampleThreshold = DEFAULT_SILENT_WARNING_SAMPLE_THRESHOLD,
   audioActivityReportMs = DEFAULT_AUDIO_ACTIVITY_REPORT_MS,
   publisherHeartbeatMs = DEFAULT_PUBLISHER_HEARTBEAT_MS,
-  recoveryGraceMs = DEFAULT_RECOVERY_GRACE_MS,
   recoveryBaseMs = DEFAULT_RECOVERY_BASE_MS,
   recoveryMaxMs = DEFAULT_RECOVERY_MAX_MS,
   recoveryMaxAttempts = DEFAULT_RECOVERY_MAX_ATTEMPTS,
@@ -242,29 +248,16 @@ export function TranslatorRoute({
   const connectionStateHandlerRef = useRef<TranslatorConnectionStateHandler>(
     () => {}
   );
-  // partytracks mints a fresh reservation on every transparent re-push; this ref
-  // lets the (once-memoized) client push the current publishSessionId back into
-  // the route so heartbeat / audio-activity / stop follow the live reservation.
-  const publishSessionUpdateRef = useRef<(publishSessionId: string) => void>(
-    () => {}
-  );
   const realtimeClient = useMemo(
     () =>
       realtimeClientProp ??
-      (usePartytracks
-        ? createPartytracksTranslatorClient({
-            translatorApi,
-            onConnectionStateChange: (publishSessionId, state) =>
-              connectionStateHandlerRef.current(publishSessionId, state),
-            onPublishSessionId: (publishSessionId) =>
-              publishSessionUpdateRef.current(publishSessionId)
-          })
-        : createTranslatorRealtimeClient({
-            translatorApi,
-            onConnectionStateChange: (publishSessionId, state) =>
-              connectionStateHandlerRef.current(publishSessionId, state)
-          })),
-    [realtimeClientProp, translatorApi]
+      createTranslatorRealtimeClient({
+        translatorApi,
+        ...(createRoom ? { createRoom } : {}),
+        onConnectionStateChange: (publishSessionId, state) =>
+          connectionStateHandlerRef.current(publishSessionId, state)
+      }),
+    [realtimeClientProp, translatorApi, createRoom]
   );
 
   const [auth, setAuth] = useState<AuthState>({ status: "checking" });
@@ -642,16 +635,6 @@ export function TranslatorRoute({
     });
   }
 
-  // partytracks re-pushed (new reservation): repoint the live publishSessionId so
-  // heartbeat / audio-activity / stop follow it. The livePublishRef mirror effect
-  // updates from this publish-state change.
-  function handlePublishSessionId(publishSessionId: string) {
-    setPublish((prev) =>
-      prev.status === "live" ? { ...prev, publishSessionId } : prev
-    );
-  }
-  publishSessionUpdateRef.current = handlePublishSessionId;
-
   function onPublishFailure(error: unknown) {
     stopMediaTracks();
     activeTrackRef.current = null;
@@ -793,11 +776,11 @@ export function TranslatorRoute({
           })
           .catch(() => {
             if (heartbeatSeqRef.current === hbId) {
-              scheduleRecovery(true);
+              scheduleRecovery();
             }
           });
       } else {
-        scheduleRecovery(true);
+        scheduleRecovery();
       }
 
       hiddenSinceRef.current = null;
@@ -1178,7 +1161,12 @@ export function TranslatorRoute({
     }
   }
 
-  function scheduleRecovery(immediate: boolean) {
+  // Only reached for a TERMINAL disconnect (LiveKit gave up, or the token
+  // expired) -- a transient drop is LiveKit's own Reconnecting/Reconnected pair
+  // and never schedules anything here. First attempt fires immediately;
+  // subsequent attempts back off exponentially, capped by recoveryMaxMs/
+  // recoveryMaxAttempts so a persistently-down publisher never spins.
+  function scheduleRecovery() {
     if (recoveryInFlightRef.current || recoveryTimerRef.current !== null) {
       return;
     }
@@ -1190,11 +1178,7 @@ export function TranslatorRoute({
       recoveryBaseMs * 2 ** recoveryAttemptRef.current,
       recoveryMaxMs
     );
-    const wait = immediate
-      ? recoveryAttemptRef.current === 0
-        ? 0
-        : backoff
-      : recoveryGraceMs;
+    const wait = recoveryAttemptRef.current === 0 ? 0 : backoff;
     recoveryTimerRef.current = setTimeout(() => {
       recoveryTimerRef.current = null;
       if (!livePublishRef.current || recoveryInFlightRef.current) {
@@ -1205,9 +1189,12 @@ export function TranslatorRoute({
     }, wait);
   }
 
-  // Transport-state handler: when the live publisher PC drops, re-publish fast
-  // (immediately on `failed`, after a short grace on `disconnected`) rather than
-  // waiting for the browser's slow ICE self-heal.
+  // Transport-state handler: maps LiveKit's own Room events onto the three
+  // UI-facing states. "reconnecting"/"reconnected" are LiveKit's own transient
+  // self-heal (ICE restart / signal resume) -- just reflect them in the UI, no
+  // manual timer needed. A terminal "disconnected" means LiveKit gave up (or
+  // the token's 1h TTL expired), which is the one case that still needs an
+  // app-level action: schedule a bounded, backed-off republish.
   const handleTransportState: TranslatorConnectionStateHandler = (
     publishSessionId,
     state
@@ -1216,7 +1203,7 @@ export function TranslatorRoute({
     if (!live || publishSessionId !== live.publishSessionId) {
       return; // stale event / not the current live session
     }
-    if (state === "connected") {
+    if (state === "reconnected") {
       const wasRecovering = stale || recoveryExhausted;
       setStale(false);
       setRecoveryExhausted(false);
@@ -1227,12 +1214,13 @@ export function TranslatorRoute({
       clearRecoveryTimer();
       return;
     }
-    if (state === "failed") {
+    if (state === "reconnecting") {
       setStale(true);
-      scheduleRecovery(true);
-    } else if (state === "disconnected") {
+      return;
+    }
+    if (state === "disconnected") {
       setStale(true);
-      scheduleRecovery(false);
+      scheduleRecovery();
     }
   };
   connectionStateHandlerRef.current = handleTransportState;

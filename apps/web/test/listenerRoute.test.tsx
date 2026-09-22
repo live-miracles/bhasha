@@ -6,12 +6,16 @@ import {
   screen,
   waitFor
 } from "@testing-library/react";
+import { RoomEvent } from "livekit-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ListenerApi } from "../src/api/listeners";
 import { ApiError } from "../src/api/client";
 import type { PublicApi } from "../src/api/public";
-import type { ListenerRealtimeClient } from "../src/realtime/listenerClient";
+import type {
+  ListenerRealtimeClient,
+  RoomHandle
+} from "../src/realtime/listenerClient";
 import {
   clearStoredAccessClaim,
   clearStoredAccessToken,
@@ -158,22 +162,14 @@ function publicApi(overrides: Partial<PublicApi> = {}): PublicApi {
 
 function listenerApi(overrides: Partial<ListenerApi> = {}): ListenerApi {
   return {
-    subscribeSession: vi.fn(),
-    subscribeTrack: vi.fn(),
-    subscribeRenegotiate: vi.fn(),
+    token: vi.fn(),
     connected: vi.fn(),
     heartbeat: vi.fn(async () => ({ ok: true })),
     leave: vi.fn(async () => ({ ok: true })),
     switch: vi.fn(),
     reconnect: vi.fn(),
-    iceServers: vi.fn(async () => ({
-      iceServers: [
-        {
-          urls: ["turn:turn.cloudflare.com:3478?transport=udp"],
-          username: "turn-user",
-          credential: "turn-credential"
-        }
-      ]
+    requestConnection: vi.fn(async () => ({
+      connectionId: "listener_connection_1"
     })),
     claimAccess: vi.fn(async () => ({
       claimId: "claim_1",
@@ -1104,7 +1100,7 @@ describe("ListenerRoute", () => {
       if (operation === "switch") {
         fireEvent.click(screen.getByRole("button", { name: "Switch to English" }));
       } else {
-        act(() => fireState("listener_connection_1", "failed"));
+        act(() => fireState("listener_connection_1", "disconnected"));
       }
 
       expect(
@@ -1122,7 +1118,7 @@ describe("ListenerRoute", () => {
     }
   );
 
-  it("keeps the flag-off listener flow and call shapes unchanged", async () => {
+  it("keeps the listener subscribe call shape stable", async () => {
     const api = listenerApi();
     const realtime = realtimeClient();
 
@@ -1146,14 +1142,7 @@ describe("ListenerRoute", () => {
     expect(realtime.subscribe).toHaveBeenCalledWith({
       programSlug: "patna-event-2026",
       streamId: "stream_hi",
-      clientId: expect.stringMatching(/^listener_client_/),
-      iceServers: [
-        {
-          urls: ["turn:turn.cloudflare.com:3478?transport=udp"],
-          username: "turn-user",
-          credential: "turn-credential"
-        }
-      ]
+      clientId: expect.stringMatching(/^listener_client_/)
     });
   });
 
@@ -1197,8 +1186,7 @@ describe("ListenerRoute", () => {
     expect(realtime.subscribe).not.toHaveBeenCalled();
     expect(realtime.switch).not.toHaveBeenCalled();
     expect(realtime.reconnect).not.toHaveBeenCalled();
-    expect(listener.subscribeSession).not.toHaveBeenCalled();
-    expect(listener.subscribeTrack).not.toHaveBeenCalled();
+    expect(listener.token).not.toHaveBeenCalled();
   });
 
   it("shows ended gate content and blocks audio pull", async () => {
@@ -1241,8 +1229,7 @@ describe("ListenerRoute", () => {
     expect(realtime.subscribe).not.toHaveBeenCalled();
     expect(realtime.switch).not.toHaveBeenCalled();
     expect(realtime.reconnect).not.toHaveBeenCalled();
-    expect(listener.subscribeSession).not.toHaveBeenCalled();
-    expect(listener.subscribeTrack).not.toHaveBeenCalled();
+    expect(listener.token).not.toHaveBeenCalled();
   });
 
   it("labels a silent stream distinctly and still allows subscribing", async () => {
@@ -1293,14 +1280,7 @@ describe("ListenerRoute", () => {
       expect(realtime.subscribe).toHaveBeenCalledWith({
         programSlug: "patna-event-2026",
         streamId: "stream_hi",
-        clientId: expect.any(String),
-        iceServers: [
-          {
-            urls: ["turn:turn.cloudflare.com:3478?transport=udp"],
-            username: "turn-user",
-            credential: "turn-credential"
-          }
-        ]
+        clientId: expect.any(String)
       });
     });
   });
@@ -1345,14 +1325,7 @@ describe("ListenerRoute", () => {
       expect(realtime.subscribe).toHaveBeenCalledWith({
         programSlug: "patna-event-2026",
         streamId: "stream_hi",
-        clientId: expect.stringMatching(/^listener_client_/),
-        iceServers: [
-          {
-            urls: ["turn:turn.cloudflare.com:3478?transport=udp"],
-            username: "turn-user",
-            credential: "turn-credential"
-          }
-        ]
+        clientId: expect.stringMatching(/^listener_client_/)
       });
     });
     expect(screen.getByText("Listening to Hindi")).toBeInTheDocument();
@@ -1484,14 +1457,7 @@ describe("ListenerRoute", () => {
         connectionId: "listener_connection_1",
         programSlug: "patna-event-2026",
         streamId: "stream_hi",
-        clientId: expect.stringMatching(/^listener_client_/),
-        iceServers: [
-          {
-            urls: ["turn:turn.cloudflare.com:3478?transport=udp"],
-            username: "turn-user",
-            credential: "turn-credential"
-          }
-        ]
+        clientId: expect.stringMatching(/^listener_client_/)
       });
     }, { timeout: 2000 });
     expect(await screen.findByText("Listening to Hindi")).toBeInTheDocument();
@@ -1577,7 +1543,7 @@ describe("ListenerRoute", () => {
     }, { timeout: 500 });
   });
 
-  it("recovers exactly once when the peer connection reports failed", async () => {
+  it("recovers exactly once when the room reports a terminal disconnect", async () => {
     const realtime = realtimeClient();
     let fireState: ConnectionStateHandler = () => {};
 
@@ -1588,7 +1554,6 @@ describe("ListenerRoute", () => {
         listenerApi={listenerApi()}
         realtimeClient={realtime}
         statusPollMs={20}
-        recoveryGraceMs={20}
         recoveryBaseMs={10}
         recoveryMaxMs={40}
         onRealtimeHandlerReady={(handler) => {
@@ -1602,7 +1567,7 @@ describe("ListenerRoute", () => {
     await screen.findByText("Listening to Hindi");
 
     // The live connection is listener_connection_1 (the mock subscribe result).
-    fireState?.("listener_connection_1", "failed");
+    fireState?.("listener_connection_1", "disconnected");
     await waitFor(() => {
       expect(realtime.reconnect).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1614,11 +1579,11 @@ describe("ListenerRoute", () => {
     await waitFor(() => {
       expect(realtime.reconnect).toHaveBeenCalledTimes(1);
     }, { timeout: 5000 });
-    // Debounced: a single failed event drives exactly one recovery.
+    // Debounced: a single disconnected event drives exactly one recovery.
     expect(screen.getByText("Listening to Hindi")).toBeInTheDocument();
   });
 
-  it("does not recover when a disconnected event self-heals within the grace", async () => {
+  it("does not recover when the room self-heals (reconnecting -> reconnected)", async () => {
     const realtime = realtimeClient();
     let fireState: ConnectionStateHandler = () => {};
 
@@ -1629,7 +1594,6 @@ describe("ListenerRoute", () => {
         listenerApi={listenerApi()}
         realtimeClient={realtime}
         statusPollMs={20}
-        recoveryGraceMs={60}
         recoveryBaseMs={10}
         recoveryMaxMs={40}
         onRealtimeHandlerReady={(handler) => {
@@ -1642,13 +1606,108 @@ describe("ListenerRoute", () => {
     fireEvent.click(screen.getByRole("button", { name: "Listen to Hindi" }));
     await screen.findByText("Listening to Hindi");
 
-    fireState?.("listener_connection_1", "disconnected");
-    // Self-heals before the grace elapses.
-    fireState?.("listener_connection_1", "connected");
+    // LiveKit is already retrying on its own -- no manual timer is ever
+    // scheduled for a transient "reconnecting", so a self-heal never reaches
+    // realtime.reconnect().
+    fireState?.("listener_connection_1", "reconnecting");
+    fireState?.("listener_connection_1", "reconnected");
 
     await waitFor(() => {
       expect(realtime.reconnect).not.toHaveBeenCalled();
     }, { timeout: 500 });
+    expect(screen.getByText("Listening to Hindi")).toBeInTheDocument();
+  });
+
+  // Every other realtime-related test above injects a fully-mocked
+  // ListenerRealtimeClient via `realtimeClient`, which never exercises the
+  // route's own `createListenerRealtimeClient({..., onConnectionStateChange})`
+  // construction line. This test omits `realtimeClient` and instead injects a
+  // fake Room via `createRoom`, so the REAL client is constructed and the
+  // route's transport-state wiring is proven end-to-end.
+  it("wires the real LiveKit client end-to-end (token mint, room join, transport events)", async () => {
+    class FakeRoom implements RoomHandle {
+      static instances: FakeRoom[] = [];
+      readonly connectCalls: Array<{ url: string; token: string }> = [];
+      private readonly listeners = new Map<
+        string,
+        Set<(...args: unknown[]) => void>
+      >();
+
+      constructor() {
+        FakeRoom.instances.push(this);
+      }
+
+      async connect(url: string, token: string): Promise<void> {
+        this.connectCalls.push({ url, token });
+      }
+
+      async disconnect(): Promise<void> {}
+
+      on(event: string, listener: (...args: unknown[]) => void): this {
+        const set = this.listeners.get(event) ?? new Set();
+        set.add(listener);
+        this.listeners.set(event, set);
+        return this;
+      }
+
+      off(event: string, listener: (...args: unknown[]) => void): this {
+        this.listeners.get(event)?.delete(listener);
+        return this;
+      }
+
+      emit(event: string): void {
+        for (const listener of this.listeners.get(event) ?? []) {
+          listener();
+        }
+      }
+    }
+
+    const api = listenerApi({
+      token: vi.fn(async () => ({
+        connectionId: "listener_connection_1",
+        token: "livekit-jwt",
+        url: "wss://livekit.example.test",
+        roomName: "room_stream_hi"
+      })),
+      // The real client's joinRoom() awaits-then-.catch()es this call (best-
+      // effort presence signal) -- unlike the mocked-ListenerRealtimeClient
+      // tests above, this test exercises that real code path, so it needs an
+      // actual resolved Promise here, not the bare `vi.fn()` default.
+      connected: vi.fn(async () => ({ ok: true as const }))
+    });
+
+    render(
+      <ListenerRoute
+        programSlug="patna-event-2026"
+        publicApi={publicApi()}
+        listenerApi={api}
+        createRoom={() => new FakeRoom()}
+      />
+    );
+
+    await screen.findByRole("button", { name: "Listen to Hindi" });
+    fireEvent.click(screen.getByRole("button", { name: "Listen to Hindi" }));
+    await screen.findByText("Listening to Hindi");
+
+    expect(api.requestConnection).toHaveBeenCalled();
+    expect(api.token).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "listener_connection_1",
+        streamId: "stream_hi"
+      })
+    );
+    const room = FakeRoom.instances[0]!;
+    expect(room.connectCalls).toEqual([
+      { url: "wss://livekit.example.test", token: "livekit-jwt" }
+    ]);
+
+    // LiveKit's own transient self-heal never reaches realtime.reconnect() --
+    // proven here through the REAL client, not a mocked one.
+    room.emit(RoomEvent.Reconnecting);
+    room.emit(RoomEvent.Reconnected);
+    await waitFor(() => {
+      expect(api.reconnect).not.toHaveBeenCalled();
+    });
     expect(screen.getByText("Listening to Hindi")).toBeInTheDocument();
   });
 
@@ -1658,9 +1717,7 @@ describe("ListenerRoute", () => {
         throw new Error("still_down");
       })
     });
-    let fireState: ((connectionId: string, state: RTCPeerConnectionState) => void) | null =
-      null;
-    const recoveryGraceMs = 10;
+    let fireState: ConnectionStateHandler | null = null;
     const recoveryBaseMs = 5;
     const recoveryMaxMs = 20;
 
@@ -1671,7 +1728,6 @@ describe("ListenerRoute", () => {
         listenerApi={listenerApi()}
         realtimeClient={realtime}
         statusPollMs={20}
-        recoveryGraceMs={recoveryGraceMs}
         recoveryBaseMs={recoveryBaseMs}
         recoveryMaxMs={recoveryMaxMs}
         recoveryMaxAttempts={3}
@@ -1692,11 +1748,8 @@ describe("ListenerRoute", () => {
     }
     vi.useFakeTimers();
 
-    const fireStateFn = fireState as (
-      connectionId: string,
-      state: RTCPeerConnectionState
-    ) => void;
-    fireStateFn("listener_connection_1", "failed");
+    const fireStateFn = fireState as ConnectionStateHandler;
+    fireStateFn("listener_connection_1", "disconnected");
     await vi.advanceTimersByTimeAsync(recoveryBaseMs);
     await Promise.resolve();
     expect(
@@ -1767,7 +1820,6 @@ describe("ListenerRoute", () => {
         listenerApi={listenerApi()}
         realtimeClient={realtime}
         statusPollMs={100_000}
-        recoveryGraceMs={10}
         recoveryBaseMs={5}
         recoveryMaxMs={20}
         recoveryMaxAttempts={3}
@@ -1782,7 +1834,7 @@ describe("ListenerRoute", () => {
     await screen.findByText("Listening to Hindi");
 
     vi.useFakeTimers();
-    fireState?.("listener_connection_1", "failed");
+    fireState?.("listener_connection_1", "disconnected");
     await vi.advanceTimersByTimeAsync(40);
 
     expect(
@@ -1837,7 +1889,6 @@ describe("ListenerRoute", () => {
         listenerApi={listenerApi()}
         realtimeClient={realtime}
         statusPollMs={20}
-        recoveryGraceMs={10}
         recoveryBaseMs={5}
         recoveryMaxMs={20}
         recoveryMaxAttempts={3}
@@ -1859,7 +1910,7 @@ describe("ListenerRoute", () => {
       ).toBeGreaterThanOrEqual(2);
     });
 
-    fireState?.("listener_connection_1", "failed");
+    fireState?.("listener_connection_1", "disconnected");
     await waitFor(
       () => {
         expect(realtime.reconnect).not.toHaveBeenCalled();
@@ -1910,7 +1961,6 @@ describe("ListenerRoute", () => {
         listenerApi={listenerApi()}
         realtimeClient={realtime}
         statusPollMs={20}
-        recoveryGraceMs={10}
         recoveryBaseMs={5}
         recoveryMaxMs={20}
         onRealtimeHandlerReady={(handler) => {
@@ -1931,7 +1981,7 @@ describe("ListenerRoute", () => {
       ).toBeGreaterThanOrEqual(2);
     });
 
-    fireState?.("listener_connection_1", "failed");
+    fireState?.("listener_connection_1", "disconnected");
     await waitFor(() => {
       expect(realtime.reconnect).not.toHaveBeenCalled();
     }, { timeout: 500 });
@@ -1974,7 +2024,6 @@ describe("ListenerRoute", () => {
         listenerApi={listenerApi()}
         realtimeClient={realtime}
         statusPollMs={20}
-        recoveryGraceMs={10}
         recoveryBaseMs={5}
         recoveryMaxMs={20}
         onRealtimeHandlerReady={(handler) => {
@@ -1991,7 +2040,7 @@ describe("ListenerRoute", () => {
 
     // The current connection is now listener_connection_2 (switch result).
     // A late failed event from the old connection_1 must be ignored.
-    fireState?.("listener_connection_1", "failed");
+    fireState?.("listener_connection_1", "disconnected");
     await waitFor(() => {
       expect(realtime.reconnect).not.toHaveBeenCalled();
     }, { timeout: 500 });
@@ -2049,7 +2098,6 @@ describe("ListenerRoute", () => {
         listenerApi={listenerApi()}
         realtimeClient={realtime}
         statusPollMs={20}
-        recoveryGraceMs={10}
         recoveryBaseMs={5}
         recoveryMaxMs={20}
         onRealtimeHandlerReady={(handler) => {
@@ -2063,7 +2111,7 @@ describe("ListenerRoute", () => {
     await screen.findByText("Listening to Hindi");
 
     // Fire transport failure at the same moment the publisher version changes.
-    fireState?.("listener_connection_1", "failed");
+    fireState?.("listener_connection_1", "disconnected");
 
     await waitFor(() => {
       expect(realtime.reconnect).toHaveBeenCalled();
@@ -2087,7 +2135,6 @@ describe("ListenerRoute", () => {
         listenerApi={listenerApi()}
         realtimeClient={realtime}
         statusPollMs={20}
-        recoveryGraceMs={100}
         recoveryBaseMs={50}
         recoveryMaxMs={200}
         onRealtimeHandlerReady={(handler) => {
@@ -2100,7 +2147,8 @@ describe("ListenerRoute", () => {
     fireEvent.click(screen.getByRole("button", { name: "Listen to Hindi" }));
     await screen.findByText("Listening to Hindi");
 
-    // Schedule recovery via a disconnected grace timer, then unmount before it fires.
+    // A terminal disconnect schedules a backed-off reconnect timer; unmount
+    // before it fires.
     fireState?.("listener_connection_1", "disconnected");
     view.unmount();
 
@@ -2156,14 +2204,7 @@ describe("ListenerRoute", () => {
         connectionId: "listener_connection_1",
         programSlug: "patna-event-2026",
         nextStreamId: "stream_en",
-        clientId: expect.stringMatching(/^listener_client_/),
-        iceServers: [
-          {
-            urls: ["turn:turn.cloudflare.com:3478?transport=udp"],
-            username: "turn-user",
-            credential: "turn-credential"
-          }
-        ]
+        clientId: expect.stringMatching(/^listener_client_/)
       });
     });
     expect(await screen.findByText("Listening to English")).toBeInTheDocument();
@@ -2221,7 +2262,7 @@ describe("ListenerRoute", () => {
       })
     });
 
-    fireState?.("listener_connection_1", "failed");
+    fireState?.("listener_connection_1", "disconnected");
 
     await waitFor(() => {
       expect(realtime.reconnect).toHaveBeenCalled();
@@ -2258,7 +2299,7 @@ describe("ListenerRoute", () => {
       })
     });
 
-    fireState?.("listener_connection_1", "failed");
+    fireState?.("listener_connection_1", "disconnected");
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Reconnect Hindi" })).toBeVisible();
@@ -2631,13 +2672,16 @@ describe("ListenerRoute", () => {
     playMock.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Listen to Hindi" }));
 
-    // iOS only honours play() inside the synchronous gesture turn. The unlock must
-    // fire on click — synchronously, before the awaited subscribe is even issued
-    // (the subscribe call comes after an `await ensureIceServers()`).
+    // iOS only honours play() inside the synchronous gesture turn. The unlock
+    // must fire on click -- synchronously, as the very first thing handleListen
+    // does, strictly before subscribe (proven by call order rather than a
+    // synchronous/asynchronous boundary now that there is no intermediate
+    // network await before subscribe is issued).
     expect(playMock).toHaveBeenCalled();
-    expect(subscribe).not.toHaveBeenCalled();
-
     await waitFor(() => expect(subscribe).toHaveBeenCalled());
+    expect(playMock.mock.invocationCallOrder[0]!).toBeLessThan(
+      subscribe.mock.invocationCallOrder[0]!
+    );
     resolveSubscribe({
       connectionId: "listener_connection_1",
       streamId: "stream_hi",
@@ -2692,154 +2736,4 @@ describe("ListenerRoute", () => {
     await waitFor(() => expect(audio.volume).toBeCloseTo(0.8));
   });
 
-  it("fetches iceServers before subscribing and forwards them into subscribe", async () => {
-    const order: string[] = [];
-    const api = listenerApi({
-      iceServers: vi.fn(async () => {
-        order.push("iceServers");
-        return {
-          iceServers: [
-            {
-              urls: ["turn:turn.cloudflare.com:3478?transport=udp"],
-              username: "turn-user",
-              credential: "turn-credential"
-            }
-          ]
-        };
-      })
-    });
-    const realtime = realtimeClient({
-      subscribe: vi.fn(async (input) => {
-        order.push("subscribe");
-        return {
-          connectionId: "listener_connection_1",
-          streamId: input.streamId,
-          mediaStream: new MediaStream()
-        };
-      })
-    });
-
-    render(
-      <ListenerRoute
-        programSlug="patna-event-2026"
-        publicApi={publicApi()}
-        listenerApi={api}
-        realtimeClient={realtime}
-      />
-    );
-
-    await screen.findByRole("button", { name: "Listen to Hindi" });
-    fireEvent.click(screen.getByRole("button", { name: "Listen to Hindi" }));
-    await screen.findByText("Listening to Hindi");
-
-    expect(api.iceServers).toHaveBeenCalledWith({
-      programSlug: "patna-event-2026",
-      clientId: expect.stringMatching(/^listener_client_/)
-    });
-    expect(order).toEqual(["iceServers", "subscribe"]);
-    expect(realtime.subscribe).toHaveBeenCalledWith({
-      programSlug: "patna-event-2026",
-      streamId: "stream_hi",
-      clientId: expect.stringMatching(/^listener_client_/),
-      iceServers: [
-        {
-          urls: ["turn:turn.cloudflare.com:3478?transport=udp"],
-          username: "turn-user",
-          credential: "turn-credential"
-        }
-      ]
-    });
-  });
-
-  it("caches iceServers and reuses them across subscribe then switch", async () => {
-    const api = listenerApi();
-    const realtime = realtimeClient();
-
-    render(
-      <ListenerRoute
-        programSlug="patna-event-2026"
-        publicApi={publicApi({
-          fetchProgramStatus: vi.fn(async () =>
-            status({
-              streams: [
-                {
-                  id: "stream_en",
-                  languageName: "English",
-                  nativeName: "English",
-                  languageCode: "en",
-                  isActive: true,
-                  state: "live",
-                  publisherVersion: "publisher_en_1"
-                },
-                {
-                  id: "stream_hi",
-                  languageName: "Hindi",
-                  nativeName: "हिन्दी",
-                  languageCode: "hi",
-                  isActive: true,
-                  state: "live",
-                  publisherVersion: "publisher_hi_1"
-                }
-              ]
-            })
-          )
-        })}
-        listenerApi={api}
-        realtimeClient={realtime}
-      />
-    );
-
-    await screen.findByRole("button", { name: "Listen to Hindi" });
-    fireEvent.click(screen.getByRole("button", { name: "Listen to Hindi" }));
-    await screen.findByText("Listening to Hindi");
-    fireEvent.click(screen.getByRole("button", { name: "Switch to English" }));
-    await screen.findByText("Listening to English");
-
-    expect(api.iceServers).toHaveBeenCalledTimes(1);
-    const expectedIceServers = [
-      {
-        urls: ["turn:turn.cloudflare.com:3478?transport=udp"],
-        username: "turn-user",
-        credential: "turn-credential"
-      }
-    ];
-    expect(realtime.subscribe).toHaveBeenCalledWith(
-      expect.objectContaining({ iceServers: expectedIceServers })
-    );
-    expect(realtime.switch).toHaveBeenCalledWith(
-      expect.objectContaining({ iceServers: expectedIceServers })
-    );
-  });
-
-  it("still subscribes when the iceServers fetch fails", async () => {
-    const api = listenerApi({
-      iceServers: vi.fn(async () => {
-        throw new Error("ice_fetch_failed");
-      })
-    });
-    const realtime = realtimeClient();
-
-    render(
-      <ListenerRoute
-        programSlug="patna-event-2026"
-        publicApi={publicApi()}
-        listenerApi={api}
-        realtimeClient={realtime}
-      />
-    );
-
-    await screen.findByRole("button", { name: "Listen to Hindi" });
-    fireEvent.click(screen.getByRole("button", { name: "Listen to Hindi" }));
-    await screen.findByText("Listening to Hindi");
-
-    expect(api.iceServers).toHaveBeenCalled();
-    expect(realtime.subscribe).toHaveBeenCalledWith({
-      programSlug: "patna-event-2026",
-      streamId: "stream_hi",
-      clientId: expect.stringMatching(/^listener_client_/)
-    });
-    const subscribeArg = (realtime.subscribe as ReturnType<typeof vi.fn>).mock
-      .calls[0]?.[0];
-    expect(subscribeArg?.iceServers).toBeUndefined();
-  });
 });

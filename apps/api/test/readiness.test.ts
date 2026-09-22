@@ -1,7 +1,7 @@
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import worker from "../src/index";
+import type { Env } from "../src/env";
+import { createApp } from "../src/index";
 import {
   adminCookie,
   buildTestEnv,
@@ -9,9 +9,6 @@ import {
   seedProgram,
   testEnv
 } from "./test-env";
-
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
 
 type ReadinessItem = {
   id: string;
@@ -28,17 +25,11 @@ type ReadinessResponse = {
 
 async function request(
   path: string,
-  init: IncomingRequestInit = {},
-  workerEnv: Env = testEnv
+  init: RequestInit = {},
+  workerEnv: Env = buildTestEnv()
 ): Promise<Response> {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    workerEnv,
-    ctx
-  );
-  await waitOnExecutionContext(ctx);
-  return response;
+  const app = createApp(workerEnv);
+  return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
 async function createProgram(_cookie?: string): Promise<string> {
@@ -60,7 +51,7 @@ async function createStream(
     body: JSON.stringify({ languageName, languageCode, displayOrder, isActive })
   });
   expect(response.status).toBe(201);
-  const stream = await response.json<{ id: string }>();
+  const stream = (await response.json()) as { id: string };
   return stream.id;
 }
 
@@ -83,7 +74,7 @@ async function createTranslatorWithAssignment(
     }
   );
   expect(created.status).toBe(201);
-  const { id: translatorId } = await created.json<{ id: string }>();
+  const { id: translatorId } = (await created.json()) as { id: string };
 
   const assigned = await request(
     `/api/admin/programs/${programId}/translators/${translatorId}/assignments`,
@@ -107,7 +98,7 @@ function itemById(body: ReadinessResponse, id: string): ReadinessItem {
 async function getReadiness(
   cookie: string,
   programId: string,
-  workerEnv: Env = testEnv
+  workerEnv: Env = buildTestEnv()
 ): Promise<ReadinessResponse> {
   const response = await request(
     `/api/admin/programs/${programId}/readiness`,
@@ -115,7 +106,7 @@ async function getReadiness(
     workerEnv
   );
   expect(response.status).toBe(200);
-  return response.json<ReadinessResponse>();
+  return (await response.json()) as ReadinessResponse;
 }
 
 describe("admin program readiness", () => {
@@ -186,37 +177,55 @@ describe("admin program readiness", () => {
     expect(itemById(body, "translator_assignments").status).toBe("green");
   });
 
-  it("marks realtime configuration as a blocker when credentials are missing", async () => {
+  // src/routes/admin.ts's isRealtimeConfigured()/isTurnConfigured() both
+  // report true once LIVEKIT_URL/LIVEKIT_API_KEY/LIVEKIT_API_SECRET are all
+  // set (see livekit/client.ts's isLiveKitConfigured). buildTestEnv()'s
+  // default env configures all three (test/test-env.ts), so the default
+  // request() helper here already reports "green" -- the "blocker" case
+  // needs an explicit override to unset them.
+  it("marks realtime configuration as green when LiveKit is configured", async () => {
     const cookie = await adminCookie();
     const programId = await createProgram(cookie);
 
-    const configured = await getReadiness(cookie, programId);
-    expect(itemById(configured, "realtime_configured").status).toBe("green");
-
-    const missing = await getReadiness(
-      cookie,
-      programId,
-      buildTestEnv({ CLOUDFLARE_REALTIME_APP_SECRET: "" })
-    );
-    expect(itemById(missing, "realtime_configured").status).toBe("blocker");
+    const body = await getReadiness(cookie, programId);
+    expect(itemById(body, "realtime_configured").status).toBe("green");
   });
 
-  it("marks TURN as a blocker locally and green when TURN is configured", async () => {
+  it("marks realtime configuration as a blocker when LiveKit is not configured", async () => {
+    const cookie = await adminCookie();
+    const programId = await createProgram(cookie);
+    const unconfiguredEnv = buildTestEnv({
+      LIVEKIT_URL: undefined,
+      LIVEKIT_API_KEY: undefined,
+      LIVEKIT_API_SECRET: undefined
+    });
+
+    const body = await getReadiness(cookie, programId, unconfiguredEnv);
+    expect(itemById(body, "realtime_configured").status).toBe("blocker");
+  });
+
+  // isTurnConfigured() mirrors isRealtimeConfigured() -- LiveKit bundles its
+  // own TURN server, so there is no separate TURN credential to check (see
+  // routes/admin.ts's isTurnConfigured comment).
+  it("marks TURN as green when LiveKit is configured", async () => {
     const cookie = await adminCookie();
     const programId = await createProgram(cookie);
 
-    const unconfigured = await getReadiness(cookie, programId);
-    expect(itemById(unconfigured, "turn_configured").status).toBe("blocker");
+    const body = await getReadiness(cookie, programId);
+    expect(itemById(body, "turn_configured").status).toBe("green");
+  });
 
-    const configured = await getReadiness(
-      cookie,
-      programId,
-      buildTestEnv({
-        CLOUDFLARE_TURN_KEY_ID: "turn-key",
-        CLOUDFLARE_TURN_API_TOKEN: "turn-token"
-      })
-    );
-    expect(itemById(configured, "turn_configured").status).toBe("green");
+  it("marks TURN as a blocker when LiveKit is not configured", async () => {
+    const cookie = await adminCookie();
+    const programId = await createProgram(cookie);
+    const unconfiguredEnv = buildTestEnv({
+      LIVEKIT_URL: undefined,
+      LIVEKIT_API_KEY: undefined,
+      LIVEKIT_API_SECRET: undefined
+    });
+
+    const body = await getReadiness(cookie, programId, unconfiguredEnv);
+    expect(itemById(body, "turn_configured").status).toBe("blocker");
   });
 
   it("confirms smoke and mobile checks, persists them, and turns the items green", async () => {
@@ -236,7 +245,7 @@ describe("admin program readiness", () => {
       }
     );
     expect(smoke.status).toBe(200);
-    const smokeBody = await smoke.json<ReadinessResponse>();
+    const smokeBody = (await smoke.json()) as ReadinessResponse;
     const smokeItem = itemById(smokeBody, "realtime_smoke_tested");
     expect(smokeItem.status).toBe("green");
     expect(typeof smokeItem.checkedAt).toBe("string");
@@ -256,11 +265,9 @@ describe("admin program readiness", () => {
     expect(itemById(after, "realtime_smoke_tested").status).toBe("green");
     expect(itemById(after, "mobile_field_tested").status).toBe("green");
 
-    const rowCount = await testEnv.DB.prepare(
+    const rowCount = testEnv.DB.prepare(
       `SELECT COUNT(*) as count FROM program_readiness_checks WHERE program_id = ?`
-    )
-      .bind(programId)
-      .first<{ count: number }>();
+    ).get(programId) as { count: number } | undefined;
     expect(rowCount?.count).toBe(1);
   });
 

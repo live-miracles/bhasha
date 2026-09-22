@@ -1,5 +1,5 @@
-import { sha256Hex } from "../auth/crypto";
-import { timingSafeEqualHex } from "../relay/relayAuth";
+import { sha256Hex, timingSafeEqualHex } from "../auth/crypto";
+import type { Database } from "./sqlite";
 
 const CROCKFORD_BASE32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const GENERATED_PASSWORD_LENGTH = 10;
@@ -108,20 +108,25 @@ async function timingSafeEqualPasswordHash(
   const candidateBytes = new Uint8Array(encoder.encode(candidate));
   const expectedBytes = new Uint8Array(encoder.encode(expected));
 
-  if (typeof crypto.subtle.timingSafeEqual === "function") {
-    return crypto.subtle.timingSafeEqual(
+  const subtleWithTimingSafeEqual = crypto.subtle as SubtleCrypto & {
+    timingSafeEqual?: (a: ArrayBuffer, b: ArrayBuffer) => boolean;
+  };
+  if (typeof subtleWithTimingSafeEqual.timingSafeEqual === "function") {
+    return subtleWithTimingSafeEqual.timingSafeEqual(
       candidateBytes.buffer,
       expectedBytes.buffer
     );
   }
 
-  // Some non-Workers test runtimes do not expose the Workers extension.
+  // Node's WebCrypto does not expose the Workers-only `timingSafeEqual`
+  // extension, so this fallback (the same one non-Workers test runtimes
+  // always took) is now the only path.
   return timingSafeEqualHex(candidate, expected);
 }
 
 export class VolunteerRepository {
   constructor(
-    private readonly db: D1Database,
+    private readonly db: Database,
     private readonly passwordPepper: string
   ) {}
 
@@ -134,8 +139,7 @@ export class VolunteerRepository {
     generatedPassword?: string;
   }> {
     const change = await this.buildCredentialChange(loginId, password);
-    const account = await this.credentialUpsert(programId, change)
-      .first<VolunteerAccountRecord>();
+    const account = this.credentialUpsert(programId, change);
     return this.credentialChangeResult(account, change.generatedPassword);
   }
 
@@ -148,16 +152,15 @@ export class VolunteerRepository {
     generatedPassword?: string;
   }> {
     const change = await this.buildCredentialChange(loginId, password);
-    const [accountResult] = await this.db.batch<VolunteerAccountRecord>([
-      this.credentialUpsert(programId, change),
+    const runRotation = this.db.transaction(() => {
+      const upserted = this.credentialUpsert(programId, change);
       this.db
         .prepare("DELETE FROM volunteer_sessions WHERE program_id = ?")
-        .bind(programId)
-    ]);
-    return this.credentialChangeResult(
-      accountResult?.results[0],
-      change.generatedPassword
-    );
+        .run(programId);
+      return upserted;
+    });
+    const account = runRotation();
+    return this.credentialChangeResult(account, change.generatedPassword);
   }
 
   async getAccount(programId: string): Promise<VolunteerAccountRecord | null> {
@@ -217,14 +220,14 @@ export class VolunteerRepository {
       VOLUNTEER_SESSION_IDLE_SECONDS
     ).toISOString();
 
-    await this.db
+    this.db
       .prepare(
         `INSERT INTO volunteer_sessions
         (id, session_hash, program_id, absolute_expires_at, expires_at,
          last_seen_at, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-      .bind(
+      .run(
         sessionId,
         sessionHash,
         programId,
@@ -232,8 +235,7 @@ export class VolunteerRepository {
         expiresAt,
         now,
         now
-      )
-      .run();
+      );
 
     const session = await this.getSessionById(sessionId);
     if (!session) {
@@ -248,13 +250,12 @@ export class VolunteerRepository {
   ): Promise<VolunteerSessionRecord | null> {
     const sessionHash = await sha256Hex(token + sessionSecret);
     const now = new Date().toISOString();
-    return this.db
+    return (this.db
       .prepare(
         `${VOLUNTEER_SESSION_SELECT}
-        WHERE session_hash = ? AND expires_at > ? AND absolute_expires_at > ?`
+        WHERE session_hash = ? AND expires_at > ? AND absolute_expires_at > ?`,
       )
-      .bind(sessionHash, now, now)
-      .first<VolunteerSessionRecord>();
+      .get(sessionHash, now, now) as VolunteerSessionRecord | undefined) ?? null;
   }
 
   async touchSession(
@@ -262,14 +263,13 @@ export class VolunteerRepository {
   ): Promise<VolunteerSessionRecord | null> {
     const timestamp = new Date();
     const now = timestamp.toISOString();
-    const existing = await this.db
+    const existing = this.db
       .prepare(
         `SELECT absolute_expires_at as absoluteExpiresAt
         FROM volunteer_sessions
         WHERE id = ? AND expires_at > ? AND absolute_expires_at > ?`
       )
-      .bind(sessionId, now, now)
-      .first<{ absoluteExpiresAt: string }>();
+      .get(sessionId, now, now) as { absoluteExpiresAt: string } | undefined;
     if (!existing) {
       return null;
     }
@@ -278,41 +278,37 @@ export class VolunteerRepository {
       addSeconds(timestamp, VOLUNTEER_SESSION_IDLE_SECONDS),
       existing.absoluteExpiresAt
     );
-    await this.db
+    this.db
       .prepare(
         `UPDATE volunteer_sessions
         SET expires_at = ?, last_seen_at = ?
         WHERE id = ? AND expires_at > ? AND absolute_expires_at > ?`
       )
-      .bind(expiresAt, now, sessionId, now, now)
-      .run();
+      .run(expiresAt, now, sessionId, now, now);
     return this.getSessionById(sessionId);
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    await this.db
+    this.db
       .prepare("DELETE FROM volunteer_sessions WHERE id = ?")
-      .bind(sessionId)
-      .run();
+      .run(sessionId);
   }
 
   async deleteSessionsForProgram(programId: string): Promise<void> {
-    await this.db
+    this.db
       .prepare("DELETE FROM volunteer_sessions WHERE program_id = ?")
-      .bind(programId)
-      .run();
+      .run(programId);
   }
 
   async countActiveSessions(programId: string): Promise<number> {
     const now = new Date().toISOString();
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT COUNT(*) as count
         FROM volunteer_sessions
         WHERE program_id = ? AND expires_at > ? AND absolute_expires_at > ?`
       )
-      .bind(programId, now, now)
-      .first<{ count: number | string }>();
+      .get(programId, now, now) as { count: number | string } | undefined;
     return Number(row?.count ?? 0);
   }
 
@@ -329,7 +325,7 @@ export class VolunteerRepository {
     const attempts: LoginAttemptRow[] = [];
     if (ipHash !== null) {
       attempts.push(
-        await this.bumpFailureCounter(
+        this.bumpFailureCounter(
           programId,
           ipHash,
           PER_IP_FAILURE_THRESHOLD,
@@ -337,7 +333,7 @@ export class VolunteerRepository {
         )
       );
     }
-    const programAttempt = await this.bumpFailureCounter(
+    const programAttempt = this.bumpFailureCounter(
       programId,
       "",
       PER_PROGRAM_FAILURE_THRESHOLD,
@@ -366,27 +362,27 @@ export class VolunteerRepository {
 
   async isLocked(programId: string, ipHash: string | null): Promise<boolean> {
     const now = new Date().toISOString();
-    const statement = ipHash === null
-      ? this.db
-        .prepare(
-          `SELECT 1 as locked
-          FROM volunteer_login_attempts
-          WHERE program_id = ? AND ip_hash = ''
-            AND locked_until IS NOT NULL AND locked_until > ?
-          LIMIT 1`
-        )
-        .bind(programId, now)
-      : this.db
-        .prepare(
-          `SELECT 1 as locked
-          FROM volunteer_login_attempts
-          WHERE program_id = ? AND ip_hash IN (?, '')
-            AND locked_until IS NOT NULL AND locked_until > ?
-          LIMIT 1`
-        )
-        .bind(programId, ipHash, now);
-    const row = await statement.first<{ locked: number }>();
-    return row !== null;
+    const row =
+      ipHash === null
+        ? this.db
+            .prepare(
+              `SELECT 1 as locked
+              FROM volunteer_login_attempts
+              WHERE program_id = ? AND ip_hash = ''
+                AND locked_until IS NOT NULL AND locked_until > ?
+              LIMIT 1`,
+            )
+            .get(programId, now)
+        : this.db
+            .prepare(
+              `SELECT 1 as locked
+              FROM volunteer_login_attempts
+              WHERE program_id = ? AND ip_hash IN (?, '')
+                AND locked_until IS NOT NULL AND locked_until > ?
+              LIMIT 1`,
+            )
+            .get(programId, ipHash, now);
+    return row !== undefined;
   }
 
   async clearOnSuccess(
@@ -397,12 +393,12 @@ export class VolunteerRepository {
       return;
     }
 
-    await this.db.batch(
-      reservation.attempts.map((attempt) => {
+    const clear = this.db.transaction(() => {
+      for (const attempt of reservation.attempts) {
         const threshold = attempt.ipHash
           ? PER_IP_FAILURE_THRESHOLD
           : PER_PROGRAM_FAILURE_THRESHOLD;
-        return this.db
+        this.db
           .prepare(
             `UPDATE volunteer_login_attempts
             SET attempt_count = MAX(attempt_count - 1, 0),
@@ -412,13 +408,10 @@ export class VolunteerRepository {
               END
             WHERE program_id = ? AND ip_hash = ?`
           )
-          .bind(
-            threshold,
-            programId,
-            attempt.ipHash
-          );
-      })
-    );
+          .run(threshold, programId, attempt.ipHash);
+      }
+    });
+    clear();
   }
 
   private async buildCredentialChange(
@@ -455,7 +448,7 @@ export class VolunteerRepository {
   private credentialUpsert(
     programId: string,
     change: CredentialChange
-  ): D1PreparedStatement {
+  ): VolunteerAccountRecord | undefined {
     return this.db
       .prepare(
         `INSERT INTO volunteer_accounts
@@ -470,14 +463,14 @@ export class VolunteerRepository {
           password_updated_at as passwordUpdatedAt,
           created_at as createdAt, updated_at as updatedAt`
       )
-      .bind(
+      .get(
         programId,
         change.loginId,
         change.passwordHash,
         change.timestamp,
         change.timestamp,
         change.timestamp
-      );
+      ) as VolunteerAccountRecord | undefined;
   }
 
   private credentialChangeResult(
@@ -501,7 +494,7 @@ export class VolunteerRepository {
   private async getAccountWithPassword(
     programId: string
   ): Promise<VolunteerAccountRow | null> {
-    return this.db
+    return (this.db
       .prepare(
         `SELECT program_id as programId, login_id as loginId,
           password_hash as passwordHash,
@@ -509,15 +502,14 @@ export class VolunteerRepository {
           created_at as createdAt, updated_at as updatedAt
         FROM volunteer_accounts WHERE program_id = ?`
       )
-      .bind(programId)
-      .first<VolunteerAccountRow>();
+      .get(programId) as VolunteerAccountRow | undefined) ?? null;
   }
 
   private async getAccountWithPasswordForLogin(
     programId: string,
     loginId: string
   ): Promise<VolunteerAccountRow | null> {
-    return this.db
+    return (this.db
       .prepare(
         `SELECT program_id as programId, login_id as loginId,
           password_hash as passwordHash,
@@ -525,25 +517,23 @@ export class VolunteerRepository {
           created_at as createdAt, updated_at as updatedAt
         FROM volunteer_accounts WHERE program_id = ? AND login_id = ?`
       )
-      .bind(programId, loginId)
-      .first<VolunteerAccountRow>();
+      .get(programId, loginId) as VolunteerAccountRow | undefined) ?? null;
   }
 
   private async getSessionById(
     sessionId: string
   ): Promise<VolunteerSessionRecord | null> {
-    return this.db
+    return (this.db
       .prepare(`${VOLUNTEER_SESSION_SELECT} WHERE id = ?`)
-      .bind(sessionId)
-      .first<VolunteerSessionRecord>();
+      .get(sessionId) as VolunteerSessionRecord | undefined) ?? null;
   }
 
-  private async bumpFailureCounter(
+  private bumpFailureCounter(
     programId: string,
     ipHash: string,
     threshold: number,
     now: Date
-  ): Promise<LoginAttemptRow> {
+  ): LoginAttemptRow {
     const timestamp = now.toISOString();
     const cutoff = new Date(
       now.getTime() - LOGIN_WINDOW_MILLISECONDS
@@ -553,16 +543,17 @@ export class VolunteerRepository {
     const lockedFor240Seconds = addSeconds(now, 240).toISOString();
     const lockedFor300Seconds = addSeconds(now, 300).toISOString();
 
-    const [previousResult, nextResult] = await this.db.batch<LoginAttemptRow>([
-      this.db
+    const bump = this.db.transaction(() => {
+      const previous = this.db
         .prepare(
           `SELECT ip_hash as ipHash, window_start as windowStart,
             attempt_count as attemptCount, locked_until as lockedUntil
           FROM volunteer_login_attempts
           WHERE program_id = ? AND ip_hash = ?`
         )
-        .bind(programId, ipHash),
-      this.db
+        .get(programId, ipHash) as LoginAttemptRow | undefined;
+
+      const row = this.db
         .prepare(
           `INSERT INTO volunteer_login_attempts
           (program_id, ip_hash, window_start, attempt_count, locked_until)
@@ -588,7 +579,7 @@ export class VolunteerRepository {
           RETURNING ip_hash as ipHash, window_start as windowStart,
             attempt_count as attemptCount, locked_until as lockedUntil`
         )
-        .bind(
+        .get(
           programId,
           ipHash,
           timestamp,
@@ -605,24 +596,24 @@ export class VolunteerRepository {
           threshold + 3,
           lockedFor240Seconds,
           lockedFor300Seconds
-        )
-    ]);
-    const previous = previousResult?.results[0];
-    const row = nextResult?.results[0];
+        ) as LoginAttemptRow | undefined;
 
-    if (!row) {
-      throw new Error("volunteer login failure could not be recorded");
-    }
+      if (!row) {
+        throw new Error("volunteer login failure could not be recorded");
+      }
 
-    const previousWindowIsCurrent =
-      previous !== undefined && previous.windowStart > cutoff;
-    return {
-      ...row,
-      lockTriggered: row.attemptCount === threshold + 1,
-      rollbackLockedUntil: previousWindowIsCurrent
-        ? previous.lockedUntil
-        : null
-    };
+      const previousWindowIsCurrent =
+        previous !== undefined && previous.windowStart > cutoff;
+      return {
+        ...row,
+        lockTriggered: row.attemptCount === threshold + 1,
+        rollbackLockedUntil: previousWindowIsCurrent
+          ? previous.lockedUntil
+          : null
+      };
+    });
+
+    return bump();
   }
 }
 

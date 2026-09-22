@@ -1,13 +1,13 @@
+import { Room, RoomEvent, Track } from "livekit-client";
+
 import {
   createTranslatorApi,
-  type TranslatorApi,
-  type TranslatorRealtimeSessionResponse
+  type TranslatorApi
 } from "../api/translator";
 
 export interface TranslatorPublishInput {
   streamId: string;
   track: MediaStreamTrack;
-  iceServers?: RTCIceServer[];
   reclaim?: boolean;
 }
 
@@ -24,15 +24,31 @@ export interface TranslatorReconnectInput {
   publishSessionId: string;
   streamId: string;
   track: MediaStreamTrack;
-  iceServers?: RTCIceServer[];
 }
 
 export interface TranslatorPublishSession {
   publishSessionId: string;
   streamId: string;
   track: MediaStreamTrack;
-  peerConnection: RTCPeerConnection;
+  room: RoomHandle;
 }
+
+// The three UI-facing transport states TranslatorRoute reacts to (stale /
+// recoveryExhausted / justRecovered badges). LiveKit's own Room owns transient
+// reconnect/ICE-restart recovery internally, so these mirror ITS events rather
+// than a hand-rolled RTCPeerConnectionState machine:
+//   - "reconnecting": LiveKit lost the transport and is retrying on its own --
+//     no app-level backoff timer is scheduled for this any more.
+//   - "reconnected": LiveKit's own retry succeeded.
+//   - "disconnected": LiveKit gave up (or the token's 1h TTL expired) and the
+//     room is now terminally closed. This is the one case that still needs an
+//     app-level action -- mint a fresh token and reconnect from scratch --
+//     which the route drives via its own bounded retry/backoff calling
+//     `reconnect()` again.
+export type TranslatorTransportState =
+  | "reconnecting"
+  | "reconnected"
+  | "disconnected";
 
 export interface TranslatorRealtimeClient {
   publish(input: TranslatorPublishInput): Promise<TranslatorPublishSession>;
@@ -43,27 +59,48 @@ export interface TranslatorRealtimeClient {
   ): Promise<TranslatorPublishSession>;
 }
 
+// The slice of livekit-client's `Room` this module depends on. Declaring it as
+// an interface (mirroring the old PartyTracksHandle DI convention) lets tests
+// inject a fake without a real WebRTC/WebSocket stack (jsdom has neither).
+export interface RoomHandle {
+  readonly localParticipant: {
+    publishTrack(
+      track: MediaStreamTrack,
+      options?: Record<string, unknown>
+    ): Promise<unknown>;
+  };
+  connect(url: string, token: string): Promise<void>;
+  disconnect(): Promise<void>;
+  on(event: RoomEvent, listener: (...args: unknown[]) => void): unknown;
+  off(event: RoomEvent, listener: (...args: unknown[]) => void): unknown;
+}
+
 export interface TranslatorRealtimeClientOptions {
   translatorApi?: TranslatorApi;
-  peerConnectionFactory?: (
-    configuration: RTCConfiguration
-  ) => RTCPeerConnection;
   /**
-   * Invoked whenever a live publisher peer connection's transport state changes
-   * (connectionstatechange / iceconnectionstatechange). Drives app-level fast
-   * recovery (re-publish) instead of waiting for the browser's slow ICE restart.
-   * Listeners are removed before close() so a just-closed connection can't fire it.
+   * Room factory. Defaults to `() => new Room()`. Tests supply a fake
+   * RoomHandle so no real WebSocket connection is ever attempted.
+   */
+  createRoom?: () => RoomHandle;
+  /**
+   * Invoked whenever the live publisher room's connection state changes in a
+   * way the route cares about. See `TranslatorTransportState` above.
    */
   onConnectionStateChange?: (
     publishSessionId: string,
-    state: RTCPeerConnectionState
+    state: TranslatorTransportState
   ) => void;
 }
 
 type ActivePublisher = {
-  peerConnection: RTCPeerConnection;
+  room: RoomHandle;
   track: MediaStreamTrack;
   streamId: string;
+  // Set right before we call room.disconnect() ourselves (stop/reconnect
+  // teardown) so the resulting Disconnected event is not mistaken for LiveKit
+  // giving up on its own -- mirrors the old "detach listeners before close()"
+  // idiom that kept a self-inflicted teardown from triggering recovery.
+  intentional: boolean;
   detachStateListeners: () => void;
 };
 
@@ -71,120 +108,114 @@ export function createTranslatorRealtimeClient(
   options: TranslatorRealtimeClientOptions = {}
 ): TranslatorRealtimeClient {
   const translatorApi = options.translatorApi ?? createTranslatorApi();
-  const peerConnectionFactory =
-    options.peerConnectionFactory ??
-    ((configuration: RTCConfiguration) => new RTCPeerConnection(configuration));
+  // TODO(follow-up, not slice-3): see the matching TODO in listenerClient.ts
+  // -- the old client could force TURN-relay-only ICE when real TURN creds
+  // were present, to survive a hostile network middlebox; there is no
+  // equivalent hook for that today via `Room`'s `rtcConfig`. Revisit only if
+  // real-world translators behind restrictive networks report connectivity
+  // issues LiveKit's own retry logic doesn't recover from.
+  const createRoom = options.createRoom ?? (() => new Room());
   const publishers = new Map<string, ActivePublisher>();
 
   async function publishTrack(
     input: TranslatorPublishInput
   ): Promise<TranslatorPublishSession> {
-    const initialConfiguration: RTCConfiguration = {
-      bundlePolicy: "max-bundle",
-      ...(input.iceServers ? { iceServers: input.iceServers } : {})
-    };
-    const peerConnection = peerConnectionFactory(initialConfiguration);
-    const transceiver = peerConnection.addTransceiver(input.track, {
-      direction: "sendonly"
-    });
-
-    // Phase 1: reserve an empty SFU session.
-    // A failure here happens before a publishSessionId exists, so there is no
-    // backend session to stop; only the local peer/track should be released.
-    let session: TranslatorRealtimeSessionResponse;
+    // Phase 1: mint a LiveKit token (reserves the single-publisher-per-stream
+    // slot on the backend). A failure here happens before a publishSessionId
+    // exists, so there is no backend session to stop; only the local track
+    // should be released.
+    let minted: Awaited<ReturnType<TranslatorApi["realtimeToken"]>>;
     try {
-      session = input.reclaim
-        ? await translatorApi.realtimeSession(input.streamId, { reclaim: true })
-        : await translatorApi.realtimeSession(input.streamId);
+      minted = await translatorApi.realtimeToken(input.streamId, {
+        ...(input.reclaim ? { reclaim: true } : {})
+      });
     } catch (error) {
-      releaseLocal(peerConnection, input.track);
+      input.track.stop();
       throw error;
     }
 
-    // Phase 2: publish the local track with the first SDP offer for this peer.
-    // This mirrors Cloudflare's SFU examples: create an empty session, add local
-    // tracks with an offer, apply the answer, then wait until ICE is connected
-    // before declaring the publisher live.
+    // Phase 2: join the LiveKit room and publish the local track. Unlike the
+    // old three-step SFU handshake, there is no separate SDP exchange here --
+    // livekit-client owns signaling/ICE/renegotiation internally.
+    const room = createRoom();
     try {
-      applyReturnedIceServers(peerConnection, session.iceServers);
-      const publishOffer = await createLocalOffer(peerConnection);
-      const trackName = `mic_${generateId()}`;
-      const mid = transceiver.mid ?? "0";
-
-      const publish = await translatorApi.realtimePublish(
-        input.streamId,
-        session.publishSessionId,
-        publishOffer,
-        { mid, trackName }
-      );
-      const connected = waitForIceConnected(peerConnection);
-      await peerConnection.setRemoteDescription(publish.sessionDescription);
-      await connected;
+      await room.connect(minted.url, minted.token);
+      await room.localParticipant.publishTrack(input.track, {
+        source: Track.Source.Microphone
+      });
     } catch (error) {
-      releaseLocal(peerConnection, input.track);
+      input.track.stop();
       try {
-        await translatorApi.realtimeStop(
-          input.streamId,
-          session.publishSessionId
-        );
+        await room.disconnect();
+      } catch (_disconnectError) {
+        // Best-effort local cleanup; surface the original publish failure.
+      }
+      try {
+        await translatorApi.realtimeStop(input.streamId, minted.publishSessionId);
       } catch (_stopError) {
         // Best-effort backend cleanup; surface the original publish failure.
       }
       throw error;
     }
 
-    const detachStateListeners = attachStateListeners(
-      peerConnection,
-      session.publishSessionId
-    );
-    publishers.set(session.publishSessionId, {
-      peerConnection,
+    const record: ActivePublisher = {
+      room,
       track: input.track,
       streamId: input.streamId,
-      detachStateListeners
-    });
+      intentional: false,
+      detachStateListeners: () => {}
+    };
+    record.detachStateListeners = attachStateListeners(
+      room,
+      minted.publishSessionId,
+      record
+    );
+    publishers.set(minted.publishSessionId, record);
 
     return {
-      publishSessionId: session.publishSessionId,
+      publishSessionId: minted.publishSessionId,
       streamId: input.streamId,
       track: input.track,
-      peerConnection
+      room
     };
   }
 
-  // Wire transport-state events so the app can re-publish fast on a drop. The
-  // publishSessionId is captured here so a late event always reports its own
-  // session. The returned detacher runs BEFORE close() (which fires a synchronous
-  // "closed" connectionstatechange) so a closed/stale publisher can't trigger
-  // recovery.
+  // Wire LiveKit's own reconnect events so the app can reflect them in the UI.
+  // The publishSessionId is captured here so a late event always reports its
+  // own session. The returned detacher runs BEFORE disconnect() (mirroring the
+  // old "detach before close()" idiom) so a torn-down room can't report a
+  // spurious "disconnected" once we've already moved on.
   function attachStateListeners(
-    peerConnection: RTCPeerConnection,
-    publishSessionId: string
+    room: RoomHandle,
+    publishSessionId: string,
+    record: ActivePublisher
   ): () => void {
     const onConnectionStateChange = options.onConnectionStateChange;
     if (!onConnectionStateChange) {
       return () => {};
     }
 
-    const handleStateChange = () => {
-      onConnectionStateChange(publishSessionId, peerConnection.connectionState);
+    const handleReconnecting = () => {
+      onConnectionStateChange(publishSessionId, "reconnecting");
+    };
+    const handleReconnected = () => {
+      onConnectionStateChange(publishSessionId, "reconnected");
+    };
+    const handleDisconnected = () => {
+      if (record.intentional) {
+        return;
+      }
+      onConnectionStateChange(publishSessionId, "disconnected");
     };
 
-    peerConnection.addEventListener("connectionstatechange", handleStateChange);
-    peerConnection.addEventListener(
-      "iceconnectionstatechange",
-      handleStateChange
-    );
+    room.on(RoomEvent.Reconnecting, handleReconnecting);
+    room.on(RoomEvent.Reconnected, handleReconnected);
+    room.on(RoomEvent.Disconnected, handleDisconnected);
 
     return () => {
-      peerConnection.removeEventListener(
-        "connectionstatechange",
-        handleStateChange
-      );
-      peerConnection.removeEventListener(
-        "iceconnectionstatechange",
-        handleStateChange
-      );
+      room.off(RoomEvent.Reconnecting, handleReconnecting);
+      room.off(RoomEvent.Reconnected, handleReconnected);
+      room.off(RoomEvent.Disconnected, handleDisconnected);
     };
   }
 
@@ -194,12 +225,12 @@ export function createTranslatorRealtimeClient(
       return undefined;
     }
     publishers.delete(publishSessionId);
-    // Detach BEFORE close(): close() flips connectionState to "closed" and fires
-    // a synchronous connectionstatechange; removing listeners first guards a
-    // closed/stale publisher from triggering recovery.
+    active.intentional = true;
+    // Detach BEFORE disconnect(): mirrors the old close()-ordering idiom so a
+    // just-closed room can't report a spurious "disconnected".
     active.detachStateListeners();
     active.track.stop();
-    active.peerConnection.close();
+    void active.room.disconnect();
     return active;
   }
 
@@ -231,97 +262,8 @@ export function createTranslatorRealtimeClient(
       return publishTrack({
         streamId: input.streamId,
         track: input.track,
-        ...(input.iceServers ? { iceServers: input.iceServers } : {}),
         reclaim: true
       });
     }
   };
-}
-
-async function createLocalOffer(
-  peerConnection: RTCPeerConnection
-): Promise<RTCSessionDescriptionInit> {
-  const offer = await peerConnection.createOffer();
-  await peerConnection.setLocalDescription(offer);
-  return peerConnection.localDescription ?? offer;
-}
-
-function releaseLocal(
-  peerConnection: RTCPeerConnection,
-  track: MediaStreamTrack
-): void {
-  track.stop();
-  peerConnection.close();
-}
-
-function applyReturnedIceServers(
-  peerConnection: RTCPeerConnection,
-  iceServers: RTCIceServer[] | undefined
-): void {
-  if (!iceServers || iceServers.length === 0) {
-    return;
-  }
-
-  peerConnection.setConfiguration({
-    bundlePolicy: "max-bundle",
-    iceServers
-  });
-}
-
-function waitForIceConnected(
-  peerConnection: RTCPeerConnection,
-  timeoutMs = 15_000
-): Promise<void> {
-  if (isConnectedIceState(peerConnection.iceConnectionState)) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error("ice_connection_timeout"));
-    }, timeoutMs);
-
-    const handleStateChange = () => {
-      if (isConnectedIceState(peerConnection.iceConnectionState)) {
-        cleanup();
-        resolve();
-        return;
-      }
-
-      if (
-        peerConnection.iceConnectionState === "failed" ||
-        peerConnection.iceConnectionState === "closed"
-      ) {
-        cleanup();
-        reject(new Error("ice_connection_failed"));
-      }
-    };
-
-    function cleanup() {
-      clearTimeout(timeout);
-      peerConnection.removeEventListener(
-        "iceconnectionstatechange",
-        handleStateChange
-      );
-    }
-
-    peerConnection.addEventListener(
-      "iceconnectionstatechange",
-      handleStateChange
-    );
-    handleStateChange();
-  });
-}
-
-function isConnectedIceState(state: RTCIceConnectionState): boolean {
-  return state === "connected" || state === "completed";
-}
-
-function generateId(): string {
-  try {
-    return crypto.randomUUID();
-  } catch (_error) {
-    return `${Date.now().toString(36)}`;
-  }
 }

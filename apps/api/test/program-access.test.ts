@@ -173,10 +173,9 @@ describe("requireProgramAccess", () => {
       orgId: DEFAULT_TEST_ORG_ID
     };
 
-    await testEnv.DB
+    testEnv.DB
       .prepare("UPDATE programs SET deleted_at = ? WHERE id = ?")
-      .bind(new Date().toISOString(), program.id)
-      .run();
+      .run(new Date().toISOString(), program.id);
 
     const deletedAccess = await requireProgramAccess(
       new ProgramRepository(testEnv.DB),

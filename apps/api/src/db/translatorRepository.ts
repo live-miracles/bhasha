@@ -12,6 +12,7 @@ import {
   ProgramNotFoundError,
   StreamNotFoundError
 } from "./programRepository";
+import type { Database } from "./sqlite";
 
 const TRANSLATOR_SESSION_ABSOLUTE_SECONDS = 8 * 60 * 60;
 const TRANSLATOR_SESSION_IDLE_SECONDS = 30 * 60;
@@ -117,7 +118,7 @@ function isUniqueConstraint(error: unknown): boolean {
 }
 
 export class TranslatorRepository {
-  constructor(private readonly db: D1Database) {}
+  constructor(private readonly db: Database) {}
 
   async listAdminTranslators(
     programId: string
@@ -148,13 +149,13 @@ export class TranslatorRepository {
     const passwordHash = await this.passwordHash(input.password, passwordPepper);
 
     try {
-      await this.db
+      this.db
         .prepare(
           `INSERT INTO translators
           (id, program_id, name, email, password_hash, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .bind(
+        .run(
           translatorId,
           programId,
           input.name,
@@ -162,8 +163,7 @@ export class TranslatorRepository {
           passwordHash,
           timestamp,
           timestamp
-        )
-        .run();
+        );
     } catch (error) {
       // The unique (program_id, email) index is the authoritative, race-safe
       // guard; the pre-check above is a nicety.
@@ -190,16 +190,15 @@ export class TranslatorRepository {
     }
 
     const timestamp = nowIso();
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE translators
         SET name = ?, updated_at = ?
         WHERE program_id = ? AND id = ?`
       )
-      .bind(input.name, timestamp, programId, translatorId)
-      .run();
+      .run(input.name, timestamp, programId, translatorId);
 
-    if ((result.meta.changes ?? 0) === 0) {
+    if (result.changes === 0) {
       throw new TranslatorNotFoundError();
     }
 
@@ -222,26 +221,24 @@ export class TranslatorRepository {
 
     const passwordHash = await this.passwordHash(input.password, passwordPepper);
     const timestamp = nowIso();
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE translators
         SET password_hash = ?, updated_at = ?
         WHERE program_id = ? AND id = ?`
       )
-      .bind(passwordHash, timestamp, programId, translatorId)
-      .run();
+      .run(passwordHash, timestamp, programId, translatorId);
 
-    if ((result.meta.changes ?? 0) === 0) {
+    if (result.changes === 0) {
       throw new TranslatorNotFoundError();
     }
 
-    await this.db
+    this.db
       .prepare(
         `DELETE FROM translator_sessions
         WHERE program_id = ? AND translator_id = ?`
       )
-      .bind(programId, translatorId)
-      .run();
+      .run(programId, translatorId);
 
     return this.requireAdminTranslator(programId, translatorId);
   }
@@ -262,10 +259,9 @@ export class TranslatorRepository {
       throw new TranslatorDeleteLockedError();
     }
 
-    await this.db
+    this.db
       .prepare("DELETE FROM translators WHERE program_id = ? AND id = ?")
-      .bind(programId, translatorId)
-      .run();
+      .run(programId, translatorId);
   }
 
   async createAdminTranslatorAssignment(
@@ -284,14 +280,13 @@ export class TranslatorRepository {
     }
 
     try {
-      await this.db
+      this.db
         .prepare(
           `INSERT INTO translator_stream_assignments
           (program_id, translator_id, language_stream_id, created_at)
           VALUES (?, ?, ?, ?)`
         )
-        .bind(programId, translatorId, input.streamId, nowIso())
-        .run();
+        .run(programId, translatorId, input.streamId, nowIso());
     } catch (error) {
       if (isUniqueConstraint(error)) {
         throw new TranslatorAssignmentExistsError();
@@ -317,13 +312,12 @@ export class TranslatorRepository {
       throw new TranslatorAssignmentNotFoundError();
     }
 
-    await this.db
+    this.db
       .prepare(
         `DELETE FROM translator_stream_assignments
         WHERE program_id = ? AND translator_id = ? AND language_stream_id = ?`
       )
-      .bind(programId, translatorId, streamId)
-      .run();
+      .run(programId, translatorId, streamId);
 
     return this.requireAdminTranslator(programId, translatorId);
   }
@@ -334,15 +328,16 @@ export class TranslatorRepository {
     password: string,
     passwordPepper: string
   ): Promise<TranslatorRecord | null> {
-    const translator = await this.db
+    const translator = this.db
       .prepare(
         `SELECT id, program_id as programId, name, email,
           password_hash as passwordHash
         FROM translators
         WHERE program_id = ? AND email = ?`
       )
-      .bind(programId, email)
-      .first<TranslatorRecord & { passwordHash: string }>();
+      .get(programId, email) as
+      | (TranslatorRecord & { passwordHash: string })
+      | undefined;
 
     if (!translator) {
       return null;
@@ -378,14 +373,14 @@ export class TranslatorRepository {
     const expiresAt = addSeconds(now, TRANSLATOR_SESSION_IDLE_SECONDS).toISOString();
     const sessionId = id("translator_session");
 
-    await this.db
+    this.db
       .prepare(
         `INSERT INTO translator_sessions
         (id, session_hash, program_id, translator_id, absolute_expires_at,
          expires_at, last_seen_at, created_at, user_agent)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .bind(
+      .run(
         sessionId,
         sessionHash,
         programId,
@@ -395,8 +390,7 @@ export class TranslatorRepository {
         timestamp,
         timestamp,
         userAgent
-      )
-      .run();
+      );
 
     const session = await this.getSessionById(sessionId);
     if (!session) {
@@ -412,15 +406,16 @@ export class TranslatorRepository {
   ): Promise<TranslatorSessionRecord | null> {
     const sessionHash = await sha256Hex(token + sessionSecret);
     const timestamp = nowIso();
-    return this.db
+    return (this.db
       .prepare(
         `${TRANSLATOR_SESSION_SELECT}
         WHERE s.session_hash = ?
           AND s.expires_at > ?
           AND s.absolute_expires_at > ?`
       )
-      .bind(sessionHash, timestamp, timestamp)
-      .first<TranslatorSessionRecord>();
+      .get(sessionHash, timestamp, timestamp) as
+      | TranslatorSessionRecord
+      | undefined) ?? null;
   }
 
   async revokeSession(
@@ -429,15 +424,14 @@ export class TranslatorRepository {
     translatorId: string,
     sessionId: string
   ): Promise<{ streamId: string; cloudflareSessionId: string | null } | null> {
-    const sessionExists = await this.db
+    const sessionExists = this.db
       .prepare(
         `SELECT 1 as session_present
          FROM translator_sessions
          WHERE id = ? AND program_id = ? AND translator_id = ?
          LIMIT 1`
       )
-      .bind(sessionId, programId, translatorId)
-      .first<{ sessionPresent: number }>();
+      .get(sessionId, programId, translatorId);
 
     if (!sessionExists) {
       return null;
@@ -445,13 +439,12 @@ export class TranslatorRepository {
 
     const freed = await realtime.clearPublisherForSession(programId, sessionId);
 
-    await this.db
+    this.db
       .prepare(
         `DELETE FROM translator_sessions
         WHERE id = ? AND program_id = ? AND translator_id = ?`
       )
-      .bind(sessionId, programId, translatorId)
-      .run();
+      .run(sessionId, programId, translatorId);
 
     return freed;
   }
@@ -463,13 +456,12 @@ export class TranslatorRepository {
   ): Promise<Array<{ streamId: string; cloudflareSessionId: string | null }>> {
     const freed = await realtime.clearPublisherForTranslator(programId, translatorId);
 
-    await this.db
+    this.db
       .prepare(
         `DELETE FROM translator_sessions
         WHERE program_id = ? AND translator_id = ?`
       )
-      .bind(programId, translatorId)
-      .run();
+      .run(programId, translatorId);
 
     return freed;
   }
@@ -477,14 +469,13 @@ export class TranslatorRepository {
   async touchSession(sessionId: string): Promise<TranslatorSessionRecord | null> {
     const timestamp = new Date();
     const now = timestamp.toISOString();
-    const existing = await this.db
+    const existing = this.db
       .prepare(
         `SELECT absolute_expires_at as absoluteExpiresAt
         FROM translator_sessions
         WHERE id = ? AND expires_at > ? AND absolute_expires_at > ?`
       )
-      .bind(sessionId, now, now)
-      .first<{ absoluteExpiresAt: string }>();
+      .get(sessionId, now, now) as { absoluteExpiresAt: string } | undefined;
 
     if (!existing) {
       return null;
@@ -492,14 +483,13 @@ export class TranslatorRepository {
 
     const idleExpiresAt = addSeconds(timestamp, TRANSLATOR_SESSION_IDLE_SECONDS);
     const nextExpiresAt = minIso(idleExpiresAt, existing.absoluteExpiresAt);
-    await this.db
+    this.db
       .prepare(
         `UPDATE translator_sessions
         SET expires_at = ?, last_seen_at = ?
         WHERE id = ? AND expires_at > ? AND absolute_expires_at > ?`
       )
-      .bind(nextExpiresAt, now, sessionId, now, now)
-      .run();
+      .run(nextExpiresAt, now, sessionId, now, now);
 
     return this.getSessionById(sessionId);
   }
@@ -516,7 +506,7 @@ export class TranslatorRepository {
       isPublishing: boolean;
     }>
   > {
-    const rows = await this.db
+    const rows = this.db
       .prepare(
         `SELECT s.id as sessionId,
             s.user_agent as userAgent,
@@ -535,18 +525,15 @@ export class TranslatorRepository {
           AND s.translator_id = ?
         ORDER BY s.created_at ASC`
       )
-      .bind(programId, translatorId)
-      .all<
-        {
-          sessionId: string;
-          userAgent: string | null;
-          loginAt: string;
-          lastActiveAt: string;
-          isPublishing: number;
-        }
-      >();
+      .all(programId, translatorId) as Array<{
+      sessionId: string;
+      userAgent: string | null;
+      loginAt: string;
+      lastActiveAt: string;
+      isPublishing: number;
+    }>;
 
-    return rows.results.map((row) => ({
+    return rows.map((row) => ({
       sessionId: row.sessionId,
       deviceLabel: deviceLabelFromUserAgent(row.userAgent),
       loginAt: row.loginAt,
@@ -559,7 +546,7 @@ export class TranslatorRepository {
     programId: string,
     translatorId: string
   ): Promise<AssignedStreamRecord[]> {
-    const { results } = await this.db
+    return this.db
       .prepare(
         `SELECT ls.id,
           ls.language_name as languageName,
@@ -572,10 +559,7 @@ export class TranslatorRepository {
         WHERE tsa.program_id = ? AND tsa.translator_id = ?
         ORDER BY ls.display_order ASC, ls.created_at ASC`
       )
-      .bind(programId, translatorId)
-      .all<AssignedStreamRecord>();
-
-    return results;
+      .all(programId, translatorId) as AssignedStreamRecord[];
   }
 
   async requireAssignedStream(
@@ -583,14 +567,13 @@ export class TranslatorRepository {
     translatorId: string,
     streamId: string
   ): Promise<void> {
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT language_stream_id as streamId
         FROM translator_stream_assignments
         WHERE program_id = ? AND translator_id = ? AND language_stream_id = ?`
       )
-      .bind(programId, translatorId, streamId)
-      .first<{ streamId: string }>();
+      .get(programId, translatorId, streamId);
 
     if (!row) {
       throw new TranslatorStreamAssignmentNotFoundError();
@@ -600,10 +583,9 @@ export class TranslatorRepository {
   private async getSessionById(
     sessionId: string
   ): Promise<TranslatorSessionRecord | null> {
-    return this.db
+    return (this.db
       .prepare(`${TRANSLATOR_SESSION_SELECT} WHERE s.id = ?`)
-      .bind(sessionId)
-      .first<TranslatorSessionRecord>();
+      .get(sessionId) as TranslatorSessionRecord | undefined) ?? null;
   }
 
   private async passwordHash(
@@ -614,44 +596,40 @@ export class TranslatorRepository {
   }
 
   private async programExists(programId: string): Promise<boolean> {
-    const row = await this.db
+    const row = this.db
       .prepare("SELECT id FROM programs WHERE id = ?")
-      .bind(programId)
-      .first<{ id: string }>();
-    return row !== null;
+      .get(programId);
+    return row !== undefined;
   }
 
   private async translatorExists(
     programId: string,
     translatorId: string
   ): Promise<boolean> {
-    const row = await this.db
+    const row = this.db
       .prepare("SELECT id FROM translators WHERE program_id = ? AND id = ?")
-      .bind(programId, translatorId)
-      .first<{ id: string }>();
-    return row !== null;
+      .get(programId, translatorId);
+    return row !== undefined;
   }
 
   private async translatorEmailExists(
     programId: string,
     email: string
   ): Promise<boolean> {
-    const row = await this.db
+    const row = this.db
       .prepare("SELECT id FROM translators WHERE program_id = ? AND email = ?")
-      .bind(programId, email)
-      .first<{ id: string }>();
-    return row !== null;
+      .get(programId, email);
+    return row !== undefined;
   }
 
   private async streamExists(
     programId: string,
     streamId: string
   ): Promise<boolean> {
-    const row = await this.db
+    const row = this.db
       .prepare("SELECT id FROM language_streams WHERE program_id = ? AND id = ?")
-      .bind(programId, streamId)
-      .first<{ id: string }>();
-    return row !== null;
+      .get(programId, streamId);
+    return row !== undefined;
   }
 
   private async requireProgramTranslatorAndStream(
@@ -675,15 +653,14 @@ export class TranslatorRepository {
     translatorId: string,
     streamId: string
   ): Promise<boolean> {
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT language_stream_id as streamId
         FROM translator_stream_assignments
         WHERE program_id = ? AND translator_id = ? AND language_stream_id = ?`
       )
-      .bind(programId, translatorId, streamId)
-      .first<{ streamId: string }>();
-    return row !== null;
+      .get(programId, translatorId, streamId);
+    return row !== undefined;
   }
 
   private async activePublishSessionExists(
@@ -691,7 +668,7 @@ export class TranslatorRepository {
     translatorId: string
   ): Promise<boolean> {
     const timestamp = nowIso();
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT id
         FROM realtime_publish_sessions
@@ -702,9 +679,8 @@ export class TranslatorRepository {
           AND closed_at IS NULL
         LIMIT 1`
       )
-      .bind(programId, translatorId, timestamp)
-      .first<{ id: string }>();
-    return row !== null;
+      .get(programId, translatorId, timestamp);
+    return row !== undefined;
   }
 
   private async requireAdminTranslator(
@@ -725,7 +701,7 @@ export class TranslatorRepository {
   ): Promise<AdminProgramTranslatorRecord[]> {
     const values = translatorId ? [programId, translatorId] : [programId];
     const translatorFilter = translatorId ? "AND t.id = ?" : "";
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT t.id as translatorId,
           t.name as translatorName,
@@ -744,8 +720,7 @@ export class TranslatorRepository {
           ${translatorFilter}
         ORDER BY t.created_at ASC, ls.display_order ASC, ls.created_at ASC`
       )
-      .bind(...values)
-      .all<AdminTranslatorAssignmentRow>();
+      .all(...values) as AdminTranslatorAssignmentRow[];
 
     const translators = new Map<string, AdminProgramTranslatorRecord>();
     for (const row of results) {

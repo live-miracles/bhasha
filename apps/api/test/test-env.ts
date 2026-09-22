@@ -1,22 +1,17 @@
-import { env } from "cloudflare:workers";
-import {
-  createExecutionContext,
-  waitOnExecutionContext
-} from "cloudflare:test";
-import worker from "../src/index";
+import { createHash, randomUUID } from "node:crypto";
+import type { Env } from "../src/env";
+import type { Database } from "../src/db/sqlite";
+import { createApp } from "../src/index";
 import { ProgramRepository, type ProgramRecord } from "../src/db/programRepository";
 import {
   type OrgRecord,
   type UserRecord,
   UsersRepository
 } from "../src/db/usersRepository";
-import type { ConnectionEvent } from "../src/queue/connectionEvents";
 
-export type TestEnv = Env & {
-  ADMIN_TEST_PASSWORD: string;
-};
-
-export const testEnv = env as TestEnv;
+function sha256HexSync(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
 
 // Default email for the seeded platform_admin used across admin/program tests.
 export const ADMIN_TEST_EMAIL = "platform@test.local";
@@ -24,43 +19,103 @@ export const ORG_ADMIN_TEST_EMAIL = "orgadmin@test.local";
 export const VIEWER_TEST_EMAIL = "viewer@test.local";
 export const DEFAULT_TEST_ORG_ID = "org_default";
 
-export function buildTestEnv(overrides: Partial<Env>): Env {
+const adminSessionSecret = `test-admin-session-secret-${randomUUID()}`;
+const adminTestPassword = `test-admin-password-${randomUUID()}`;
+// Matches what handleBootstrap expects: sha256(password + ADMIN_SESSION_SECRET).
+const adminPasswordHash = `sha256:${sha256HexSync(adminTestPassword + adminSessionSecret)}`;
+const translatorPasswordPepper = `test-translator-password-pepper-${randomUUID()}`;
+const translatorSessionSecret = `test-translator-session-secret-${randomUUID()}`;
+const volunteerSessionSecret = `test-volunteer-session-secret-${randomUUID()}`;
+
+/**
+ * Holds the CURRENT test file's database (set by test/apply-migrations.ts's
+ * `beforeAll`) plus the fixed test secrets, in one object so existing tests
+ * that poke at `testEnv.DB` directly keep working. Unlike the old
+ * `env as TestEnv` (a real Cloudflare Worker binding under Miniflare), `DB`
+ * here is a getter over a module-level variable that a fresh test file
+ * repopulates before its tests run.
+ */
+class TestEnvHandle {
+  private _db: Database | undefined;
+
+  get DB(): Database {
+    if (!this._db) {
+      throw new Error(
+        "test database not initialized -- every test file needs test/apply-migrations.ts wired into vitest.config.ts's setupFiles"
+      );
+    }
+    return this._db;
+  }
+
+  readonly ADMIN_PASSWORD_HASH = adminPasswordHash;
+  readonly ADMIN_SESSION_SECRET = adminSessionSecret;
+  readonly ADMIN_TEST_PASSWORD = adminTestPassword;
+  readonly TRANSLATOR_PASSWORD_PEPPER = translatorPasswordPepper;
+  readonly TRANSLATOR_SESSION_SECRET = translatorSessionSecret;
+  readonly VOLUNTEER_SESSION_SECRET = volunteerSessionSecret;
+
+  __setDatabase(db: Database): void {
+    this._db = db;
+  }
+}
+
+export const testEnv = new TestEnvHandle();
+
+export function __setTestDatabase(db: Database): void {
+  testEnv.__setDatabase(db);
+}
+
+// Matches the well-known `livekit-server --dev` credentials (see
+// scripts/livekit-spike/mint.mjs) so tests exercise real AccessToken/
+// RoomServiceClient/WebhookReceiver construction end-to-end without a live
+// LiveKit server -- token minting is pure JWT signing (no network call), and
+// admin/translator best-effort RoomServiceClient calls (removeParticipant/
+// deleteRoom) against this unreachable ws://localhost:7880 fail fast
+// (ECONNREFUSED) and are swallowed, matching this repo's "benign cleanup"
+// philosophy. Tests that need to exercise the "LiveKit not configured" path
+// (e.g. isRealtimeConfigured/readiness) override these to `undefined`.
+const DEFAULT_LIVEKIT_URL = "ws://localhost:7880";
+const DEFAULT_LIVEKIT_API_KEY = "devkey";
+const DEFAULT_LIVEKIT_API_SECRET = "secret";
+
+// `Env`'s LIVEKIT_* fields are `string | undefined` optional under
+// exactOptionalPropertyTypes, which normally forbids assigning `undefined`
+// explicitly (only "key absent" is allowed) -- but a test simulating
+// "LiveKit is not configured" needs exactly that (these three are the only
+// baseEnv fields a test ever needs to explicitly un-set, since every other
+// optional Env field defaults to simply absent already). This override type
+// widens just those three to allow an explicit `undefined`, and the
+// implementation below deletes the key entirely when it sees one, so the
+// object returned to callers still satisfies `Env` for real.
+type TestEnvOverrides = Omit<
+  Partial<Env>,
+  "LIVEKIT_URL" | "LIVEKIT_API_KEY" | "LIVEKIT_API_SECRET"
+> & {
+  LIVEKIT_URL?: string | undefined;
+  LIVEKIT_API_KEY?: string | undefined;
+  LIVEKIT_API_SECRET?: string | undefined;
+};
+
+export function buildTestEnv(overrides: TestEnvOverrides = {}): Env {
   const baseEnv: Env = {
     DB: testEnv.DB,
-    PROGRAM_PRESENCE: testEnv.PROGRAM_PRESENCE,
     ADMIN_PASSWORD_HASH: testEnv.ADMIN_PASSWORD_HASH,
     ADMIN_SESSION_SECRET: testEnv.ADMIN_SESSION_SECRET,
-    CONNECTION_EVENTS: {
-      send: async () => {},
-      sendBatch: async () => {}
-    } as unknown as Queue<ConnectionEvent>,
-    CLOUDFLARE_REALTIME_APP_ID: testEnv.CLOUDFLARE_REALTIME_APP_ID,
-    CLOUDFLARE_REALTIME_APP_SECRET: testEnv.CLOUDFLARE_REALTIME_APP_SECRET,
     TRANSLATOR_PASSWORD_PEPPER: testEnv.TRANSLATOR_PASSWORD_PEPPER,
     TRANSLATOR_SESSION_SECRET: testEnv.TRANSLATOR_SESSION_SECRET,
-    VOLUNTEER_SESSION_SECRET: testEnv.VOLUNTEER_SESSION_SECRET
+    VOLUNTEER_SESSION_SECRET: testEnv.VOLUNTEER_SESSION_SECRET,
+    LIVEKIT_URL: DEFAULT_LIVEKIT_URL,
+    LIVEKIT_API_KEY: DEFAULT_LIVEKIT_API_KEY,
+    LIVEKIT_API_SECRET: DEFAULT_LIVEKIT_API_SECRET
   };
 
-  if (testEnv.CLOUDFLARE_REALTIME_BASE_URL) {
-    baseEnv.CLOUDFLARE_REALTIME_BASE_URL = testEnv.CLOUDFLARE_REALTIME_BASE_URL;
+  const merged: Record<string, unknown> = { ...baseEnv, ...overrides };
+  for (const key of ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"] as const) {
+    if (key in overrides && overrides[key] === undefined) {
+      delete merged[key];
+    }
   }
-  if (testEnv.REALTIME_FETCH) {
-    baseEnv.REALTIME_FETCH = testEnv.REALTIME_FETCH;
-  }
-  if (testEnv.CLOUDFLARE_TURN_KEY_ID) {
-    baseEnv.CLOUDFLARE_TURN_KEY_ID = testEnv.CLOUDFLARE_TURN_KEY_ID;
-  }
-  if (testEnv.CLOUDFLARE_TURN_API_TOKEN) {
-    baseEnv.CLOUDFLARE_TURN_API_TOKEN = testEnv.CLOUDFLARE_TURN_API_TOKEN;
-  }
-  if (testEnv.CLOUDFLARE_TURN_BASE_URL) {
-    baseEnv.CLOUDFLARE_TURN_BASE_URL = testEnv.CLOUDFLARE_TURN_BASE_URL;
-  }
-  if (testEnv.TURN_FETCH) {
-    baseEnv.TURN_FETCH = testEnv.TURN_FETCH;
-  }
-
-  return { ...baseEnv, ...overrides };
+  return merged as Env;
 }
 
 /**
@@ -194,18 +249,15 @@ export async function seedProgram(
 export async function adminCookie(
   email: string = ADMIN_TEST_EMAIL,
   password: string = testEnv.ADMIN_TEST_PASSWORD,
-  env: Env = testEnv
+  env: Env = buildTestEnv()
 ): Promise<string> {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
+  const app = createApp(env);
+  const response = await app.fetch(
     new Request("https://bhasha.test/api/admin/login", {
       method: "POST",
       body: JSON.stringify({ email, password })
-    }) as unknown as Request<unknown, IncomingRequestCfProperties>,
-    env,
-    ctx
+    })
   );
-  await waitOnExecutionContext(ctx);
 
   const setCookie = response.headers.get("set-cookie");
   if (!setCookie) {

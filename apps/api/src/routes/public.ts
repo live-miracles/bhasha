@@ -3,113 +3,130 @@ import { ListenerAccessRepository } from "../db/listenerAccessRepository";
 import { ProgramRepository } from "../db/programRepository";
 import { RealtimeStreamRepository } from "../db/realtimeStreamRepository";
 import type { Env } from "../env";
-import { json } from "../http";
+import { json, type WaitUntilCtx } from "../http";
 import { readPresenceStatusSnapshot } from "../presence/status";
 import { deriveStreamState } from "../presence/streamState";
 
-// Listener /status is polled ~1k req/s at 5k listeners; a short edge-cache TTL
-// collapses that to ~1 origin build per colo per TTL. Degraded responses get a
-// shorter TTL so a transient Durable Object failure is not pinned at the edge.
-const STATUS_CACHE_TTL_S = 15;
-const STATUS_DEGRADED_CACHE_TTL_S = 1;
+// Listener /status is polled frequently at scale; a short in-process cache
+// collapses concurrent cache-misses into one build per TTL window. Degraded
+// responses get a shorter TTL so a transient presence failure isn't pinned.
+const STATUS_CACHE_TTL_MS = 15_000;
+const STATUS_DEGRADED_CACHE_TTL_MS = 1_000;
+const APPROVED_ACCESS_DISABLED_CACHE_TTL_MS = 3_600_000;
+const APPROVED_ACCESS_ENABLED_CACHE_TTL_MS = 10_000;
 
-// Single-flight coalesces concurrent /status cache-misses into ONE build. It
-// resolves to a plain serializable SNAPSHOT, NOT a Response: on Cloudflare
-// Workers a Response/body created in one request's context cannot be returned
-// (even via .clone()) from a different request's handler — it throws "Cannot
-// perform I/O on behalf of a different request". So each consumer materializes
-// its OWN Response from the snapshot (a plain string is safe to share).
-interface StatusSnapshot {
-  bodyText: string;
-  status: number;
-  ok: boolean;
-  cacheControl: string | null;
+interface CacheEntry<T> {
+  body: T;
+  expiresAt: number;
 }
-const statusInFlight = new Map<string, Promise<StatusSnapshot>>();
 
-function statusSnapshotToResponse(snap: StatusSnapshot): Response {
-  const headers = new Headers({
-    "content-type": "application/json; charset=utf-8",
-  });
-  if (snap.cacheControl) {
-    headers.set("cache-control", snap.cacheControl);
+// A single Node process can share a Response's parsed body directly across
+// requests -- unlike Cloudflare Workers, there's no "Cannot perform I/O on
+// behalf of a different request" restriction, so the old string-serialization
+// workaround for the Cache API is no longer needed. Single-flight coalescing
+// (concurrent cache-misses for the same key share one in-flight build) is
+// still worthwhile and is framework-agnostic, so it's kept as-is.
+//
+// Cache storage is keyed off the `Env` instance (via a WeakMap), not shared
+// at module scope: `createApp(env)` can be constructed multiple times against
+// different databases in the same process (every test file does this), and a
+// module-global cache would let two unrelated Envs that happen to serve a
+// program with the same slug read each other's cached bodies.
+interface RequestCacheState {
+  responseCache: Map<string, CacheEntry<unknown>>;
+  inFlight: Map<string, Promise<unknown>>;
+}
+
+const cacheStateByEnv = new WeakMap<Env, RequestCacheState>();
+
+function getCacheState(env: Env): RequestCacheState {
+  let state = cacheStateByEnv.get(env);
+  if (!state) {
+    state = { responseCache: new Map(), inFlight: new Map() };
+    cacheStateByEnv.set(env, state);
   }
-  return new Response(snap.bodyText, { status: snap.status, headers });
+  return state;
+}
+
+async function cached<T>(
+  env: Env,
+  key: string,
+  build: () => Promise<{ value: T; ttlMs: number }>
+): Promise<T> {
+  const { responseCache, inFlight } = getCacheState(env);
+  const now = Date.now();
+  const entry = responseCache.get(key);
+  if (entry && entry.expiresAt > now) {
+    return entry.body as T;
+  }
+
+  let pending = inFlight.get(key) as Promise<T> | undefined;
+  if (!pending) {
+    pending = (async () => {
+      const { value, ttlMs } = await build();
+      // ttlMs <= 0 means "don't cache this" (e.g. an error response) -- only
+      // a positive TTL is persisted, matching the old `if (snap.ok)` guard
+      // that only wrote successful builds into the Cache API.
+      if (ttlMs > 0) {
+        responseCache.set(key, { body: value, expiresAt: Date.now() + ttlMs });
+      }
+      return value;
+    })();
+    inFlight.set(key, pending);
+    void pending.finally(() => {
+      inFlight.delete(key);
+    });
+  }
+
+  return pending;
 }
 
 export async function handlePublicRoutes(
   request: Request,
   env: Env,
   url: URL,
-  ctx: ExecutionContext,
+  _ctx: WaitUntilCtx,
 ): Promise<Response | null> {
   const approvedAccessMatch = url.pathname.match(
     /^\/api\/public\/programs\/([^/]+)\/access\/approved$/,
   );
   if (request.method === "GET" && approvedAccessMatch) {
-    return publicApprovedAccess(
-      request,
-      env,
-      approvedAccessMatch[1] ?? "",
-      ctx,
-    );
+    return publicApprovedAccess(env, approvedAccessMatch[1] ?? "");
   }
 
   const statusMatch = url.pathname.match(
     /^\/api\/public\/programs\/([^/]+)\/status$/,
   );
   if (request.method === "GET" && statusMatch) {
-    const cache = env.STATUS_CACHE ?? caches.default;
-    const cached = await cache.match(request);
-    if (cached) {
-      // A Cache API response has immutable headers — do not mutate it
-      // downstream (it returns straight out of index.ts today).
-      return cached;
-    }
-
-    const key = request.url;
-    let inflight = statusInFlight.get(key);
-    if (!inflight) {
-      inflight = (async (): Promise<StatusSnapshot> => {
-        const response = await publicProgramStatus(
-          env,
-          url,
-          statusMatch[1] ?? "",
-        );
-        const snap: StatusSnapshot = {
-          bodyText: await response.text(),
-          status: response.status,
-          ok: response.ok,
-          cacheControl: response.headers.get("cache-control"),
+    const slug = statusMatch[1] ?? "";
+    const { bodyText, status, cacheControl } = await cached(
+      env,
+      `status:${slug}`,
+      async () => {
+        const { response, degraded } = await publicProgramStatus(env, slug);
+        return {
+          value: {
+            bodyText: await response.text(),
+            status: response.status,
+            cacheControl: response.headers.get("cache-control")
+          },
+          // Only a successful (2xx) build is cached -- an error response
+          // (e.g. 404 for a not-yet-created program) must never pin a stale
+          // failure for the TTL window.
+          ttlMs: !response.ok
+            ? 0
+            : degraded
+              ? STATUS_DEGRADED_CACHE_TTL_MS
+              : STATUS_CACHE_TTL_MS
         };
-        // Cache only successful (200) builds — including `degraded` ones, which
-        // carry a short max-age. Build a FRESH Response for the cache (bodyText
-        // is a plain string, safe across contexts). .catch so a production
-        // cache-store failure is observable, not silent.
-        if (snap.ok) {
-          ctx.waitUntil(
-            cache
-              .put(request, statusSnapshotToResponse(snap))
-              .catch((error) =>
-                console.error("status cache put failed", error),
-              ),
-          );
-        }
-        return snap;
-      })();
-      statusInFlight.set(key, inflight);
-      // Clear the entry once the build settles (success OR failure) so a failed
-      // build never leaves a stuck key. Attached once on the shared promise.
-      void inflight.finally(() => {
-        statusInFlight.delete(key);
-      });
-    }
+      }
+    );
 
-    // Each consumer (originator + coalesced waiters) materializes its OWN
-    // Response from the shared snapshot — never a shared Response/stream, which
-    // would throw cross-request-I/O errors on Workers.
-    const snapshot = await inflight;
-    return statusSnapshotToResponse(snapshot);
+    const headers = new Headers({ "content-type": "application/json; charset=utf-8" });
+    if (cacheControl) {
+      headers.set("cache-control", cacheControl);
+    }
+    return new Response(bodyText, { status, headers });
   }
 
   const match = url.pathname.match(/^\/api\/public\/programs\/([^/]+)$/);
@@ -178,17 +195,9 @@ export async function handlePublicRoutes(
 }
 
 async function publicApprovedAccess(
-  request: Request,
   env: Env,
   rawProgramSlug: string,
-  ctx: ExecutionContext,
 ): Promise<Response> {
-  const cache = caches.default;
-  const cached = await cache.match(request);
-  if (cached) {
-    return cached;
-  }
-
   let programSlug: string;
   try {
     programSlug = decodeURIComponent(rawProgramSlug).trim();
@@ -200,64 +209,93 @@ async function publicApprovedAccess(
     return json({ error: "program_not_found" }, { status: 404 });
   }
 
-  try {
-    const program = await new ProgramRepository(env.DB).getProgramBySlug(
-      programSlug,
-    );
-    if (!program) {
-      return json({ error: "program_not_found" }, { status: 404 });
-    }
-
-    if (!program.accessControlEnabled) {
-      const response = json(
-        { approved: [] },
-        { headers: { "cache-control": "public, max-age=3600" } },
-      );
-      ctx.waitUntil(
-        cache
-          .put(request, response.clone())
-          .catch((error) =>
-            console.error("approved access cache put failed", error),
-          ),
-      );
-      return response;
-    }
-
-    const cutoff = new Date(Date.now() - 90_000).toISOString();
-    const approved = await new ListenerAccessRepository(
-      env.DB,
-    ).listApprovedSince(program.id, cutoff);
-    const response = json(
-      { approved },
-      { headers: { "cache-control": "public, max-age=10" } },
-    );
-    ctx.waitUntil(
-      cache
-        .put(request, response.clone())
-        .catch((error) =>
-          console.error("approved access cache put failed", error),
-        ),
-    );
-    return response;
-  } catch (_error) {
-    return json({ error: "database_error" }, { status: 500 });
+  interface ApprovedAccessResult {
+    body: { error: string } | { approved: string[] };
+    status: number;
+    cacheControl: string | null;
   }
+
+  const { body, status, cacheControl } = await cached<ApprovedAccessResult>(
+    env,
+    `approved:${programSlug}`,
+    async () => {
+      try {
+        const program = await new ProgramRepository(env.DB).getProgramBySlug(
+          programSlug,
+        );
+        if (!program) {
+          return {
+            value: {
+              body: { error: "program_not_found" },
+              status: 404,
+              cacheControl: null
+            },
+            ttlMs: 0
+          };
+        }
+
+        if (!program.accessControlEnabled) {
+          return {
+            value: {
+              body: { approved: [] },
+              status: 200,
+              cacheControl: "public, max-age=3600"
+            },
+            ttlMs: APPROVED_ACCESS_DISABLED_CACHE_TTL_MS
+          };
+        }
+
+        const cutoff = new Date(Date.now() - 90_000).toISOString();
+        const approved = await new ListenerAccessRepository(
+          env.DB,
+        ).listApprovedSince(program.id, cutoff);
+        return {
+          value: {
+            body: { approved },
+            status: 200,
+            cacheControl: "public, max-age=10"
+          },
+          ttlMs: APPROVED_ACCESS_ENABLED_CACHE_TTL_MS
+        };
+      } catch (_error) {
+        return {
+          value: {
+            body: { error: "database_error" },
+            status: 500,
+            cacheControl: null
+          },
+          ttlMs: 0
+        };
+      }
+    }
+  );
+
+  const response = json(body, { status });
+  if (cacheControl) {
+    response.headers.set("cache-control", cacheControl);
+  }
+  return response;
 }
 
 async function publicProgramStatus(
   env: Env,
-  _url: URL,
   rawProgramSlug: string,
-): Promise<Response> {
+): Promise<{ response: Response; degraded: boolean }> {
   let programSlug: string;
   try {
     programSlug = decodeURIComponent(rawProgramSlug).trim();
   } catch (_error) {
-    return json({ error: "program_not_found" }, { status: 404 });
+    return {
+      response: json({ error: "program_not_found" }, { status: 404 }),
+      degraded: false
+    };
   }
 
   if (programSlug.length === 0) {
-    return json({ error: "program_not_found" }, { status: 404 });
+    return {
+      response: json({ error: "program_not_found" }, { status: 404 }),
+      degraded: false
+    };
   }
 
   const programs = new ProgramRepository(env.DB);
@@ -265,22 +303,19 @@ async function publicProgramStatus(
   try {
     const program = await programs.getProgramBySlug(programSlug);
     if (!program) {
-      return json({ error: "program_not_found" }, { status: 404 });
+      return {
+        response: json({ error: "program_not_found" }, { status: 404 }),
+        degraded: false
+      };
     }
 
     const programStatusFlags = getProgramListenability(program.status);
     const realtime = new RealtimeStreamRepository(env.DB);
-    const relayEnabled = env.RELAY_ENABLED === "true";
-    const relayVersionByStreamPromise = relayEnabled
-      ? realtime.listRelayVersions(program.id)
-      : Promise.resolve(new Map<string, number>());
-    const [streams, presence, activePublishers, relayVersionByStream] =
-      await Promise.all([
-        programs.listActiveStreams(program.id),
-        readPresenceStatusSnapshot(env, program.id),
-        realtime.listActivePublishers(program.id),
-        relayVersionByStreamPromise,
-      ]);
+    const [streams, presence, activePublishers] = await Promise.all([
+      programs.listActiveStreams(program.id),
+      readPresenceStatusSnapshot(env, program.id),
+      realtime.listActivePublishers(program.id),
+    ]);
 
     const publishSessionByStream = new Map(
       activePublishers.map((publisher) => [
@@ -312,40 +347,38 @@ async function publicProgramStatus(
         nativeName: stream.nativeName,
         languageCode: stream.languageCode,
         isActive: stream.isActive,
+        // "Confirmed publisher" (currentPublishSessionId) is set by
+        // livekit/webhook.ts's track_published handling once a translator's
+        // audio track is actually flowing -- see
+        // realtimeStreamRepository.ts's markPublisherTrackLive and
+        // listActivePublishers.
         state: deriveStreamState({
           currentPublishSessionId:
             publishSessionByStream.get(stream.id) ?? null,
           audioActivity: presence.audioActivity[stream.id],
           now,
           degraded: presence.degraded,
-          relayCoordsPresent: relayVersionByStream.has(stream.id),
-          programLive: program.status === "live",
         }),
         publisherVersion: publisherVersionByStream.get(stream.id) ?? null,
-        ...(relayEnabled
-          ? {
-              relayVersion: relayVersionByStream.has(stream.id)
-                ? `relay_${relayVersionByStream.get(stream.id)}`
-                : null,
-            }
-          : {}),
       })),
       stale: presence.stale,
       degraded: presence.degraded,
       serverTime: presence.serverTime,
     });
-    // `public` so the edge Cache API (and listener browsers) will store it.
-    // The client polls every 60s (`DEFAULT_STATUS_POLL_MS`); max-age 15 < 60
-    // keeps a browser from serving itself a stale poll, while collapsing the
-    // edge→origin /status rebuild rate ~7.5x under a flash-join burst (each
-    // rebuild issues 4 D1 reads on the same lane the join writes contend for).
     response.headers.set(
       "Cache-Control",
-      `public, max-age=${presence.degraded ? STATUS_DEGRADED_CACHE_TTL_S : STATUS_CACHE_TTL_S}`,
+      `public, max-age=${
+        presence.degraded
+          ? STATUS_DEGRADED_CACHE_TTL_MS / 1000
+          : STATUS_CACHE_TTL_MS / 1000
+      }`,
     );
-    return response;
+    return { response, degraded: presence.degraded };
   } catch (_error) {
-    return json({ error: "database_error" }, { status: 500 });
+    return {
+      response: json({ error: "database_error" }, { status: 500 }),
+      degraded: false
+    };
   }
 }
 

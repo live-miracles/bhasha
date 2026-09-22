@@ -1,3 +1,11 @@
+// NULL vs UNDEFINED CONVENTION (applies to every repository in apps/api/src/db):
+// D1's `.first<T>()` returns `T | null` for "no row found"; better-sqlite3's
+// `.get(...)` returns `T | undefined`. Rather than changing every public
+// repository method's return type (and every call site's `=== null` /
+// `!== null` / `?? null` check across routes and tests) to use `undefined`,
+// each repository normalizes right at the `.get()` call site with
+// `(stmt.get(...args) as T | undefined) ?? null`. This keeps every existing
+// public method signature, and every downstream null-check, unchanged.
 import type {
   CreateProgramInput,
   CreateStreamInput,
@@ -5,6 +13,7 @@ import type {
   UpdateProgramInput,
   UpdateStreamInput
 } from "../domain/programs";
+import type { Database } from "./sqlite";
 
 export interface ProgramRecord {
   id: string;
@@ -160,7 +169,7 @@ function isForeignKeyConstraint(error: unknown): boolean {
 }
 
 export class ProgramRepository {
-  constructor(private readonly db: D1Database | D1DatabaseSession) {}
+  constructor(private readonly db: Database) {}
 
   async createProgram(
     input: CreateProgramInput,
@@ -190,14 +199,14 @@ export class ProgramRepository {
     };
 
     try {
-      await this.db
+      this.db
         .prepare(
         `INSERT INTO programs
           (id, slug, name, venue, event_date, status, admin_notes,
            access_control_enabled, created_at, updated_at, org_id)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .bind(
+        .run(
           program.id,
           program.slug,
           program.name,
@@ -209,8 +218,7 @@ export class ProgramRepository {
           program.createdAt,
           program.updatedAt,
           orgId
-        )
-        .run();
+        );
     } catch (error) {
       if (isProgramSlugConflict(error)) {
         throw new ProgramSlugExistsError();
@@ -241,7 +249,7 @@ export class ProgramRepository {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT id, slug, name, venue, event_date as eventDate, status,
         admin_notes as adminNotes, access_control_enabled as accessControlEnabled,
@@ -254,8 +262,7 @@ export class ProgramRepository {
         ${whereClause}
         ORDER BY event_date DESC, created_at DESC`
       )
-      .bind(...binds)
-      .all<ProgramRow>();
+      .all(...binds) as ProgramRow[];
     return results.map(toProgramRecord);
   }
 
@@ -265,12 +272,11 @@ export class ProgramRepository {
   ): Promise<ProgramRecord | null> {
     const { includeDeleted = false } = options;
 
-    const row = await this.db
+    const row = (this.db
       .prepare(`${PROGRAM_SELECT} WHERE id = ?${
         includeDeleted ? "" : " AND deleted_at IS NULL"
       }`)
-      .bind(programId)
-      .first<ProgramRow>();
+      .get(programId) as ProgramRow | undefined) ?? null;
     return row === null ? null : toProgramRecord(row);
   }
 
@@ -280,12 +286,11 @@ export class ProgramRepository {
   ): Promise<ProgramRecord | null> {
     const { includeDeleted = false } = options;
 
-    const row = await this.db
+    const row = (this.db
       .prepare(`${PROGRAM_SELECT} WHERE slug = ?${
         includeDeleted ? "" : " AND deleted_at IS NULL"
       }`)
-      .bind(slug)
-      .first<ProgramRow>();
+      .get(slug) as ProgramRow | undefined) ?? null;
     return row === null ? null : toProgramRecord(row);
   }
 
@@ -302,7 +307,7 @@ export class ProgramRepository {
   }
 
   async listActiveStreams(programId: string): Promise<LanguageStreamRecord[]> {
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT id,
           program_id as programId,
@@ -320,8 +325,7 @@ export class ProgramRepository {
         WHERE program_id = ? AND is_active = 1
         ORDER BY display_order ASC, created_at ASC`
       )
-      .bind(programId)
-      .all<LanguageStreamRow>();
+      .all(programId) as LanguageStreamRow[];
 
     return results.map((stream) => ({
       ...stream,
@@ -420,10 +424,9 @@ export class ProgramRepository {
     values.push(timestamp, programId);
 
     try {
-      await this.db
+      this.db
         .prepare(`UPDATE programs SET ${setters.join(", ")} WHERE id = ?`)
-        .bind(...values)
-        .run();
+        .run(...values);
     } catch (error) {
       if (isProgramSlugConflict(error)) {
         throw new ProgramSlugExistsError();
@@ -453,7 +456,7 @@ export class ProgramRepository {
     // aggregate summary snapshot, so re-archiving never overwrites history.
     if (firstTransition) {
       const timestamp = nowIso();
-      await this.db
+      this.db
         .prepare(
           `UPDATE programs
           SET archived_at = COALESCE(archived_at, ?),
@@ -461,8 +464,7 @@ export class ProgramRepository {
               updated_at = ?
           WHERE id = ?`
         )
-        .bind(timestamp, aggregateSummaryJson, timestamp, programId)
-        .run();
+        .run(timestamp, aggregateSummaryJson, timestamp, programId);
     }
 
     return {
@@ -475,20 +477,19 @@ export class ProgramRepository {
     programId: string,
     processedAt: string
   ): Promise<void> {
-    await this.db
+    this.db
       .prepare(
         `UPDATE programs
         SET retention_processed_at = ?, updated_at = ?
         WHERE id = ?`
       )
-      .bind(processedAt, processedAt, programId)
-      .run();
+      .run(processedAt, processedAt, programId);
   }
 
   async getReadinessChecks(
     programId: string
   ): Promise<ProgramReadinessRow | null> {
-    const row = await this.db
+    const row = (this.db
       .prepare(
         `SELECT program_id as programId,
           realtime_smoke_tested_at as realtimeSmokeTestedAt,
@@ -497,10 +498,9 @@ export class ProgramRepository {
         FROM program_readiness_checks
         WHERE program_id = ?`
       )
-      .bind(programId)
-      .first<ProgramReadinessRow>();
+      .get(programId) as ProgramReadinessRow | undefined) ?? null;
 
-    return row ?? null;
+    return row;
   }
 
   async confirmReadinessCheck(
@@ -508,7 +508,7 @@ export class ProgramRepository {
     column: "realtime_smoke_tested_at" | "mobile_field_tested_at",
     timestamp: string
   ): Promise<void> {
-    await this.db
+    this.db
       .prepare(
         `INSERT INTO program_readiness_checks (
           program_id, ${column}, updated_at
@@ -517,8 +517,7 @@ export class ProgramRepository {
           ${column} = excluded.${column},
           updated_at = excluded.updated_at`
       )
-      .bind(programId, timestamp, timestamp)
-      .run();
+      .run(programId, timestamp, timestamp);
   }
 
   async deleteDraftProgram(programId: string): Promise<void> {
@@ -536,7 +535,7 @@ export class ProgramRepository {
       throw new ProgramHasHistoryError();
     }
 
-    await this.db.prepare("DELETE FROM programs WHERE id = ?").bind(programId).run();
+    this.db.prepare("DELETE FROM programs WHERE id = ?").run(programId);
   }
 
   async softDeleteProgram(programId: string): Promise<void> {
@@ -555,24 +554,22 @@ export class ProgramRepository {
     }
 
     const timestamp = nowIso();
-    await this.db
+    this.db
       .prepare(
         `UPDATE programs
         SET deleted_at = ?,
             updated_at = ?
         WHERE id = ?`
       )
-      .bind(timestamp, timestamp, programId)
-      .run();
+      .run(timestamp, timestamp, programId);
   }
 
   async restoreProgram(programId: string): Promise<void> {
     // Read deleted_at directly (not via getProgramById, whose projection is the
     // public program shape and must not leak deleted_at into API responses).
-    const row = await this.db
+    const row = (this.db
       .prepare("SELECT deleted_at as deletedAt FROM programs WHERE id = ?")
-      .bind(programId)
-      .first<{ deletedAt: string | null }>();
+      .get(programId) as { deletedAt: string | null } | undefined) ?? null;
 
     if (row === null) {
       throw new ProgramNotFoundError();
@@ -587,15 +584,14 @@ export class ProgramRepository {
       return;
     }
 
-    await this.db
+    this.db
       .prepare(
         `UPDATE programs
         SET deleted_at = NULL,
             updated_at = ?
         WHERE id = ? AND deleted_at IS NOT NULL`
       )
-      .bind(nowIso(), programId)
-      .run();
+      .run(nowIso(), programId);
   }
 
   async createStream(
@@ -623,14 +619,14 @@ export class ProgramRepository {
     };
 
     try {
-      await this.db
+      this.db
         .prepare(
           `INSERT INTO language_streams
           (id, program_id, language_name, native_name, language_code, display_order, is_active,
            is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .bind(
+        .run(
           stream.id,
           stream.programId,
           stream.languageName,
@@ -643,8 +639,7 @@ export class ProgramRepository {
           stream.currentTrackId,
           stream.createdAt,
           stream.updatedAt
-        )
-        .run();
+        );
     } catch (error) {
       if (isForeignKeyConstraint(error)) {
         throw new ProgramNotFoundError();
@@ -701,15 +696,14 @@ export class ProgramRepository {
     setters.push("updated_at = ?");
     values.push(timestamp, programId, streamId);
 
-    const result = await this.db
+    const result = this.db
       .prepare(
         `UPDATE language_streams
         SET ${setters.join(", ")}
         WHERE program_id = ? AND id = ?`
       )
-      .bind(...values)
-      .run();
-    if ((result.meta.changes ?? 0) === 0) {
+      .run(...values);
+    if (result.changes === 0) {
       throw new StreamNotFoundError();
     }
 
@@ -744,26 +738,23 @@ export class ProgramRepository {
       throw new StreamDeleteLockedError();
     }
 
-    await this.db
+    this.db
       .prepare("DELETE FROM language_streams WHERE program_id = ? AND id = ?")
-      .bind(programId, streamId)
-      .run();
+      .run(programId, streamId);
   }
 
   private async programSlugExists(slug: string): Promise<boolean> {
-    const row = await this.db
+    const row = this.db
       .prepare("SELECT id FROM programs WHERE slug = ?")
-      .bind(slug)
-      .first<{ id: string }>();
-    return row !== null;
+      .get(slug);
+    return row !== undefined;
   }
 
   private async programExists(programId: string): Promise<boolean> {
-    const row = await this.db
+    const row = this.db
       .prepare("SELECT id FROM programs WHERE id = ?")
-      .bind(programId)
-      .first<{ id: string }>();
-    return row !== null;
+      .get(programId);
+    return row !== undefined;
   }
 
   private async requireProgram(programId: string): Promise<ProgramRecord> {
@@ -777,7 +768,7 @@ export class ProgramRepository {
   private async listAllStreams(
     programId: string
   ): Promise<AdminProgramStreamRecord[]> {
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT id,
           language_name as languageName,
@@ -790,8 +781,7 @@ export class ProgramRepository {
         WHERE program_id = ?
         ORDER BY display_order ASC, created_at ASC`
       )
-      .bind(programId)
-      .all<AdminProgramStreamRow>();
+      .all(programId) as AdminProgramStreamRow[];
 
     return results.map((stream) => ({
       ...stream,
@@ -803,7 +793,7 @@ export class ProgramRepository {
     programId: string,
     streamId: string
   ): Promise<AdminProgramStreamRecord | null> {
-    const stream = await this.db
+    const stream = (this.db
       .prepare(
         `SELECT id,
           language_name as languageName,
@@ -815,8 +805,7 @@ export class ProgramRepository {
         FROM language_streams
         WHERE program_id = ? AND id = ?`
       )
-      .bind(programId, streamId)
-      .first<AdminProgramStreamRow>();
+      .get(programId, streamId) as AdminProgramStreamRow | undefined) ?? null;
 
     if (!stream) {
       return null;
@@ -843,7 +832,7 @@ export class ProgramRepository {
     programId: string,
     streamId: string
   ): Promise<LanguageStreamRecord | null> {
-    const stream = await this.db
+    const stream = (this.db
       .prepare(
         `SELECT id,
           program_id as programId,
@@ -860,8 +849,7 @@ export class ProgramRepository {
         FROM language_streams
         WHERE program_id = ? AND id = ?`
       )
-      .bind(programId, streamId)
-      .first<LanguageStreamRow>();
+      .get(programId, streamId) as LanguageStreamRow | undefined) ?? null;
 
     if (!stream) {
       return null;
@@ -877,7 +865,7 @@ export class ProgramRepository {
   private async listAdminTranslators(
     programId: string
   ): Promise<AdminProgramTranslatorRecord[]> {
-    const { results } = await this.db
+    const results = this.db
       .prepare(
         `SELECT t.id as translatorId,
           t.name as translatorName,
@@ -895,8 +883,7 @@ export class ProgramRepository {
         WHERE t.program_id = ?
         ORDER BY t.created_at ASC, ls.display_order ASC, ls.created_at ASC`
       )
-      .bind(programId)
-      .all<AdminTranslatorAssignmentRow>();
+      .all(programId) as AdminTranslatorAssignmentRow[];
 
     const translators = new Map<string, AdminProgramTranslatorRecord>();
     for (const row of results) {
@@ -954,10 +941,9 @@ export class ProgramRepository {
   }
 
   private async countRows(table: string, programId: string): Promise<number> {
-    const row = await this.db
+    const row = this.db
       .prepare(`SELECT COUNT(*) as count FROM ${table} WHERE program_id = ?`)
-      .bind(programId)
-      .first<{ count: number }>();
+      .get(programId) as { count: number } | undefined;
     return row?.count ?? 0;
   }
 
@@ -965,15 +951,14 @@ export class ProgramRepository {
     programId: string,
     streamId: string
   ): Promise<number> {
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT COUNT(*) as count
         FROM listener_connections
         WHERE program_id = ?
           AND language_stream_id = ?`
       )
-      .bind(programId, streamId)
-      .first<{ count: number }>();
+      .get(programId, streamId) as { count: number } | undefined;
     return row?.count ?? 0;
   }
 
@@ -981,7 +966,7 @@ export class ProgramRepository {
     programId: string,
     streamId: string
   ): Promise<number> {
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT COUNT(*) as count
         FROM stream_events
@@ -989,8 +974,7 @@ export class ProgramRepository {
           AND stream_program_id = ?
           AND language_stream_id = ?`
       )
-      .bind(programId, programId, streamId)
-      .first<{ count: number }>();
+      .get(programId, programId, streamId) as { count: number } | undefined;
     return row?.count ?? 0;
   }
 
@@ -999,7 +983,7 @@ export class ProgramRepository {
     streamId: string
   ): Promise<boolean> {
     const timestamp = nowIso();
-    const row = await this.db
+    const row = this.db
       .prepare(
         `SELECT id
         FROM realtime_publish_sessions
@@ -1010,9 +994,8 @@ export class ProgramRepository {
           AND closed_at IS NULL
         LIMIT 1`
       )
-      .bind(programId, streamId, timestamp)
-      .first<{ id: string }>();
-    return row !== null;
+      .get(programId, streamId, timestamp);
+    return row !== undefined;
   }
 }
 

@@ -31,44 +31,8 @@ export interface ListenerPublicProgramStatus extends Omit<
   streams: PublicProgramStatus["streams"];
 }
 
-export interface ListenerSessionDescription {
-  type: RTCSdpType;
-  sdp: string;
-}
-
-export interface ListenerSubscribeSessionInput {
-  programSlug: string;
-  streamId: string;
-  clientId: string;
-  connectionId?: string;
-  sessionDescription: RTCSessionDescriptionInit;
-  accessToken?: string;
-}
-
-export interface ListenerSubscribeSessionResponse {
-  connectionId: string;
-  streamId: string;
-  sessionDescription: ListenerSessionDescription;
-  iceServers?: RTCIceServer[];
-}
-
-export interface ListenerSubscribeTrackResponse {
-  connectionId: string;
-  track: {
-    mid: string;
-    trackName?: string;
-    sessionId?: string;
-  };
-  requiresImmediateRenegotiation: boolean;
-  sessionDescription?: ListenerSessionDescription;
-}
-
 export interface ListenerConnectionInput {
   connectionId: string;
-}
-
-export interface ListenerSubscribeRenegotiateInput extends ListenerConnectionInput {
-  sessionDescription: RTCSessionDescriptionInit;
 }
 
 export interface ListenerLeaveInput extends ListenerConnectionInput {
@@ -99,13 +63,23 @@ export interface ListenerOkResponse {
   ok: true;
 }
 
-export interface ListenerIceServersInput {
+// Mints a subscribe-only LiveKit token for a connection already created via
+// `requestConnection`/`switch`/`reconnect`. Replaces the deleted `/subscribe/
+// session` + `/subscribe/track` + `/subscribe/renegotiate` SDP dance -- see
+// apps/api/src/routes/listeners.ts's `handleListenerRealtimeToken` for the
+// backend side.
+export interface ListenerTokenInput {
   programSlug: string;
-  clientId: string;
+  streamId: string;
+  connectionId: string;
+  accessToken?: string;
 }
 
-export interface ListenerIceServersResponse {
-  iceServers?: RTCIceServer[];
+export interface ListenerTokenResponse {
+  connectionId: string;
+  token: string;
+  url: string;
+  roomName: string;
 }
 
 export interface ListenerRequestConnectionInput {
@@ -117,17 +91,6 @@ export interface ListenerRequestConnectionInput {
 
 export interface ListenerRequestConnectionResponse {
   connectionId: string;
-}
-
-export interface ListenerActivePublisherInput {
-  programSlug: string;
-  streamId: string;
-  accessToken?: string;
-}
-
-export interface ListenerActivePublisherResponse {
-  sessionId: string;
-  trackName: string;
 }
 
 export interface ListenerAccessClaimInput {
@@ -162,15 +125,7 @@ export interface ListenerApprovedAccessClaimsResponse {
 }
 
 export interface ListenerApi {
-  subscribeSession(
-    input: ListenerSubscribeSessionInput,
-  ): Promise<ListenerSubscribeSessionResponse>;
-  subscribeTrack(
-    input: ListenerConnectionInput,
-  ): Promise<ListenerSubscribeTrackResponse>;
-  subscribeRenegotiate(
-    input: ListenerSubscribeRenegotiateInput,
-  ): Promise<ListenerOkResponse>;
+  token(input: ListenerTokenInput): Promise<ListenerTokenResponse>;
   connected(input: ListenerConnectionInput): Promise<ListenerOkResponse>;
   heartbeat(input: ListenerConnectionInput): Promise<ListenerOkResponse>;
   leave(input: ListenerLeaveInput): Promise<ListenerOkResponse>;
@@ -178,15 +133,9 @@ export interface ListenerApi {
   reconnect(
     input: ListenerReconnectInput,
   ): Promise<ListenerReplacementResponse>;
-  iceServers(
-    input: ListenerIceServersInput,
-  ): Promise<ListenerIceServersResponse>;
   requestConnection(
     input: ListenerRequestConnectionInput,
   ): Promise<ListenerRequestConnectionResponse>;
-  activePublisher(
-    input: ListenerActivePublisherInput,
-  ): Promise<ListenerActivePublisherResponse>;
   claimAccess(input: ListenerAccessClaimInput): Promise<ListenerAccessClaim>;
   accessStatus(
     input: ListenerAccessStatusInput,
@@ -198,23 +147,8 @@ export interface ListenerApi {
 
 export function createListenerApi(client: ApiClient = apiClient): ListenerApi {
   return {
-    subscribeSession(input) {
-      return client.post<ListenerSubscribeSessionResponse>(
-        "/api/listeners/subscribe/session",
-        input,
-      );
-    },
-    subscribeTrack(input) {
-      return client.post<ListenerSubscribeTrackResponse>(
-        "/api/listeners/subscribe/track",
-        input,
-      );
-    },
-    subscribeRenegotiate(input) {
-      return client.post<ListenerOkResponse>(
-        "/api/listeners/subscribe/renegotiate",
-        input,
-      );
+    token(input) {
+      return client.post<ListenerTokenResponse>("/api/listeners/token", input);
     },
     connected(input) {
       return client.post<ListenerOkResponse>("/api/listeners/connected", input);
@@ -237,32 +171,11 @@ export function createListenerApi(client: ApiClient = apiClient): ListenerApi {
         input,
       );
     },
-    iceServers(input) {
-      const query = new URLSearchParams({
-        programSlug: input.programSlug,
-        clientId: input.clientId,
-      });
-      return client.get<ListenerIceServersResponse>(
-        `/api/listeners/ice-servers?${query.toString()}`,
-      );
-    },
     requestConnection(input) {
       return client.post<ListenerRequestConnectionResponse>(
         "/api/listeners/request",
         input,
       );
-    },
-    activePublisher(input) {
-      const query = new URLSearchParams({
-        programSlug: input.programSlug,
-        streamId: input.streamId,
-      });
-      const path = `/api/listeners/active-publisher?${query.toString()}`;
-      return input.accessToken
-        ? client.get<ListenerActivePublisherResponse>(path, {
-            headers: { "x-listener-access-token": input.accessToken },
-          })
-        : client.get<ListenerActivePublisherResponse>(path);
     },
     claimAccess(input) {
       return client.post<ListenerAccessClaim>(

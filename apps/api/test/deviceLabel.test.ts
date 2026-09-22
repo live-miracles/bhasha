@@ -1,14 +1,5 @@
-import { beforeAll, describe, expect, it } from "vitest";
-import { env } from "cloudflare:workers";
-import { applyD1Migrations } from "cloudflare:test";
+import { describe, expect, it } from "vitest";
 import { deviceLabelFromUserAgent } from "../src/domain/deviceLabel";
-
-beforeAll(async () => {
-  const testEnv = env as Env & {
-    TEST_MIGRATIONS: Parameters<typeof applyD1Migrations>[1];
-  };
-  await applyD1Migrations(testEnv.DB, testEnv.TEST_MIGRATIONS);
-});
 
 describe("deviceLabelFromUserAgent", () => {
   it.each([

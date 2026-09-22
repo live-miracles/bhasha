@@ -1,29 +1,21 @@
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { sha256Hex } from "../src/auth/crypto";
 import {
   TranslatorRepository,
   TranslatorStreamAssignmentNotFoundError
 } from "../src/db/translatorRepository";
-import worker from "../src/index";
+import type { Env } from "../src/env";
+import { createApp } from "../src/index";
 import { buildTestEnv, testEnv } from "./test-env";
 
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
 
 async function request(
   path: string,
-  init: IncomingRequestInit = {},
-  env: Env = testEnv
-) {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    env,
-    ctx
-  );
-  await waitOnExecutionContext(ctx);
-  return response;
+  init: RequestInit = {},
+  env: Env = buildTestEnv()
+): Promise<Response> {
+  const app = createApp(env);
+  return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
 async function seedTranslatorWithAssignment(
@@ -47,69 +39,53 @@ async function seedTranslatorWithAssignment(
     password + testEnv.TRANSLATOR_PASSWORD_PEPPER
   )}`;
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO programs
     (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      programId,
-      programSlug,
-      "Patna Event 2026",
-      "Main Hall",
-      "2026-08-01",
-      "draft",
-      "",
-      now,
-      now
-    )
-    .run();
+  ).run(
+    programId,
+    programSlug,
+    "Patna Event 2026",
+    "Main Hall",
+    "2026-08-01",
+    "draft",
+    "",
+    now,
+    now
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO language_streams
     (id, program_id, language_name, native_name, language_code, display_order, is_active,
      is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      streamId,
-      programId,
-      "Hindi",
-      "हिन्दी",
-      "hi",
-      1,
-      1,
-      0,
-      null,
-      null,
-      now,
-      now
-    )
-    .run();
+  ).run(
+    streamId,
+    programId,
+    "Hindi",
+    "हिन्दी",
+    "hi",
+    1,
+    1,
+    0,
+    null,
+    null,
+    now,
+    now
+  );
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO translators
     (id, program_id, name, email, password_hash, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      translatorId,
-      programId,
-      "Hindi translator",
-      email,
-      passwordHash,
-      now,
-      now
-    )
-    .run();
+  ).run(translatorId, programId, "Hindi translator", email, passwordHash, now, now);
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO translator_stream_assignments
     (program_id, translator_id, language_stream_id, created_at)
     VALUES (?, ?, ?, ?)`
-  )
-    .bind(programId, translatorId, streamId, now)
-    .run();
+  ).run(programId, translatorId, streamId, now);
 
   return { programId, programSlug, translatorId, email, streamId };
 }
@@ -120,23 +96,21 @@ async function seedProgramOnly(): Promise<{ programId: string; programSlug: stri
   const programId = `program_other_${suffix}`;
   const programSlug = `other-program-${suffix}`;
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO programs
     (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      programId,
-      programSlug,
-      "Other Program",
-      "Second Hall",
-      "2026-08-02",
-      "draft",
-      "",
-      now,
-      now
-    )
-    .run();
+  ).run(
+    programId,
+    programSlug,
+    "Other Program",
+    "Second Hall",
+    "2026-08-02",
+    "draft",
+    "",
+    now,
+    now
+  );
 
   return { programId, programSlug };
 }
@@ -146,27 +120,25 @@ async function seedUnassignedStream(programId: string): Promise<string> {
   const now = new Date().toISOString();
   const streamId = `stream_${suffix}`;
 
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `INSERT INTO language_streams
     (id, program_id, language_name, native_name, language_code, display_order, is_active,
      is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      streamId,
-      programId,
-      "English",
-      "English",
-      "en",
-      2,
-      1,
-      0,
-      null,
-      null,
-      now,
-      now
-    )
-    .run();
+  ).run(
+    streamId,
+    programId,
+    "English",
+    "English",
+    "en",
+    2,
+    1,
+    0,
+    null,
+    null,
+    now,
+    now
+  );
 
   return streamId;
 }
@@ -185,14 +157,12 @@ async function loginTranslator(
     throw new Error("translator login did not return a cookie");
   }
 
-  const row = await testEnv.DB.prepare(
+  const row = testEnv.DB.prepare(
     `SELECT id FROM translator_sessions
     WHERE program_id = ?
     ORDER BY created_at DESC
     LIMIT 1`
-  )
-    .bind(programId)
-    .first<{ id: string }>();
+  ).get(programId) as { id: string } | undefined;
   if (!row) {
     throw new Error("translator login did not create a session row");
   }
@@ -222,27 +192,23 @@ async function setTranslatorSessionExpiry(
   sessionId: string,
   input: { absoluteExpiresAt: string; expiresAt: string }
 ): Promise<void> {
-  await testEnv.DB.prepare(
+  testEnv.DB.prepare(
     `UPDATE translator_sessions
     SET absolute_expires_at = ?, expires_at = ?
     WHERE id = ?`
-  )
-    .bind(input.absoluteExpiresAt, input.expiresAt, sessionId)
-    .run();
+  ).run(input.absoluteExpiresAt, input.expiresAt, sessionId);
 }
 
 async function translatorSessionRow(sessionId: string): Promise<{
   expiresAt: string;
   absoluteExpiresAt: string;
 }> {
-  const row = await testEnv.DB.prepare(
+  const row = testEnv.DB.prepare(
     `SELECT expires_at as expiresAt,
       absolute_expires_at as absoluteExpiresAt
     FROM translator_sessions
     WHERE id = ?`
-  )
-    .bind(sessionId)
-    .first<{ expiresAt: string; absoluteExpiresAt: string }>();
+  ).get(sessionId) as { expiresAt: string; absoluteExpiresAt: string } | undefined;
   if (!row) {
     throw new Error("translator session row missing");
   }
@@ -250,13 +216,11 @@ async function translatorSessionRow(sessionId: string): Promise<{
 }
 
 async function translatorSessionHash(sessionId: string): Promise<string> {
-  const row = await testEnv.DB.prepare(
+  const row = testEnv.DB.prepare(
     `SELECT session_hash as sessionHash
     FROM translator_sessions
     WHERE id = ?`
-  )
-    .bind(sessionId)
-    .first<{ sessionHash: string }>();
+  ).get(sessionId) as { sessionHash: string } | undefined;
   if (!row) {
     throw new Error("translator session row missing");
   }
@@ -264,16 +228,16 @@ async function translatorSessionHash(sessionId: string): Promise<string> {
 }
 
 describe("translator auth", () => {
-  beforeEach(async () => {
-    await testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
-    await testEnv.DB.exec("DELETE FROM translator_sessions");
-    await testEnv.DB.exec("DELETE FROM stream_events");
-    await testEnv.DB.exec("DELETE FROM listener_connections");
-    await testEnv.DB.exec("DELETE FROM admin_sessions");
-    await testEnv.DB.exec("DELETE FROM translator_stream_assignments");
-    await testEnv.DB.exec("DELETE FROM translators");
-    await testEnv.DB.exec("DELETE FROM language_streams");
-    await testEnv.DB.exec("DELETE FROM programs");
+  beforeEach(() => {
+    testEnv.DB.exec("DELETE FROM realtime_publish_sessions");
+    testEnv.DB.exec("DELETE FROM translator_sessions");
+    testEnv.DB.exec("DELETE FROM stream_events");
+    testEnv.DB.exec("DELETE FROM listener_connections");
+    testEnv.DB.exec("DELETE FROM admin_sessions");
+    testEnv.DB.exec("DELETE FROM translator_stream_assignments");
+    testEnv.DB.exec("DELETE FROM translators");
+    testEnv.DB.exec("DELETE FROM language_streams");
+    testEnv.DB.exec("DELETE FROM programs");
   });
 
   it("logs in a translator and returns assigned streams", async () => {
@@ -376,13 +340,11 @@ describe("translator auth", () => {
       await seedTranslatorWithAssignment("translator-pass");
 
     const deletedAt = new Date().toISOString();
-    await testEnv.DB.prepare(
+    testEnv.DB.prepare(
       `UPDATE programs
          SET deleted_at = ?, updated_at = ?
        WHERE id = ?`
-    )
-      .bind(deletedAt, deletedAt, programId)
-      .run();
+    ).run(deletedAt, deletedAt, programId);
 
     const response = await request("/api/translator/login", {
       method: "POST",
@@ -548,13 +510,11 @@ describe("translator auth", () => {
     );
     expect(sessionHash).not.toBe(rawToken);
 
-    const rawTokenRows = await testEnv.DB.prepare(
+    const rawTokenRows = testEnv.DB.prepare(
       `SELECT count(*) as count
       FROM translator_sessions
       WHERE session_hash = ?`
-    )
-      .bind(rawToken)
-      .first<{ count: number }>();
+    ).get(rawToken) as { count: number } | undefined;
     expect(rawTokenRows?.count).toBe(0);
   });
 

@@ -1,10 +1,10 @@
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { VolunteerRepository } from "../src/db/volunteerRepository";
-import worker from "../src/index";
+import { createApp } from "../src/index";
 import {
   adminCookie,
+  buildTestEnv,
   DEFAULT_TEST_ORG_ID,
   seedOrg,
   seedOrgAdmin,
@@ -14,18 +14,9 @@ import {
   testEnv
 } from "./test-env";
 
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-type IncomingRequestInit = ConstructorParameters<typeof IncomingRequest>[1];
-
-async function request(path: string, init: IncomingRequestInit = {}) {
-  const ctx = createExecutionContext();
-  const response = await worker.fetch(
-    new IncomingRequest(`https://bhasha.test${path}`, init),
-    testEnv,
-    ctx
-  );
-  await waitOnExecutionContext(ctx);
-  return response;
+async function request(path: string, init: RequestInit = {}): Promise<Response> {
+  const app = createApp(buildTestEnv());
+  return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
 describe("admin volunteer credential management", () => {
