@@ -1,0 +1,34 @@
+# TLS-terminating reverse proxy for the single-VM deployment. Two site
+# blocks share one public domain (DOMAIN, from .env -- see .env.example):
+#
+#   {$DOMAIN}      -> the Node/Hono app (apps/api serving /api/* + the built
+#                      SPA). reverse_proxy handles WebSocket upgrades
+#                      transparently, so this also covers any app-side WS
+#                      traffic.
+#   rtc.{$DOMAIN}  -> LiveKit's signaling port (WS signaling + its HTTP/twirp
+#                      admin API, both served on the same port -- see
+#                      apps/api/src/livekit/client.ts's livekitHttpUrl()).
+#                      A dedicated subdomain avoids any path-routing
+#                      ambiguity with the app's own catch-all SPA fallback,
+#                      at the cost of needing a second DNS A record
+#                      (rtc.<yourdomain>) pointing at the same VM -- trivial
+#                      to add alongside the main one.
+#
+# Caddy provisions and renews both certs automatically via Let's Encrypt;
+# this needs a real, publicly-resolvable DOMAIN and ports 80/443 reachable
+# from the internet (HTTP-01 challenge). Neither holds in a sandboxed/local
+# environment, so ACME issuance is expected to fail there -- see the
+# deployment task's verification notes.
+#
+# {$DOMAIN} is Caddy's own native env-var substitution (distinct from, and
+# unrelated to, docker-compose.yml's ${VAR} substitution for the LiveKit
+# config) -- no extra wiring needed for it to pick up the DOMAIN env var
+# Compose passes to this container.
+
+{$DOMAIN} {
+	reverse_proxy app:8787
+}
+
+rtc.{$DOMAIN} {
+	reverse_proxy livekit:7880
+}

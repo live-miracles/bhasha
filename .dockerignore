@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+apps/web/dist
+apps/api/dist
+.git
+.github
+.vscode
+.claude
+coverage
+playwright-report
+test-results
+*.log
+.env
+.env.*
+data

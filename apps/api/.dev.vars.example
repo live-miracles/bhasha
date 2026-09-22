@@ -1,9 +1,0 @@
-CLOUDFLARE_REALTIME_APP_ID=replace-with-realtime-app-id
-CLOUDFLARE_REALTIME_APP_SECRET=replace-with-realtime-app-secret
-# Optional Cloudflare Realtime TURN credentials. Leave unset to run STUN-only.
-# Never commit real values; these are server-side secrets and must not reach the browser.
-CLOUDFLARE_TURN_KEY_ID=replace-with-turn-key-id
-CLOUDFLARE_TURN_API_TOKEN=replace-with-turn-api-token
-TRANSLATOR_PASSWORD_PEPPER=replace-with-random-password-pepper
-TRANSLATOR_SESSION_SECRET=replace-with-random-session-secret
-VOLUNTEER_SESSION_SECRET=replace-with-random-volunteer-session-secret

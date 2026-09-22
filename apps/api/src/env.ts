@@ -14,6 +14,12 @@ export type WorkerEnv = {
   // Path to the better-sqlite3 database file. Defaults to ./data/bhasha.sqlite;
   // pass ":memory:" for tests.
   DATABASE_PATH?: string;
+  // Directory containing the built web SPA (apps/web/dist) to serve static
+  // assets from, plus the index.html SPA-fallback (see index.ts's
+  // createApp). Defaults to a path resolved relative to this module that
+  // works both in a local/dev checkout and inside the Docker runtime image
+  // (which mirrors the monorepo's apps/api + apps/web/dist layout).
+  WEB_DIST_PATH?: string;
   // LiveKit server-sdk configuration (Slice 3). All three are optional at the
   // type level -- and NOT required at boot via requireEnvVar in
   // buildEnvFromProcess -- so the app can still start before LiveKit is
