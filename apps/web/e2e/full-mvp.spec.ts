@@ -67,7 +67,7 @@ test('full MVP event flow keeps listeners receive-only and operators informed', 
 
         await translator.goto('/patna-event-2026/translate');
         await translator.getByLabel('Email').fill('hi@example.com');
-        await translator.getByLabel('Translator password').fill('translator-secret');
+        await translator.getByLabel('Password').fill('translator-secret');
         await translator.getByRole('button', { name: 'Log in' }).click();
         await translator.getByRole('button', { name: 'Go live' }).click();
         await expect(translator.getByText('You are live.')).toBeVisible();

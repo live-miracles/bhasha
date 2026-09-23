@@ -1,44 +1,68 @@
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, MemoryRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
 
+import { AppProviders } from './app/providers';
 import { createPublicApi, type PublicApi } from './api/public';
-import { AdminRoute } from './routes/AdminRoute';
-import { AdminRoutes } from './routes/AdminRoutes';
+import { AdminScreen } from './features/admin/AdminScreen';
 import { LandingRoute } from './routes/LandingRoute';
 import { ListenerRoute } from './routes/ListenerRoute';
-import { NotFoundRoute } from './routes/NotFoundRoute';
 import { TranslatorRoute } from './routes/TranslatorRoute';
 import { VolunteerRoute } from './routes/VolunteerRoute';
-import { parseRoute } from './routes/routeParser';
+import { NotFoundRoute } from './routes/NotFoundRoute';
 
 export interface AppProps {
     path?: string;
     publicApi?: PublicApi;
 }
 
+function RoutedListener({ publicApi }: { publicApi: PublicApi }) {
+    const { programSlug } = useParams<{ programSlug: string }>();
+    return <ListenerRoute programSlug={programSlug ?? ''} publicApi={publicApi} />;
+}
+
+function RoutedTranslator({ publicApi }: { publicApi: PublicApi }) {
+    const { programSlug } = useParams<{ programSlug: string }>();
+    return <TranslatorRoute programSlug={programSlug ?? ''} publicApi={publicApi} />;
+}
+
+function RoutedVolunteer({ publicApi }: { publicApi: PublicApi }) {
+    const { programSlug } = useParams<{ programSlug: string }>();
+    return <VolunteerRoute programSlug={programSlug ?? ''} publicApi={publicApi} />;
+}
+
+function AppRoutes({ publicApi }: { publicApi: PublicApi }) {
+    return (
+        <Routes>
+            <Route element={<LandingRoute />} path="/" />
+            <Route element={<AdminScreen />} path="/manage" />
+            <Route element={<AdminScreen />} path="/manage/programs/:slug" />
+            <Route element={<AdminScreen />} path="/manage/programs/:slug/:section" />
+            <Route element={<Navigate replace to="/manage" />} path="/manage/*" />
+            <Route element={<NotFoundRoute />} path="/admin" />
+            <Route
+                element={<RoutedTranslator publicApi={publicApi} />}
+                path="/:programSlug/translate"
+            />
+            <Route
+                element={<RoutedVolunteer publicApi={publicApi} />}
+                path="/:programSlug/volunteer"
+            />
+            <Route element={<RoutedListener publicApi={publicApi} />} path="/:programSlug" />
+            <Route element={<NotFoundRoute />} path="*" />
+        </Routes>
+    );
+}
+
 export function App({ path, publicApi = createPublicApi() }: AppProps) {
-    const currentPath = path ?? window.location.pathname;
-    if (currentPath === '/manage' || currentPath.startsWith('/manage/')) {
-        return (
+    const router =
+        path === undefined ? (
             <BrowserRouter>
-                <AdminRoutes />
+                <AppRoutes publicApi={publicApi} />
             </BrowserRouter>
+        ) : (
+            <MemoryRouter initialEntries={[path]}>
+                <AppRoutes publicApi={publicApi} />
+            </MemoryRouter>
         );
-    }
 
-    const route = parseRoute(path ?? window.location.pathname);
-
-    switch (route.type) {
-        case 'landing':
-            return <LandingRoute />;
-        case 'manage':
-            return <AdminRoute />;
-        case 'listener':
-            return <ListenerRoute programSlug={route.programSlug} publicApi={publicApi} />;
-        case 'translator':
-            return <TranslatorRoute programSlug={route.programSlug} publicApi={publicApi} />;
-        case 'volunteer':
-            return <VolunteerRoute programSlug={route.programSlug} publicApi={publicApi} />;
-        case 'notFound':
-            return <NotFoundRoute />;
-    }
+    return <AppProviders>{router}</AppProviders>;
 }

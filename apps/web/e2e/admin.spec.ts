@@ -332,11 +332,13 @@ test('management workspace smoke with mocked APIs', async ({ page }) => {
     ).toBeVisible();
 
     // Recent event feed renders an event row.
+    await page.getByRole('button', { name: 'Reports' }).click();
     const eventsPanel = page.getByLabel('Recent events');
-    await expect(eventsPanel).toContainText('connection_failed');
+    await expect(eventsPanel).toContainText('Listener connection failed');
     await expect(eventsPanel).toContainText('ice_failed');
 
     // CSV download triggers a browser download with the report filename.
+    await page.getByRole('button', { name: /Listener report/ }).click();
     const [download] = await Promise.all([
         page.waitForEvent('download'),
         page.getByRole('button', { name: 'Download CSV' }).click(),

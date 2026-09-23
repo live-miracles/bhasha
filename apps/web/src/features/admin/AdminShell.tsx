@@ -1,5 +1,22 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+    AppShell,
+    Badge,
+    Breadcrumbs,
+    Burger,
+    Button,
+    Group,
+    Image,
+    MantineProvider,
+    NavLink,
+    Paper,
+    Stack,
+    Text,
+    ThemeIcon,
+} from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
+import { Fragment, type ReactNode } from 'react';
 import type { AdminRole } from '../../api/admin';
+import { bhashaTheme } from '../../app/theme';
 
 type NavItemProps = {
     label: string;
@@ -10,14 +27,15 @@ type NavItemProps = {
 
 export function NavItem({ label, active, onClick, icon }: NavItemProps) {
     return (
-        <button
-            type="button"
-            className={active ? 'admin-nav-item is-active' : 'admin-nav-item'}
+        <NavLink
+            active={active}
+            aria-current={active ? 'page' : undefined}
+            component="button"
+            label={label}
+            leftSection={icon}
             onClick={onClick}
-        >
-            {icon}
-            <span>{label}</span>
-        </button>
+            variant="light"
+        />
     );
 }
 
@@ -60,130 +78,13 @@ type ProgramNavSection =
     'overview' | 'status' | 'streams' | 'translators' | 'share' | 'readiness' | 'reports';
 
 const NAV_ICON: Record<ProgramNavSection, ReactNode> = {
-    overview: (
-        <svg
-            aria-hidden="true"
-            className="admin-nav-icon"
-            fill="none"
-            height="18"
-            viewBox="0 0 24 24"
-            width="18"
-        >
-            <path
-                d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z"
-                stroke="currentColor"
-                strokeLinejoin="round"
-                strokeWidth="2"
-            />
-        </svg>
-    ),
-    status: (
-        <svg
-            aria-hidden="true"
-            className="admin-nav-icon"
-            fill="none"
-            height="18"
-            viewBox="0 0 24 24"
-            width="18"
-        >
-            <path
-                d="M3 12h4l2-5 4 10 2-5h6"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-            />
-        </svg>
-    ),
-    streams: (
-        <svg
-            aria-hidden="true"
-            className="admin-nav-icon"
-            fill="none"
-            height="18"
-            viewBox="0 0 24 24"
-            width="18"
-        >
-            <circle cx="12" cy="12" r="2.5" stroke="currentColor" strokeWidth="2" />
-            <path
-                d="M8.5 8.5a5 5 0 0 0 0 7m7-7a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8m12.8-12.8a9 9 0 0 1 0 12.8"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="2"
-            />
-        </svg>
-    ),
-    translators: (
-        <svg
-            aria-hidden="true"
-            className="admin-nav-icon"
-            fill="none"
-            height="18"
-            viewBox="0 0 24 24"
-            width="18"
-        >
-            <path
-                d="M16 20v-1.5a3.5 3.5 0 0 0-7 0V20m3.5-8a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm5.5 1a3 3 0 0 1 3 3v1m-2.5-9a2.5 2.5 0 0 1 0 5"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-            />
-        </svg>
-    ),
-    share: (
-        <svg
-            aria-hidden="true"
-            className="admin-nav-icon"
-            fill="none"
-            height="18"
-            viewBox="0 0 24 24"
-            width="18"
-        >
-            <path
-                d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm11 1h2v2h-2v-2Zm3 3h2v2h-2v-2Zm-4 0h2v2h-2v-2Zm4-4h2v2h-2v-2Z"
-                stroke="currentColor"
-                strokeLinejoin="round"
-                strokeWidth="2"
-            />
-        </svg>
-    ),
-    readiness: (
-        <svg
-            aria-hidden="true"
-            className="admin-nav-icon"
-            fill="none"
-            height="18"
-            viewBox="0 0 24 24"
-            width="18"
-        >
-            <path
-                d="M9 5h6m-7 3h8m-7 5 2 2 4-5M7 3h10a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-            />
-        </svg>
-    ),
-    reports: (
-        <svg
-            aria-hidden="true"
-            className="admin-nav-icon"
-            fill="none"
-            height="18"
-            viewBox="0 0 24 24"
-            width="18"
-        >
-            <path
-                d="M5 19V9m7 10V5m7 14v-7"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeWidth="2"
-            />
-            <path d="M3 19h18" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
-        </svg>
-    ),
+    overview: <span aria-hidden="true">▦</span>,
+    status: <span aria-hidden="true">⌁</span>,
+    streams: <span aria-hidden="true">◉</span>,
+    translators: <span aria-hidden="true">♙</span>,
+    share: <span aria-hidden="true">⌗</span>,
+    readiness: <span aria-hidden="true">✓</span>,
+    reports: <span aria-hidden="true">▥</span>,
 };
 
 const PROGRAM_NAV_ITEMS: Array<{ section: ProgramNavSection; label: string }> = [
@@ -196,40 +97,75 @@ const PROGRAM_NAV_ITEMS: Array<{ section: ProgramNavSection; label: string }> = 
     { section: 'reports', label: 'Reports' },
 ];
 
+export function AdminUiProvider({ children }: { children: ReactNode }) {
+    return (
+        <MantineProvider theme={bhashaTheme} defaultColorScheme="light">
+            {children}
+        </MantineProvider>
+    );
+}
+
 export function KpiTile({ label, value }: KpiTileProps) {
     return (
-        <div className="admin-kpi">
-            <span className="admin-kpi-value">{value}</span>
-            <span className="admin-kpi-label">{label}</span>
-        </div>
+        <Paper p="md" radius="md" withBorder>
+            <Text fw={700} size="xl">
+                {value}
+            </Text>
+            <Text c="dimmed" size="sm">
+                {label}
+            </Text>
+        </Paper>
     );
 }
 
 export function StatusPill({ tone, children }: StatusPillProps) {
-    return <span className={'admin-pill admin-pill-' + tone}>{children}</span>;
+    const color =
+        tone === 'live'
+            ? 'green'
+            : tone === 'silent'
+              ? 'yellow'
+              : tone === 'offline'
+                ? 'gray'
+                : tone === 'draft'
+                  ? 'violet'
+                  : 'dark';
+
+    return (
+        <Badge color={color} variant={tone === 'live' ? 'filled' : 'light'}>
+            {children}
+        </Badge>
+    );
 }
 
 function ShellBrand() {
     return (
-        <div className="admin-brand">
-            <img src="/branding/logo.svg" alt="" className="admin-logo" />
+        <Group gap="sm" wrap="nowrap">
+            <ThemeIcon color="brand" radius="md" size="lg" variant="light">
+                <Image alt="" src="/branding/logo.svg" w={24} />
+            </ThemeIcon>
             <div>
-                <span className="admin-wordmark">HAPPYPLACE</span>
-                <span className="admin-eyebrow">Admin</span>
+                <Text fw={800} size="sm" tt="uppercase">
+                    Bhasha
+                </Text>
+                <Text c="dimmed" size="xs">
+                    Event translation
+                </Text>
             </div>
-        </div>
+        </Group>
     );
 }
 
 export function Sidebar({ programName, activeSection, onNavigate, onBack }: SidebarProps) {
     return (
-        <aside className="admin-sidebar">
+        <Stack h="100%" gap="sm">
             <ShellBrand />
-            <button type="button" className="admin-back" onClick={onBack}>
+            <Button justify="flex-start" onClick={onBack} px="xs" variant="subtle">
                 ← Programs
-            </button>
-            <div className="admin-prog-label">{programName}</div>
-            <nav className="admin-nav">
+            </Button>
+            <Text fw={700} lineClamp={2} mt="sm" size="sm">
+                {programName}
+            </Text>
+            <Stack gap={4} mt="xs">
                 {PROGRAM_NAV_ITEMS.map((item) => (
                     <NavItem
                         key={item.section}
@@ -239,8 +175,8 @@ export function Sidebar({ programName, activeSection, onNavigate, onBack }: Side
                         onClick={() => onNavigate(item.section)}
                     />
                 ))}
-            </nav>
-        </aside>
+            </Stack>
+        </Stack>
     );
 }
 
@@ -257,9 +193,9 @@ export function SidebarApp({ activeSection, onNavigate, role }: SidebarAppProps)
     navItems.push({ section: 'account', label: 'Account' });
 
     return (
-        <aside className="admin-sidebar">
+        <Stack h="100%" gap="sm">
             <ShellBrand />
-            <nav className="admin-nav">
+            <Stack gap={4} mt="md">
                 {navItems.map((item) => (
                     <NavItem
                         key={item.section}
@@ -268,89 +204,68 @@ export function SidebarApp({ activeSection, onNavigate, role }: SidebarAppProps)
                         onClick={() => onNavigate(item.section)}
                     />
                 ))}
-            </nav>
-        </aside>
+            </Stack>
+        </Stack>
     );
 }
 
 export function TopBar({ crumbs, action }: TopBarProps) {
     return (
-        <header className="admin-topbar">
-            <nav className="admin-breadcrumb">
+        <Group align="center" justify="space-between" mb="lg" wrap="wrap">
+            <Breadcrumbs separator="›">
                 {crumbs.map((crumb, index) => (
                     <Fragment key={`${crumb}-${index}`}>
-                        {index > 0 ? <span>›</span> : null}
-                        <span className={index === crumbs.length - 1 ? 'is-current' : ''}>
+                        <Text
+                            c={index === crumbs.length - 1 ? 'dark' : 'dimmed'}
+                            fw={index === crumbs.length - 1 ? 700 : 400}
+                            size="sm"
+                        >
                             {crumb}
-                        </span>
+                        </Text>
                     </Fragment>
                 ))}
-            </nav>
-            <div className="admin-topbar-action">{action}</div>
-        </header>
+            </Breadcrumbs>
+            {action}
+        </Group>
     );
 }
 
 export function AdminLayout({ sidebar, children }: AdminLayoutProps) {
-    const [navOpen, setNavOpen] = useState(false);
-    const hamburgerRef = useRef<HTMLButtonElement>(null);
-    const sidebarWrapRef = useRef<HTMLDivElement>(null);
-    const wasOpen = useRef(false);
-
-    useEffect(() => {
-        if (!navOpen) return;
-
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') {
-                setNavOpen(false);
-            }
-        };
-
-        document.addEventListener('keydown', onKey);
-
-        const first = sidebarWrapRef.current?.querySelector<HTMLElement>(
-            '.admin-nav-item, .admin-back, button, a',
-        );
-        first?.focus();
-
-        return () => document.removeEventListener('keydown', onKey);
-    }, [navOpen]);
-
-    useEffect(() => {
-        if (wasOpen.current && !navOpen) {
-            hamburgerRef.current?.focus();
-        }
-        wasOpen.current = navOpen;
-    }, [navOpen]);
+    const [opened, { toggle, close }] = useDisclosure(false);
 
     return (
-        <div className={'admin-app admin-shell' + (navOpen ? ' nav-open' : '')}>
-            <button
-                ref={hamburgerRef}
-                type="button"
-                className="admin-hamburger"
-                aria-label="Open navigation"
-                aria-expanded={navOpen}
-                onClick={() => setNavOpen((value) => !value)}
-            >
-                ☰
-            </button>
-            <div className="admin-scrim" onClick={() => setNavOpen(false)} />
-            <div
-                ref={sidebarWrapRef}
-                className="admin-sidebar-wrap"
-                onClick={(event) => {
-                    if (
-                        event.target instanceof Element &&
-                        event.target.closest('.admin-nav-item, .admin-back')
-                    ) {
-                        setNavOpen(false);
-                    }
+        <AdminUiProvider>
+            <AppShell
+                className="admin-app"
+                header={{ height: 64 }}
+                navbar={{
+                    breakpoint: 'sm',
+                    collapsed: { mobile: !opened },
+                    width: 256,
                 }}
+                padding="lg"
             >
-                {sidebar}
-            </div>
-            <div className="admin-main">{children}</div>
-        </div>
+                <AppShell.Header>
+                    <Group h="100%" justify="space-between" px="lg">
+                        <Group gap="sm">
+                            <Burger
+                                aria-label={opened ? 'Close navigation' : 'Open navigation'}
+                                hiddenFrom="sm"
+                                onClick={toggle}
+                                opened={opened}
+                                size="sm"
+                            />
+                            <Text fw={700} hiddenFrom="sm" size="sm">
+                                Bhasha management
+                            </Text>
+                        </Group>
+                    </Group>
+                </AppShell.Header>
+                <AppShell.Navbar onClick={close} p="md">
+                    {sidebar}
+                </AppShell.Navbar>
+                <AppShell.Main>{children}</AppShell.Main>
+            </AppShell>
+        </AdminUiProvider>
     );
 }

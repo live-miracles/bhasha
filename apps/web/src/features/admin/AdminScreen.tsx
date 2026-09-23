@@ -1,4 +1,16 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    Button,
+    Checkbox,
+    Group,
+    Paper,
+    SimpleGrid,
+    Stack,
+    Text,
+    Textarea,
+    TextInput,
+    Title,
+} from '@mantine/core';
 import { QRCodeSVG } from 'qrcode.react';
 import { useNavigate, useParams } from 'react-router-dom';
 
@@ -39,7 +51,15 @@ import { formatISTDateTime, formatISTTime } from './formatTime';
 import { ConfirmDialog } from './ConfirmDialog';
 import { AdminDialog } from './AdminDialog';
 import { KickConfirmDialog } from './KickConfirmDialog';
-import { AdminLayout, KpiTile, Sidebar, SidebarApp, StatusPill, TopBar } from './AdminShell';
+import {
+    AdminLayout,
+    AdminUiProvider,
+    KpiTile,
+    Sidebar,
+    SidebarApp,
+    StatusPill,
+    TopBar,
+} from './AdminShell';
 import { UsersPanel } from './UsersPanel';
 import { AccountPanel } from './AccountPanel';
 
@@ -802,7 +822,9 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         const link = document.createElement('a');
         link.href = url;
         link.download = `${detail.program.slug}-listener-report.csv`;
+        document.body.appendChild(link);
         link.click();
+        link.remove();
         URL.revokeObjectURL(url);
     }
 
@@ -1801,67 +1823,63 @@ function ProgramCreateForm({
     }
 
     return (
-        <div className="admin-card">
-            <form className="admin-form" onSubmit={onSubmit}>
-                <h3>Create program</h3>
-                <label className="admin-access-toggle">
-                    <input
-                        aria-describedby="create-listener-approval-hint"
+        <Paper p="lg" radius="md" withBorder>
+            <form onSubmit={onSubmit}>
+                <Stack gap="md">
+                    <div>
+                        <Title order={3}>Create program</Title>
+                        <Text c="dimmed" size="sm">
+                            Set up the event before adding language streams and translators.
+                        </Text>
+                    </div>
+                    <Checkbox
+                        aria-label="Require listener approval before they can listen"
                         checked={form.accessControlEnabled}
+                        description="Listeners must be approved by a volunteer before they can listen"
+                        label="Require listener approval"
                         onChange={(event) =>
                             onChange({
                                 ...form,
-                                accessControlEnabled: event.target.checked,
+                                accessControlEnabled: event.currentTarget.checked,
                             })
                         }
-                        type="checkbox"
                     />
-                    <span className="admin-access-toggle-copy">
-                        <strong>Require listener approval</strong>
-                        <span className="admin-hint" id="create-listener-approval-hint">
-                            Listeners must be approved by a volunteer before they can listen
-                        </span>
-                    </span>
-                </label>
-                <label>
-                    Program name
-                    <input
-                        onChange={(event) => onChange({ ...form, name: event.target.value })}
-                        value={form.name}
-                    />
-                </label>
-                <label>
-                    Program slug
-                    <input
-                        onChange={(event) => onChange({ ...form, slug: event.target.value })}
-                        value={form.slug}
-                    />
-                </label>
-                <label>
-                    Program venue
-                    <input
-                        onChange={(event) => onChange({ ...form, venue: event.target.value })}
-                        value={form.venue}
-                    />
-                </label>
-                <label>
-                    Program date
-                    <input
-                        onChange={(event) => onChange({ ...form, eventDate: event.target.value })}
-                        type="date"
-                        value={form.eventDate}
-                    />
-                </label>
-                <label>
-                    Admin notes
-                    <textarea
+                    <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                        <TextInput
+                            label="Program name"
+                            onChange={(event) => onChange({ ...form, name: event.target.value })}
+                            value={form.name}
+                        />
+                        <TextInput
+                            label="Program slug"
+                            onChange={(event) => onChange({ ...form, slug: event.target.value })}
+                            value={form.slug}
+                        />
+                        <TextInput
+                            label="Program venue"
+                            onChange={(event) => onChange({ ...form, venue: event.target.value })}
+                            value={form.venue}
+                        />
+                        <TextInput
+                            label="Program date"
+                            onChange={(event) =>
+                                onChange({ ...form, eventDate: event.target.value })
+                            }
+                            type="date"
+                            value={form.eventDate}
+                        />
+                    </SimpleGrid>
+                    <Textarea
+                        label="Admin notes"
                         onChange={(event) => onChange({ ...form, adminNotes: event.target.value })}
                         value={form.adminNotes}
                     />
-                </label>
-                <button type="submit">Create program</button>
+                    <Group justify="flex-end">
+                        <Button type="submit">Create program</Button>
+                    </Group>
+                </Stack>
             </form>
-        </div>
+        </Paper>
     );
 }
 
@@ -1877,7 +1895,7 @@ function ProgramList({
     }
 
     return (
-        <div className="admin-card-grid">
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
             {programs.map((program) => {
                 function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
                     if (event.key === 'Enter' || event.key === ' ') {
@@ -1887,30 +1905,42 @@ function ProgramList({
                 }
 
                 return (
-                    <article
+                    <Paper
                         className="admin-card admin-card-clickable"
+                        component="article"
                         key={program.id}
                         onClick={() => onOpen(program)}
                         onKeyDown={handleKeyDown}
+                        p="lg"
+                        radius="md"
                         role="button"
                         tabIndex={0}
+                        withBorder
                     >
-                        <div>
-                            <h3>{program.name}</h3>
-                            <p>{program.venue}</p>
-                            <p>{program.eventDate}</p>
+                        <Stack gap="xs">
+                            <Title order={3} size="h4">
+                                {program.name}
+                            </Title>
+                            <Text c="dimmed" size="sm">
+                                {program.venue}
+                            </Text>
+                            <Text c="dimmed" size="sm">
+                                {program.eventDate}
+                            </Text>
                             <StatusPill tone={program.status}>
                                 {program.status.toUpperCase()}
                             </StatusPill>
-                            <p className="admin-card-url">{urlForProgram(program.slug)}</p>
-                            <p className="admin-card-url">
+                            <Text className="admin-card-url" size="xs">
+                                {urlForProgram(program.slug)}
+                            </Text>
+                            <Text className="admin-card-url" size="xs">
                                 {urlForProgram(program.slug, '/translate')}
-                            </p>
-                        </div>
-                    </article>
+                            </Text>
+                        </Stack>
+                    </Paper>
                 );
             })}
-        </div>
+        </SimpleGrid>
     );
 }
 
@@ -1926,22 +1956,28 @@ function DeletedProgramList({
     }
 
     return (
-        <div className="admin-card-grid">
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
             {programs.map((program) => (
-                <article className="admin-card" key={program.id}>
-                    <div>
-                        <h3>{program.name}</h3>
-                        <p>{program.venue}</p>
-                        <p>{program.eventDate}</p>
-                    </div>
+                <Paper className="admin-card" key={program.id} p="lg" radius="md" withBorder>
+                    <Stack gap="xs">
+                        <Title order={3} size="h4">
+                            {program.name}
+                        </Title>
+                        <Text c="dimmed" size="sm">
+                            {program.venue}
+                        </Text>
+                        <Text c="dimmed" size="sm">
+                            {program.eventDate}
+                        </Text>
+                    </Stack>
                     {onRestore ? (
-                        <button onClick={() => onRestore(program.id)} type="button">
+                        <Button mt="md" onClick={() => onRestore(program.id)} type="button">
                             Restore
-                        </button>
+                        </Button>
                     ) : null}
-                </article>
+                </Paper>
             ))}
-        </div>
+        </SimpleGrid>
     );
 }
 
@@ -3317,263 +3353,276 @@ export function ListenerReportPanel({
     }
 
     return (
-        <section className="admin-subsection">
-            <div className="admin-panel-heading">
-                <h2>Listener report</h2>
-                {rangeLabel ? (
+        <AdminUiProvider>
+            <section className="admin-subsection">
+                <div className="admin-panel-heading">
+                    <h2>Listener report</h2>
+                    {rangeLabel ? (
+                        <button
+                            className="admin-pill admin-range-chip"
+                            type="button"
+                            onClick={onRangeChipClick}
+                        >
+                            {rangeLabel}
+                        </button>
+                    ) : null}
+                </div>
+                <div className="admin-subsection-head">
+                    <h3>Listener access</h3>
                     <button
-                        className="admin-pill admin-range-chip"
+                        aria-label="Refresh access counts"
+                        className="admin-btn-secondary"
+                        disabled={accessSummaryFetching}
+                        onClick={onRefreshAccessSummary}
                         type="button"
-                        onClick={onRangeChipClick}
                     >
-                        {rangeLabel}
+                        {accessSummaryFetching ? 'Refreshing…' : 'Refresh'}
                     </button>
-                ) : null}
-            </div>
-            <div className="admin-subsection-head">
-                <h3>Listener access</h3>
-                <button
-                    aria-label="Refresh access counts"
-                    className="admin-btn-secondary"
-                    disabled={accessSummaryFetching}
-                    onClick={onRefreshAccessSummary}
-                    type="button"
-                >
-                    {accessSummaryFetching ? 'Refreshing…' : 'Refresh'}
-                </button>
-            </div>
-            <div className="admin-kpi-strip">
-                <KpiTile
-                    label="Pending"
-                    value={accessSummary ? String(accessSummary.pending) : '—'}
-                />
-                <KpiTile
-                    label="Approved"
-                    value={accessSummary ? String(accessSummary.approved) : '—'}
-                />
-                <KpiTile
-                    label="Revoked"
-                    value={accessSummary ? String(accessSummary.revoked) : '—'}
-                />
-            </div>
-            <div className="admin-card">
-                {reportOpen && !report ? <p>Loading listener report...</p> : null}
-                {reportOpen && report ? (
-                    <>
-                        <div className="admin-filter-bar">
-                            <div className="admin-filter-row">
-                                <fieldset className="admin-filter-states">
-                                    <legend>State</legend>
-                                    {LISTENER_STATE_OPTIONS.map((s) => (
-                                        <label key={s} className="admin-filter-check">
-                                            <input
-                                                type="checkbox"
-                                                checked={filters.states.includes(s)}
-                                                onChange={(e) => toggleState(s, e.target.checked)}
-                                            />
-                                            {s}
-                                        </label>
-                                    ))}
-                                </fieldset>
-                                <fieldset className="admin-filter-states">
-                                    <legend>Approval status</legend>
-                                    {LISTENER_APPROVAL_STATUS_OPTIONS.map((status) => (
-                                        <label key={status} className="admin-filter-check">
-                                            <input
-                                                type="checkbox"
-                                                checked={filters.approvalStatuses.includes(status)}
-                                                onChange={(event) =>
-                                                    toggleApprovalStatus(
+                </div>
+                <div className="admin-kpi-strip">
+                    <KpiTile
+                        label="Pending"
+                        value={accessSummary ? String(accessSummary.pending) : '—'}
+                    />
+                    <KpiTile
+                        label="Approved"
+                        value={accessSummary ? String(accessSummary.approved) : '—'}
+                    />
+                    <KpiTile
+                        label="Revoked"
+                        value={accessSummary ? String(accessSummary.revoked) : '—'}
+                    />
+                </div>
+                <div className="admin-card">
+                    {reportOpen && !report ? <p>Loading listener report...</p> : null}
+                    {reportOpen && report ? (
+                        <>
+                            <div className="admin-filter-bar">
+                                <div className="admin-filter-row">
+                                    <fieldset className="admin-filter-states">
+                                        <legend>State</legend>
+                                        {LISTENER_STATE_OPTIONS.map((s) => (
+                                            <label key={s} className="admin-filter-check">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={filters.states.includes(s)}
+                                                    onChange={(e) =>
+                                                        toggleState(s, e.target.checked)
+                                                    }
+                                                />
+                                                {s}
+                                            </label>
+                                        ))}
+                                    </fieldset>
+                                    <fieldset className="admin-filter-states">
+                                        <legend>Approval status</legend>
+                                        {LISTENER_APPROVAL_STATUS_OPTIONS.map((status) => (
+                                            <label key={status} className="admin-filter-check">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={filters.approvalStatuses.includes(
                                                         status,
-                                                        event.target.checked,
-                                                    )
-                                                }
-                                            />
-                                            {status}
-                                        </label>
-                                    ))}
-                                </fieldset>
-                                {filtersActive ? (
-                                    <button
-                                        className="admin-btn-secondary"
-                                        type="button"
-                                        onClick={onClearFilters}
-                                    >
-                                        Clear all filters
-                                    </button>
-                                ) : null}
-                            </div>
-                            <div className="admin-filter-row">
-                                <label className="admin-filter-field">
-                                    <span className="admin-filter-field-label">Language</span>
-                                    <select
-                                        value={filters.streamId}
-                                        onChange={(e) =>
-                                            onFilterChange({ streamId: e.target.value })
-                                        }
-                                    >
-                                        <option value="">All languages</option>
-                                        {detail.streams.map((stream) => (
-                                            <option key={stream.id} value={stream.id}>
-                                                {stream.languageName}
-                                            </option>
+                                                    )}
+                                                    onChange={(event) =>
+                                                        toggleApprovalStatus(
+                                                            status,
+                                                            event.target.checked,
+                                                        )
+                                                    }
+                                                />
+                                                {status}
+                                            </label>
                                         ))}
-                                    </select>
-                                </label>
-                                <label className="admin-filter-field">
-                                    <span className="admin-filter-field-label">Device</span>
-                                    <select
-                                        value={filters.deviceLabel}
-                                        onChange={(e) =>
-                                            onFilterChange({ deviceLabel: e.target.value })
-                                        }
-                                    >
-                                        <option value="">All devices</option>
-                                        {LISTENER_DEVICE_LABELS.map((d) => (
-                                            <option key={d} value={d}>
-                                                {d}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </label>
+                                    </fieldset>
+                                    {filtersActive ? (
+                                        <button
+                                            className="admin-btn-secondary"
+                                            type="button"
+                                            onClick={onClearFilters}
+                                        >
+                                            Clear all filters
+                                        </button>
+                                    ) : null}
+                                </div>
+                                <div className="admin-filter-row">
+                                    <label className="admin-filter-field">
+                                        <span className="admin-filter-field-label">Language</span>
+                                        <select
+                                            value={filters.streamId}
+                                            onChange={(e) =>
+                                                onFilterChange({ streamId: e.target.value })
+                                            }
+                                        >
+                                            <option value="">All languages</option>
+                                            {detail.streams.map((stream) => (
+                                                <option key={stream.id} value={stream.id}>
+                                                    {stream.languageName}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="admin-filter-field">
+                                        <span className="admin-filter-field-label">Device</span>
+                                        <select
+                                            value={filters.deviceLabel}
+                                            onChange={(e) =>
+                                                onFilterChange({ deviceLabel: e.target.value })
+                                            }
+                                        >
+                                            <option value="">All devices</option>
+                                            {LISTENER_DEVICE_LABELS.map((d) => (
+                                                <option key={d} value={d}>
+                                                    {d}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                </div>
                             </div>
-                        </div>
 
-                        <div className="admin-report-meta">
-                            <p role="status" aria-live="polite">
-                                {countText}
-                            </p>
-                            <button
-                                className="admin-btn-secondary"
-                                type="button"
-                                onClick={onDownloadCsv}
-                            >
-                                Download CSV
-                            </button>
-                        </div>
+                            <div className="admin-report-meta">
+                                <p role="status" aria-live="polite">
+                                    {countText}
+                                </p>
+                                <button
+                                    className="admin-btn-secondary"
+                                    type="button"
+                                    onClick={onDownloadCsv}
+                                >
+                                    Download CSV
+                                </button>
+                            </div>
 
-                        {isFetching ? (
-                            <p className="admin-report-loading">Updating&hellip;</p>
-                        ) : null}
+                            {isFetching ? (
+                                <p className="admin-report-loading">Updating&hellip;</p>
+                            ) : null}
 
-                        <div className="admin-table-scroll">
-                            <table className="admin-table">
-                                <thead>
-                                    <tr>
-                                        <th>Language</th>
-                                        <th>Connected</th>
-                                        <th>Last active</th>
-                                        <th>IP address</th>
-                                        <th>Device</th>
-                                        <th title="Phone model from browser hint (Android only)">
-                                            Model
-                                        </th>
-                                        <th>State</th>
-                                        <th>Approval status</th>
-                                        <th>Approved at</th>
-                                        <th>Approved via</th>
-                                        {readOnly ? null : <th>Action</th>}
-                                    </tr>
-                                </thead>
-                                <tbody style={{ opacity: isFetching ? 0.6 : 1 }}>
-                                    {report.connections.length === 0 ? (
+                            <div className="admin-table-scroll">
+                                <table className="admin-table">
+                                    <thead>
                                         <tr>
-                                            <td
-                                                colSpan={readOnly ? 10 : 11}
-                                                className="admin-table-empty"
-                                            >
-                                                No connections match the current filters.
-                                            </td>
+                                            <th>Language</th>
+                                            <th>Connected</th>
+                                            <th>Last active</th>
+                                            <th>IP address</th>
+                                            <th>Device</th>
+                                            <th title="Phone model from browser hint (Android only)">
+                                                Model
+                                            </th>
+                                            <th>State</th>
+                                            <th>Approval status</th>
+                                            <th>Approved at</th>
+                                            <th>Approved via</th>
+                                            {readOnly ? null : <th>Action</th>}
                                         </tr>
-                                    ) : (
-                                        report.connections.map((connection) => (
-                                            <tr key={connection.id}>
-                                                <td>
-                                                    {streamLabel.get(connection.streamId) ??
-                                                        connection.streamId}
+                                    </thead>
+                                    <tbody style={{ opacity: isFetching ? 0.6 : 1 }}>
+                                        {report.connections.length === 0 ? (
+                                            <tr>
+                                                <td
+                                                    colSpan={readOnly ? 10 : 11}
+                                                    className="admin-table-empty"
+                                                >
+                                                    No connections match the current filters.
                                                 </td>
-                                                <td>{formatISTDateTime(connection.connectedAt)}</td>
-                                                <td>{formatRelativeTime(connection.lastSeenAt)}</td>
-                                                <td>{connection.listenerIp}</td>
-                                                <td title={connection.userAgent}>
-                                                    {connection.deviceLabel}
-                                                </td>
-                                                <td title={connection.deviceModel ?? undefined}>
-                                                    {connection.deviceModelName ?? '—'}
-                                                </td>
-                                                <td>{connection.subscriptionStatus}</td>
-                                                <td>{connection.approvalStatus ?? '—'}</td>
-                                                <td>{formatISTDateTime(connection.approvedAt)}</td>
-                                                <td>
-                                                    {connection.approvedAt
-                                                        ? `${connection.approvedVia ?? '—'} · volunteer`
-                                                        : '—'}
-                                                </td>
-                                                {readOnly ? null : (
-                                                    <td>
-                                                        {connection.approvalStatus &&
-                                                        connection.approvalStatus !== 'revoked' ? (
-                                                            <button
-                                                                className="admin-link-danger"
-                                                                onClick={() => {
-                                                                    setRevokeError(null);
-                                                                    setRevokeTarget(connection);
-                                                                }}
-                                                                type="button"
-                                                            >
-                                                                Revoke
-                                                            </button>
-                                                        ) : (
-                                                            '—'
-                                                        )}
-                                                    </td>
-                                                )}
                                             </tr>
-                                        ))
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
+                                        ) : (
+                                            report.connections.map((connection) => (
+                                                <tr key={connection.id}>
+                                                    <td>
+                                                        {streamLabel.get(connection.streamId) ??
+                                                            connection.streamId}
+                                                    </td>
+                                                    <td>
+                                                        {formatISTDateTime(connection.connectedAt)}
+                                                    </td>
+                                                    <td>
+                                                        {formatRelativeTime(connection.lastSeenAt)}
+                                                    </td>
+                                                    <td>{connection.listenerIp}</td>
+                                                    <td title={connection.userAgent}>
+                                                        {connection.deviceLabel}
+                                                    </td>
+                                                    <td title={connection.deviceModel ?? undefined}>
+                                                        {connection.deviceModelName ?? '—'}
+                                                    </td>
+                                                    <td>{connection.subscriptionStatus}</td>
+                                                    <td>{connection.approvalStatus ?? '—'}</td>
+                                                    <td>
+                                                        {formatISTDateTime(connection.approvedAt)}
+                                                    </td>
+                                                    <td>
+                                                        {connection.approvedAt
+                                                            ? `${connection.approvedVia ?? '—'} · volunteer`
+                                                            : '—'}
+                                                    </td>
+                                                    {readOnly ? null : (
+                                                        <td>
+                                                            {connection.approvalStatus &&
+                                                            connection.approvalStatus !==
+                                                                'revoked' ? (
+                                                                <button
+                                                                    className="admin-link-danger"
+                                                                    onClick={() => {
+                                                                        setRevokeError(null);
+                                                                        setRevokeTarget(connection);
+                                                                    }}
+                                                                    type="button"
+                                                                >
+                                                                    Revoke
+                                                                </button>
+                                                            ) : (
+                                                                '—'
+                                                            )}
+                                                        </td>
+                                                    )}
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
 
-                        <div className="admin-pagination">
-                            <button
-                                className="admin-btn-secondary"
-                                type="button"
-                                onClick={() => onPageChange(page - 1)}
-                                disabled={page <= 1}
-                            >
-                                &larr; Prev
-                            </button>
-                            <span className="admin-pagination-info">
-                                Page {page} of {totalPages}
-                            </span>
-                            <button
-                                className="admin-btn-secondary"
-                                type="button"
-                                onClick={() => onPageChange(page + 1)}
-                                disabled={page >= totalPages}
-                            >
-                                Next &rarr;
-                            </button>
-                        </div>
-                    </>
-                ) : null}
-            </div>
-            <ConfirmDialog
-                open={revokeTarget !== null}
-                onClose={() => {
-                    if (!revokePending) {
-                        setRevokeTarget(null);
-                        setRevokeError(null);
-                    }
-                }}
-                onConfirm={() => void confirmRevoke()}
-                title="Revoke listener access"
-                message="Revoke access for this device? They'll need a volunteer to re-approve them."
-                confirmLabel="Revoke access"
-                pending={revokePending}
-                error={revokeError}
-            />
-        </section>
+                            <div className="admin-pagination">
+                                <button
+                                    className="admin-btn-secondary"
+                                    type="button"
+                                    onClick={() => onPageChange(page - 1)}
+                                    disabled={page <= 1}
+                                >
+                                    &larr; Prev
+                                </button>
+                                <span className="admin-pagination-info">
+                                    Page {page} of {totalPages}
+                                </span>
+                                <button
+                                    className="admin-btn-secondary"
+                                    type="button"
+                                    onClick={() => onPageChange(page + 1)}
+                                    disabled={page >= totalPages}
+                                >
+                                    Next &rarr;
+                                </button>
+                            </div>
+                        </>
+                    ) : null}
+                </div>
+                <ConfirmDialog
+                    open={revokeTarget !== null}
+                    onClose={() => {
+                        if (!revokePending) {
+                            setRevokeTarget(null);
+                            setRevokeError(null);
+                        }
+                    }}
+                    onConfirm={() => void confirmRevoke()}
+                    title="Revoke listener access"
+                    message="Revoke access for this device? They'll need a volunteer to re-approve them."
+                    confirmLabel="Revoke access"
+                    pending={revokePending}
+                    error={revokeError}
+                />
+            </section>
+        </AdminUiProvider>
     );
 }

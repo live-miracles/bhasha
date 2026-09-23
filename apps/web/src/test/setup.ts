@@ -8,6 +8,22 @@ import { configure } from '@testing-library/react';
 // of masking the flake with retries (see vitest.config.ts).
 configure({ asyncUtilTimeout: 5000 });
 
+if (!window.matchMedia) {
+    Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        value: (query: string) => ({
+            matches: false,
+            media: query,
+            onchange: null,
+            addListener: () => undefined,
+            removeListener: () => undefined,
+            addEventListener: () => undefined,
+            removeEventListener: () => undefined,
+            dispatchEvent: () => false,
+        }),
+    });
+}
+
 if (!globalThis.MediaStream) {
     class TestMediaStream {
         private tracks: MediaStreamTrack[] = [];
