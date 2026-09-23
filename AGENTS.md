@@ -45,13 +45,13 @@ Do not rely on memory for API syntax, LiveKit server-sdk/client-sdk behavior, be
 
 ## Engineering Workflow
 
-Follow a TDD-based workflow for all feature and bug-fix work.
+Follow a TDD-based workflow for feature and bug-fix work when practical: reproduce the issue or write a failing test first, make the smallest scoped change, then run the relevant tests and type checks. Keep changes reviewable and avoid unrelated refactors.
 
-Prefer small, reviewable slices. Keep implementation scoped to the active request and avoid unrelated refactors.
+Claude Code and Codex are both supported as primary implementation and review agents for this repository. The developer may choose either based on preference and task fit. The active agent should inspect the relevant code and documentation, state important assumptions, use the repository's normal editing conventions, and report verification results clearly. Do not delegate routine work merely to satisfy a process rule; delegate when parallel research, an isolated implementation slice, or an independent review will materially improve the result.
 
-If the repo is not initialized as a git repository, do not claim that code was committed. Report that commit steps are blocked until git is initialized or the correct git root is provided.
+If the repo is not initialized as a git repository, do not claim that code was committed. Report that commit steps are blocked until git is initialized or the correct git root is provided. Do not create commits unless the user requests a commit or the active task explicitly requires one.
 
-For long-running Claude Code delegation from Codex, use the repo-local harness:
+For optional long-running Claude Code delegation, use the repo-local Claude harness:
 
 ```bash
 python3 scripts/claude_run.py start --name "<short-name>" --task "<task-profile>" --wait --prompt "<task>"
@@ -72,26 +72,24 @@ parallel; each has an isolated `.claude-runs/<run-id>/` directory. For detached
 runs, keep and pass the returned run id to `status`, `wait`, `tail`, or `stop`.
 See `docs/claude-run-harness.md`.
 
-## Codex Load-Split (token conservation)
+## Codex Parallel Execution (optional)
 
-The inverse delegation path: hand execution legs to Codex to conserve Claude
-tokens. The local harness is `scripts/codex_par.py` (drives `codex exec`),
-copied verbatim from the audio project. **Default Codex path = this harness, NOT
-the codex-companion broker** — the broker is a per-workspace singleton that
-serializes to one active turn, while the harness spawns an independent
-`codex exec` process per job, giving true parallelism with no BUSY contention.
+For independent slices or reviews, the local harness
+`scripts/codex_par.py` can drive multiple independent `codex exec` processes.
+Use it when parallelism or isolation helps; direct Codex work is the default.
+The codex-companion broker is a per-workspace singleton, while this harness
+spawns an independent process per job.
 
 Split:
 
 - **Codex (`python3 scripts/codex_par.py` → `codex exec`)**: slice
   implementation (in a worktree), adversarial diff review, scoped test runs,
   Playwright E2E authoring.
-- **Top-level Claude**: orchestration + gates only. Independently re-verify
-  Codex-reported results (scoped tests, zero-new-vs-baseline `tsc`) before
-  committing.
-- **Fallback**: if Codex fails (CLI absent, auth dead, quota, or a stall after
-  one refenced retry), finish with the standard Claude agents. Never block a
-  slice on Codex availability.
+- **Top-level agent**: owns scope, git state, verification, and the final
+  handoff. Independently re-verify delegated results before accepting them.
+- **Fallback**: if a delegated job fails or stalls, finish the slice directly
+  or use the other agent's harness. Never block the task on delegation
+  availability.
 
 Subcommands:
 
@@ -131,16 +129,14 @@ Rules:
 - **Test commands to hand the agent**: `npm test --workspace apps/web` /
   `--workspace apps/api` (vitest), `npm run e2e --workspace apps/web`
   (Playwright). Keep TDD red/green: failing test first.
-- **Fence check before commit**: set `allowed_files` globs in the spec, then run
+- **Fence check before accepting changes**: set `allowed_files` globs in the spec, then run
   `codex_par.py audit <rundir>` (or read the `⚠FENCE` flag in status/watch). If
-  violated, reset and re-fence.
-- **Review legs**: commit first, then verify a non-empty diff — a staged-only
-  review sees `main...HEAD` = empty and reports a false "clean".
-- **Keep git with the orchestrator.** Under the default `danger-full-access`
-  sandbox Codex CAN touch `.git`, so this is convention, not a sandbox guarantee:
-  tell every agent "SKIP ALL git operations" and have the orchestrator
-  reconstruct commits from the reported per-task file groups (single point of
-  commit control).
+  violated, stop and correct the job scope before accepting the result.
+- **Review legs**: verify a non-empty diff in the correct worktree; do not
+  assume a delegated report is sufficient.
+- **Keep git with the top-level agent.** Tell delegated agents to skip commits,
+  rebases, resets, and other history-changing operations. The top-level Codex
+  or Claude agent owns any requested commit.
 - **GitNexus note**: this repo is indexed (alias `translation`) and `codex exec`
   may load the gitnexus MCP from `~/.codex/config.toml`, but this AGENTS.md has
   no gitnexus rules block, so there is no "MUST run impact" mandate for the
@@ -152,36 +148,50 @@ Rules:
   `senior-fullstack-dev`.
 
 Run artifacts land in `tmp/codex-par/` (gitignored); the durable cross-run
-ledger is `~/.codex-par/ledger.jsonl`. Codex auth shares `~/.codex/auth.json`.
-Full contract: audio memory `project-codex-par-parallel-harness.md`.
+ledger is `~/.codex-par/ledger.jsonl`. Codex authentication is managed outside
+the repository.
+
+## Codex Working Rules
+
+- Start with a concise progress update when tool work is needed, and keep the user informed during long-running work.
+- Read `docs/Requirements.pdf` and `docs/architecture.md` before planning or implementing product work. For library, SDK, API, CLI, or deployment questions, use the current documentation lookup process above rather than relying on memory.
+- Prefer `rg`/`rg --files` for repository searches. Use `apply_patch` for local edits. Preserve unrelated user changes in a dirty worktree.
+- Use the least powerful tool that can safely complete the task. Read-only investigation does not require delegation or a worktree.
+- For direct implementation by Claude Code or Codex, run the narrowest relevant tests first, then type checks and broader checks when appropriate. The canonical workspace commands are:
+  `npm test --workspace apps/web`, `npm test --workspace apps/api`,
+  `npm run typecheck --workspace apps/web`,
+  `npm run typecheck --workspace apps/api`, and
+  `npm run e2e --workspace apps/web`.
+- Never print, copy, commit, or place LiveKit/session secrets in repository files. Verify only that required secret material exists outside the repository.
+- Do not use destructive commands such as `git reset --hard`, broad recursive deletion, or overwriting unrelated files without explicit authorization.
+- Before handing off, summarize changed files, tests/checks run, known limitations, and any exact blocker. Include clickable local file links when useful.
+
+## Optional Cross-Agent Delegation
+
+The repo-local Claude and Codex harnesses are available for tasks that benefit from a separate model or long-running background work. Keep git operations with the top-level agent: delegated agents should skip commits and other history-rewriting operations. Inspect delegated changes, rerun relevant checks independently, and do not treat a delegated report as verification by itself.
 
 ## Feature Workflow
 
-For any feature request:
+For a feature request, adapt the depth to the risk and size of the change:
 
-1. Run two background-agent cycles to explore the request, product constraints, existing code, and likely implementation options.
-2. Create an implementation plan.
-3. Run an architect review in a background agent.
-4. Fold the architect review inputs into the plan.
-5. Implement using a background agent where practical.
-6. Run tests and keep the workflow red/green: write failing tests first, then implement until tests pass.
-7. Run a code review on the implementation using a background agent.
-8. Fix code review findings using a background agent where practical.
-9. Commit the completed work.
-10. Run end-to-end tests or report the exact blocker if e2e cannot be run.
+1. Inspect the requirements, architecture, relevant code, and current worktree state.
+2. Create a concise implementation plan for non-trivial work.
+3. Use a failing test first when behavior is testable, then implement the smallest complete slice.
+4. Run focused tests and type checks; run broader regression or end-to-end checks when the change affects integration boundaries, realtime behavior, authentication, or mobile UX.
+5. For larger or higher-risk changes, obtain an independent architecture or code review, either directly or through an isolated delegated agent.
+6. Address review findings, re-run verification, and report any blocker precisely.
+7. Commit only when requested or explicitly required by the task.
 
 ## Bug-Fix Workflow
 
-For any bug fix:
+For a bug fix:
 
-1. First understand the cause of the bug using a background debugging agent.
-2. Write tests that reproduce the bug.
-3. Verify those tests fail before implementation.
-4. Implement the fix.
-5. Verify the tests pass.
-6. Run code review.
-7. Fix code review findings.
-8. Commit the completed work.
+1. Reproduce the failure and identify the likely cause before editing.
+2. Add or update a regression test and verify it fails when feasible.
+3. Implement the focused fix and verify the regression test passes.
+4. Run relevant type checks and broader tests as warranted by the affected surface.
+5. Use an independent review for security-sensitive, realtime, persistence, or cross-client changes.
+6. Commit only when requested or explicitly required by the task.
 
 ## Product Guardrails
 
