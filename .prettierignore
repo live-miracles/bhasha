@@ -1,0 +1,13 @@
+node_modules
+dist
+build
+coverage
+playwright-report
+test-results
+apps/web/dist
+apps/api/data
+package-lock.json
+
+# Ad-hoc spike/load-test tooling outside the npm workspaces (incl. vendored
+# UMD bundles) -- not type-checked either, out of scope for lint/format.
+scripts
