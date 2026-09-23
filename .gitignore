@@ -18,6 +18,12 @@ tmp/codex-par/
 .dev.vars
 *.key
 
+# Local better-sqlite3 database (default DATABASE_PATH; see apps/api/src/db/sqlite.ts)
+apps/api/data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
 # Logs and OS/editor files
 *.log
 .claude-runs/

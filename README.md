@@ -87,8 +87,10 @@ above and `docker-compose.yml`).
 **1. API — http://127.0.0.1:8787**
 
     npm run dev --workspace apps/api
-    # tsx watch src/index.ts; requires the env vars in .env.example to be set
-    # (e.g. via `export $(grep -v '^#' .env | xargs)` or your shell's env loader)
+    # tsx watch --env-file=../../.env src/index.ts; loads the repo-root .env
+    # automatically (Node's --env-file), so make sure you've copied
+    # .env.example to .env and filled in real values first (see
+    # "Configuration" above)
 
 **2. Web app — http://127.0.0.1:5173**
 
