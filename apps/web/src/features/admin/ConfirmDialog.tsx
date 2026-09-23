@@ -1,3 +1,5 @@
+import { Alert, Button, Group, Stack, Text } from '@mantine/core';
+
 import { AdminDialog } from './AdminDialog';
 
 interface ConfirmDialogProps {
@@ -27,32 +29,18 @@ export function ConfirmDialog({
 
     return (
         <AdminDialog open={open} onClose={onClose} title={title}>
-            <div className="admin-kick-confirm-dialog">
-                <p>{message}</p>
-                {error ? (
-                    <p role="alert" className="admin-kick-confirm-alert">
-                        {error}
-                    </p>
-                ) : null}
-                <footer className="admin-kick-confirm-footer">
-                    <button
-                        type="button"
-                        className="admin-kick-confirm-btn admin-kick-confirm-btn-ghost"
-                        onClick={onClose}
-                        disabled={pending}
-                    >
+            <Stack gap="lg">
+                <Text>{message}</Text>
+                {error ? <Alert color="red">{error}</Alert> : null}
+                <Group justify="flex-end">
+                    <Button disabled={pending} onClick={onClose} variant="default">
                         Cancel
-                    </button>
-                    <button
-                        type="button"
-                        className="admin-kick-confirm-btn admin-kick-confirm-btn-danger"
-                        onClick={onConfirm}
-                        disabled={pending}
-                    >
+                    </Button>
+                    <Button color="red" disabled={pending} onClick={onConfirm}>
                         {pending ? 'Ending…' : (confirmLabel ?? 'Confirm')}
-                    </button>
-                </footer>
-            </div>
+                    </Button>
+                </Group>
+            </Stack>
         </AdminDialog>
     );
 }

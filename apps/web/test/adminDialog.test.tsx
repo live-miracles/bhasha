@@ -15,96 +15,48 @@ afterEach(() => {
 
 describe('AdminDialog', () => {
     it('renders title and child when open', () => {
-        const { container } = render(
+        render(
             <AdminDialog open onClose={vi.fn()} title="Audio Controls">
                 <p>Manage stream settings</p>
             </AdminDialog>,
         );
 
-        const dialog = container.querySelector('dialog') as HTMLDialogElement;
-        expect(dialog.open).toBe(true);
+        expect(screen.getByRole('dialog')).toBeVisible();
         expect(screen.getByText('Audio Controls')).not.toBeNull();
         expect(screen.getByText('Manage stream settings')).not.toBeNull();
     });
 
-    it('calls onClose when dialog close event fires', () => {
+    it('calls onClose when the close button is clicked', () => {
         const onClose = vi.fn();
         render(
-            <AdminDialog open={true} onClose={onClose} title="Audio Controls">
+            <AdminDialog open onClose={onClose} title="Audio Controls">
                 <p>Manage stream settings</p>
             </AdminDialog>,
         );
 
-        const dialog = screen.getByRole('dialog') as HTMLDialogElement;
-        fireEvent(dialog, new Event('close', { bubbles: true }));
+        fireEvent.click(screen.getByRole('button', { name: 'Close modal' }));
         expect(onClose).toHaveBeenCalledOnce();
     });
 
-    it('does not keep dialog open when open prop is false', () => {
-        const { container } = render(
+    it('does not render a dialog when open is false', () => {
+        render(
             <AdminDialog open={false} onClose={vi.fn()} title="Audio Controls">
                 <p>Manage stream settings</p>
             </AdminDialog>,
         );
 
-        const dialog = container.querySelector('dialog') as HTMLDialogElement;
-        expect(dialog.open).toBe(false);
+        expect(screen.queryByRole('dialog')).toBeNull();
     });
 
-    describe('fallback (showModal unavailable)', () => {
-        let originalShowModal: typeof HTMLDialogElement.prototype.showModal;
-        beforeEach(() => {
-            originalShowModal = HTMLDialogElement.prototype.showModal;
-            // @ts-expect-error force the non-modal fallback path
-            HTMLDialogElement.prototype.showModal = undefined;
-        });
+    it('calls onClose when Escape is pressed', () => {
+        const onClose = vi.fn();
+        render(
+            <AdminDialog open onClose={onClose} title="T">
+                <button>First</button>
+            </AdminDialog>,
+        );
 
-        afterEach(() => {
-            HTMLDialogElement.prototype.showModal = originalShowModal;
-        });
-
-        it('closes the dialog on Escape', () => {
-            render(
-                <AdminDialog open onClose={vi.fn()} title="T">
-                    <button>First</button>
-                    <button>Last</button>
-                </AdminDialog>,
-            );
-            const dialog = screen.getByRole('dialog') as HTMLDialogElement;
-            fireEvent.keyDown(dialog, { key: 'Escape' });
-            expect(dialog.open).toBe(false);
-        });
-
-        it('wraps Tab focus from last to first', () => {
-            render(
-                <AdminDialog open onClose={vi.fn()} title="T">
-                    <button>First</button>
-                    <button>Last</button>
-                </AdminDialog>,
-            );
-            const dialog = screen.getByRole('dialog') as HTMLDialogElement;
-            const buttons = screen.getAllByRole('button');
-            const first = buttons[0]!;
-            const last = buttons[1]!;
-            last.focus();
-            fireEvent.keyDown(dialog, { key: 'Tab' });
-            expect(document.activeElement).toBe(first);
-        });
-
-        it('wraps Shift+Tab focus from first to last', () => {
-            render(
-                <AdminDialog open onClose={vi.fn()} title="T">
-                    <button>First</button>
-                    <button>Last</button>
-                </AdminDialog>,
-            );
-            const dialog = screen.getByRole('dialog') as HTMLDialogElement;
-            const buttons = screen.getAllByRole('button');
-            const first = buttons[0]!;
-            const last = buttons[1]!;
-            first.focus();
-            fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
-            expect(document.activeElement).toBe(last);
-        });
+        fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+        expect(onClose).toHaveBeenCalledOnce();
     });
 });

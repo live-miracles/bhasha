@@ -1,3 +1,4 @@
+import { Alert, Button, Checkbox, Group, Stack, Text } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
 import { AdminDialog } from './AdminDialog';
@@ -37,53 +38,30 @@ export function KickConfirmDialog({
 
     return (
         <AdminDialog open={open} onClose={onClose} title={title}>
-            <div className="admin-kick-confirm-dialog">
-                <p>{listenerImpactLine}</p>
-                <p className="admin-kick-confirm-muted">
+            <Stack gap="md">
+                <Text>{listenerImpactLine}</Text>
+                <Text c="dimmed" size="sm">
                     The relay stays alive on silence. Listeners won't disconnect or need to rejoin.
-                </p>
+                </Text>
 
-                <label className="admin-kick-confirm-device-option">
-                    <input
-                        type="checkbox"
-                        checked={signOutDevice}
-                        onChange={(event) => setSignOutDevice(event.target.checked)}
-                    />
-                    <span className="admin-kick-confirm-device-text">
-                        Also sign this device out
-                        {deviceSubLabel ? (
-                            <span className="admin-kick-confirm-device-sub-label">
-                                {deviceSubLabel}
-                            </span>
-                        ) : null}
-                    </span>
-                </label>
+                <Checkbox
+                    checked={signOutDevice}
+                    description={deviceSubLabel}
+                    label="Also sign this device out"
+                    onChange={(event) => setSignOutDevice(event.currentTarget.checked)}
+                />
 
-                {error ? (
-                    <p role="alert" className="admin-kick-confirm-alert">
-                        {error}
-                    </p>
-                ) : null}
+                {error ? <Alert color="red">{error}</Alert> : null}
 
-                <footer className="admin-kick-confirm-footer">
-                    <button
-                        type="button"
-                        className="admin-kick-confirm-btn admin-kick-confirm-btn-ghost"
-                        onClick={onClose}
-                        disabled={pending}
-                    >
+                <Group justify="flex-end">
+                    <Button disabled={pending} onClick={onClose} variant="default">
                         Cancel
-                    </button>
-                    <button
-                        type="button"
-                        className="admin-kick-confirm-btn admin-kick-confirm-btn-danger"
-                        onClick={() => onConfirm(signOutDevice)}
-                        disabled={pending}
-                    >
-                        {pending ? 'Ending\u2026' : 'End broadcast'}
-                    </button>
-                </footer>
-            </div>
+                    </Button>
+                    <Button color="red" disabled={pending} onClick={() => onConfirm(signOutDevice)}>
+                        {pending ? 'Ending…' : 'End broadcast'}
+                    </Button>
+                </Group>
+            </Stack>
         </AdminDialog>
     );
 }
