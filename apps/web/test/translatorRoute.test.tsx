@@ -1289,11 +1289,26 @@ describe('TranslatorRoute', () => {
             code: 'network_error',
             body: { error: 'network_error' },
         });
+        // Every heartbeat after the first rejection blocks on this gate, so a
+        // real-timer interval tick firing again while we assert below can't
+        // resolve and flip the status back to "ON AIR" before we get to check
+        // it. Without the gate this was a race against the real 20ms interval:
+        // under a loaded/parallel test run, more than one tick could elapse
+        // before the assertion ran. (Fake timers don't work here -- the
+        // publisher-heartbeat interval and goLive()'s findBy* waits depend on
+        // React's real scheduler, which hangs under a fully mocked clock.)
+        let releaseHeartbeats: () => void = () => {};
+        const heartbeatsGate = new Promise<void>((resolve) => {
+            releaseHeartbeats = resolve;
+        });
         const api = translatorApi({
             heartbeat: vi
                 .fn()
                 .mockRejectedValueOnce(heartbeatError)
-                .mockResolvedValue({ ok: true as const }),
+                .mockImplementation(async () => {
+                    await heartbeatsGate;
+                    return { ok: true as const };
+                }),
         });
 
         renderRoute({
@@ -1310,6 +1325,8 @@ describe('TranslatorRoute', () => {
         expect(status).toHaveTextContent('Your audio will resume automatically.');
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
         expect(screen.queryByText('Your broadcast was ended.')).not.toBeInTheDocument();
+
+        releaseHeartbeats();
     });
 
     it('shows a calm status while automatic transport recovery is pending', async () => {

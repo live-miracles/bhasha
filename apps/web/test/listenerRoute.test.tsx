@@ -1812,13 +1812,26 @@ describe('ListenerRoute', () => {
                 publisherVersion: null,
             },
         ];
+        // The second (offline) snapshot blocks on this gate until released, so a
+        // real 20ms poll tick landing before the click's connect microtask
+        // completes can't race the button permanently disabled before
+        // "Listening to Hindi" ever renders -- see the identical race and fix
+        // in the "keeps stale state from non-publish-end heartbeat failures"
+        // translator test.
+        let releaseOfflineSnapshot: () => void = () => {};
+        const offlineSnapshotGate = new Promise<void>((resolve) => {
+            releaseOfflineSnapshot = resolve;
+        });
         const publicClient = publicApi({
             fetchProgramStatus: vi
                 .fn()
                 // First poll: Hindi live so we can connect.
                 .mockResolvedValueOnce(status())
                 // Then Hindi goes offline (publisher gone).
-                .mockResolvedValue(status({ streams: offlineStreams })),
+                .mockImplementation(async () => {
+                    await offlineSnapshotGate;
+                    return status({ streams: offlineStreams });
+                }),
         });
         const realtime = realtimeClient();
         let fireState: ConnectionStateHandler = () => {};
@@ -1842,6 +1855,7 @@ describe('ListenerRoute', () => {
         await screen.findByRole('button', { name: 'Listen to Hindi' });
         fireEvent.click(screen.getByRole('button', { name: 'Listen to Hindi' }));
         await screen.findByText('Listening to Hindi');
+        releaseOfflineSnapshot();
 
         // Wait until the offline status snapshot has been applied.
         await waitFor(() => {
@@ -1860,14 +1874,20 @@ describe('ListenerRoute', () => {
     });
 
     it('stands down recovery while the stream status is offline and resumes when it returns', async () => {
+        // Gated for the same reason as the previous test -- see its comment.
+        let releaseOfflineSnapshot: () => void = () => {};
+        const offlineSnapshotGate = new Promise<void>((resolve) => {
+            releaseOfflineSnapshot = resolve;
+        });
         const publicClient = publicApi({
             fetchProgramStatus: vi
                 .fn()
                 // First poll: Hindi live so we can connect.
                 .mockResolvedValueOnce(status())
                 // Then Hindi goes offline (publisher gone).
-                .mockResolvedValue(
-                    status({
+                .mockImplementation(async () => {
+                    await offlineSnapshotGate;
+                    return status({
                         streams: [
                             {
                                 id: 'stream_en',
@@ -1888,8 +1908,8 @@ describe('ListenerRoute', () => {
                                 publisherVersion: null,
                             },
                         ],
-                    }),
-                ),
+                    });
+                }),
         });
         const realtime = realtimeClient();
         let fireState: ConnectionStateHandler = () => {};
@@ -1912,6 +1932,7 @@ describe('ListenerRoute', () => {
         await screen.findByRole('button', { name: 'Listen to Hindi' });
         fireEvent.click(screen.getByRole('button', { name: 'Listen to Hindi' }));
         await screen.findByText('Listening to Hindi');
+        releaseOfflineSnapshot();
 
         // Wait until the offline status snapshot has been applied.
         await waitFor(() => {

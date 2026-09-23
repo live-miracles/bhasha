@@ -13,5 +13,12 @@ export default defineConfig({
         // hiding real failures — a genuine bug fails all attempts. Keeps the deploy
         // gate reliable. (Follow-up: make these tests deterministic and drop retry.)
         retry: 2,
+        // src/test/setup.ts raises testing-library's findBy*/waitFor timeout to
+        // 5000ms for the same loaded-runner slack. A test with a couple of
+        // sequential waitFor calls can now legitimately need close to 10s, which
+        // exceeds vitest's own 5000ms default *whole-test* timeout -- raise that
+        // too so the outer test-level timeout isn't tighter than the inner
+        // assertion timeout it's supposed to contain.
+        testTimeout: 15_000,
     },
 });
