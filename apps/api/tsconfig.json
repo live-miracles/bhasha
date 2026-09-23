@@ -1,7 +1,7 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "types": ["node", "better-sqlite3"]
-  },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "types": ["node", "better-sqlite3"]
+    },
+    "include": ["src/**/*.ts", "test/**/*.ts"]
 }

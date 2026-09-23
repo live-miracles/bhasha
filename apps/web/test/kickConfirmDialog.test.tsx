@@ -1,162 +1,164 @@
 /* @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { KickConfirmDialog } from "../src/features/admin/KickConfirmDialog";
+import { KickConfirmDialog } from '../src/features/admin/KickConfirmDialog';
 
 beforeEach(() => {
-  vi.restoreAllMocks();
+    vi.restoreAllMocks();
 });
 
 afterEach(() => {
-  cleanup();
+    cleanup();
 });
 
-describe("KickConfirmDialog", () => {
-  it("renders title and body lines when open", () => {
-    render(
-      <KickConfirmDialog
-        open
-        onClose={vi.fn()}
-        onConfirm={vi.fn()}
-        title="Kick translator"
-        listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
-        pending={false}
-        error={null}
-      />
-    );
+describe('KickConfirmDialog', () => {
+    it('renders title and body lines when open', () => {
+        render(
+            <KickConfirmDialog
+                open
+                onClose={vi.fn()}
+                onConfirm={vi.fn()}
+                title="Kick translator"
+                listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
+                pending={false}
+                error={null}
+            />,
+        );
 
-    expect(screen.getByRole("heading", { name: "Kick translator" })).not.toBeNull();
-    expect(
-      screen.getByText(
-        "Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
-      )
-    ).not.toBeNull();
-    expect(
-      screen.getByText("The relay stays alive on silence. Listeners won't disconnect or need to rejoin.")
-    ).not.toBeNull();
-  });
-
-  it("does not render content when open is false", () => {
-    render(
-      <KickConfirmDialog
-        open={false}
-        onClose={vi.fn()}
-        onConfirm={vi.fn()}
-        title="Kick translator"
-        listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
-        pending={false}
-        error={null}
-      />
-    );
-
-    expect(screen.queryByRole("heading", { name: "Kick translator" })).toBeNull();
-    expect(screen.queryByText("Cancel")).toBeNull();
-  });
-
-  it("calls onConfirm with checkbox state", () => {
-    const onConfirm = vi.fn();
-    render(
-      <KickConfirmDialog
-        open
-        onClose={vi.fn()}
-        onConfirm={onConfirm}
-        title="Kick translator"
-        listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
-        pending={false}
-        error={null}
-      />
-    );
-
-    const confirm = screen.getByRole("button", { name: "End broadcast" });
-    const checkbox = screen.getByRole("checkbox", {
-      name: "Also sign this device out"
+        expect(screen.getByRole('heading', { name: 'Kick translator' })).not.toBeNull();
+        expect(
+            screen.getByText(
+                'Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected.',
+            ),
+        ).not.toBeNull();
+        expect(
+            screen.getByText(
+                "The relay stays alive on silence. Listeners won't disconnect or need to rejoin.",
+            ),
+        ).not.toBeNull();
     });
 
-    fireEvent.click(confirm);
-    expect(onConfirm).toHaveBeenLastCalledWith(false);
+    it('does not render content when open is false', () => {
+        render(
+            <KickConfirmDialog
+                open={false}
+                onClose={vi.fn()}
+                onConfirm={vi.fn()}
+                title="Kick translator"
+                listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
+                pending={false}
+                error={null}
+            />,
+        );
 
-    fireEvent.click(checkbox);
-    fireEvent.click(confirm);
-    expect(onConfirm).toHaveBeenLastCalledWith(true);
-  });
+        expect(screen.queryByRole('heading', { name: 'Kick translator' })).toBeNull();
+        expect(screen.queryByText('Cancel')).toBeNull();
+    });
 
-  it("calls onClose when cancel is clicked", () => {
-    const onClose = vi.fn();
-    render(
-      <KickConfirmDialog
-        open
-        onClose={onClose}
-        onConfirm={vi.fn()}
-        title="Kick translator"
-        listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
-        pending={false}
-        error={null}
-      />
-    );
+    it('calls onConfirm with checkbox state', () => {
+        const onConfirm = vi.fn();
+        render(
+            <KickConfirmDialog
+                open
+                onClose={vi.fn()}
+                onConfirm={onConfirm}
+                title="Kick translator"
+                listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
+                pending={false}
+                error={null}
+            />,
+        );
 
-    const cancel = screen.getByRole("button", { name: "Cancel" });
-    fireEvent.click(cancel);
+        const confirm = screen.getByRole('button', { name: 'End broadcast' });
+        const checkbox = screen.getByRole('checkbox', {
+            name: 'Also sign this device out',
+        });
 
-    expect(onClose).toHaveBeenCalledOnce();
-  });
+        fireEvent.click(confirm);
+        expect(onConfirm).toHaveBeenLastCalledWith(false);
 
-  it("disables both actions and shows ending label when pending", () => {
-    render(
-      <KickConfirmDialog
-        open
-        onClose={vi.fn()}
-        onConfirm={vi.fn()}
-        title="Kick translator"
-        listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
-        pending
-        error={null}
-      />
-    );
+        fireEvent.click(checkbox);
+        fireEvent.click(confirm);
+        expect(onConfirm).toHaveBeenLastCalledWith(true);
+    });
 
-    const cancel = screen.getByRole("button", { name: "Cancel" });
-    const confirm = screen.getByRole("button", { name: "Ending…" });
+    it('calls onClose when cancel is clicked', () => {
+        const onClose = vi.fn();
+        render(
+            <KickConfirmDialog
+                open
+                onClose={onClose}
+                onConfirm={vi.fn()}
+                title="Kick translator"
+                listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
+                pending={false}
+                error={null}
+            />,
+        );
 
-    expect(cancel).toBeDisabled();
-    expect(confirm).toBeDisabled();
-  });
+        const cancel = screen.getByRole('button', { name: 'Cancel' });
+        fireEvent.click(cancel);
 
-  it("shows an alert with error text", () => {
-    render(
-      <KickConfirmDialog
-        open
-        onClose={vi.fn()}
-        onConfirm={vi.fn()}
-        title="Kick translator"
-        listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
-        pending={false}
-        error="Could not remove translator"
-      />
-    );
+        expect(onClose).toHaveBeenCalledOnce();
+    });
 
-    const alert = screen.getByRole("alert");
+    it('disables both actions and shows ending label when pending', () => {
+        render(
+            <KickConfirmDialog
+                open
+                onClose={vi.fn()}
+                onConfirm={vi.fn()}
+                title="Kick translator"
+                listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
+                pending
+                error={null}
+            />,
+        );
 
-    expect(alert).not.toBeNull();
-    expect(alert).toHaveTextContent("Could not remove translator");
-  });
+        const cancel = screen.getByRole('button', { name: 'Cancel' });
+        const confirm = screen.getByRole('button', { name: 'Ending…' });
 
-  it("renders device sub-label when provided", () => {
-    render(
-      <KickConfirmDialog
-        open
-        onClose={vi.fn()}
-        onConfirm={vi.fn()}
-        title="Kick translator"
-        listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
-        deviceSubLabel="The listener will be removed from this browser only."
-        pending={false}
-        error={null}
-      />
-    );
+        expect(cancel).toBeDisabled();
+        expect(confirm).toBeDisabled();
+    });
 
-    expect(
-      screen.getByText("The listener will be removed from this browser only.")
-    ).not.toBeNull();
-  });
+    it('shows an alert with error text', () => {
+        render(
+            <KickConfirmDialog
+                open
+                onClose={vi.fn()}
+                onConfirm={vi.fn()}
+                title="Kick translator"
+                listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
+                pending={false}
+                error="Could not remove translator"
+            />,
+        );
+
+        const alert = screen.getByRole('alert');
+
+        expect(alert).not.toBeNull();
+        expect(alert).toHaveTextContent('Could not remove translator');
+    });
+
+    it('renders device sub-label when provided', () => {
+        render(
+            <KickConfirmDialog
+                open
+                onClose={vi.fn()}
+                onConfirm={vi.fn()}
+                title="Kick translator"
+                listenerImpactLine="Hindi has 42 active listeners. They will keep hearing silence — the stream stays connected."
+                deviceSubLabel="The listener will be removed from this browser only."
+                pending={false}
+                error={null}
+            />,
+        );
+
+        expect(
+            screen.getByText('The listener will be removed from this browser only.'),
+        ).not.toBeNull();
+    });
 });

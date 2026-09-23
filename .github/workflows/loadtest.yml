@@ -16,136 +16,136 @@ name: Distributed listener load test
 # be inflated by a single runner's own socket/CPU saturation.
 
 on:
-  workflow_dispatch:
-    inputs:
-      base_url:
-        description: "Target origin"
-        default: "https://translate.example.com"
-        required: true
-      program_slug:
-        description: "Seeded load program slug"
-        default: "loadtest-5k"
-        required: true
-      stream_id:
-        description: "Seeded stream id"
-        default: "loadtest_stream_1"
-        required: true
-      jobs:
-        description: "Parallel runners (each = vus_per_job listeners). Free plan caps 20 concurrent. Calibrate one runner first."
-        default: "6"
-        required: true
-      vus_per_job:
-        description: "Held listeners per runner (1000 is a safe 2-vCPU runner target; calibrate before pushing to 1500)"
-        default: "1000"
-        required: true
-      hold_min:
-        description: "Minutes to hold at peak (overlap window for true concurrency despite start skew)"
-        default: "6"
-        required: true
-      ramp_sec:
-        description: "Ramp-up seconds to peak"
-        default: "90"
-        required: true
-      heartbeat_ms:
-        description: "Heartbeat interval (match prod = 90000 since Phase 10)"
-        default: "90000"
-        required: true
-      poll_ms:
-        description: "Status poll interval (prod = 60000 since Phase 10)"
-        default: "60000"
-        required: true
+    workflow_dispatch:
+        inputs:
+            base_url:
+                description: 'Target origin'
+                default: 'https://translate.example.com'
+                required: true
+            program_slug:
+                description: 'Seeded load program slug'
+                default: 'loadtest-5k'
+                required: true
+            stream_id:
+                description: 'Seeded stream id'
+                default: 'loadtest_stream_1'
+                required: true
+            jobs:
+                description: 'Parallel runners (each = vus_per_job listeners). Free plan caps 20 concurrent. Calibrate one runner first.'
+                default: '6'
+                required: true
+            vus_per_job:
+                description: 'Held listeners per runner (1000 is a safe 2-vCPU runner target; calibrate before pushing to 1500)'
+                default: '1000'
+                required: true
+            hold_min:
+                description: 'Minutes to hold at peak (overlap window for true concurrency despite start skew)'
+                default: '6'
+                required: true
+            ramp_sec:
+                description: 'Ramp-up seconds to peak'
+                default: '90'
+                required: true
+            heartbeat_ms:
+                description: 'Heartbeat interval (match prod = 90000 since Phase 10)'
+                default: '90000'
+                required: true
+            poll_ms:
+                description: 'Status poll interval (prod = 60000 since Phase 10)'
+                default: '60000'
+                required: true
 
 jobs:
-  prepare:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.gen.outputs.matrix }}
-      start_epoch: ${{ steps.gen.outputs.start_epoch }}
-    steps:
-      - id: gen
-        run: |
-          # Build a [1,2,...,N] matrix from the jobs input.
-          N="${{ github.event.inputs.jobs }}"
-          arr=$(seq -s, 1 "$N")
-          echo "matrix=[${arr}]" >> "$GITHUB_OUTPUT"
-          # Synchronized start: all runners begin the ramp at this wall-clock epoch.
-          # +180s buffer so every matrix runner has spun up before T0 (avoids skew).
-          echo "start_epoch=$(( $(date +%s) + 180 ))" >> "$GITHUB_OUTPUT"
-          echo "Fanning out $N runners; T0=$(( $(date +%s) + 180 ))"
+    prepare:
+        runs-on: ubuntu-latest
+        outputs:
+            matrix: ${{ steps.gen.outputs.matrix }}
+            start_epoch: ${{ steps.gen.outputs.start_epoch }}
+        steps:
+            - id: gen
+              run: |
+                  # Build a [1,2,...,N] matrix from the jobs input.
+                  N="${{ github.event.inputs.jobs }}"
+                  arr=$(seq -s, 1 "$N")
+                  echo "matrix=[${arr}]" >> "$GITHUB_OUTPUT"
+                  # Synchronized start: all runners begin the ramp at this wall-clock epoch.
+                  # +180s buffer so every matrix runner has spun up before T0 (avoids skew).
+                  echo "start_epoch=$(( $(date +%s) + 180 ))" >> "$GITHUB_OUTPUT"
+                  echo "Fanning out $N runners; T0=$(( $(date +%s) + 180 ))"
 
-  loadtest:
-    needs: prepare
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false            # one saturating runner must not cancel the others
-      matrix:
-        idx: ${{ fromJSON(needs.prepare.outputs.matrix) }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install k6
-        run: |
-          curl -s https://dl.k6.io/key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list >/dev/null
-          sudo apt-get update -qq && sudo apt-get install -y k6
-      - name: Wait for synchronized T0
-        run: |
-          now=$(date +%s); start="${{ needs.prepare.outputs.start_epoch }}"
-          wait=$(( start - now ))
-          echo "runner ${{ matrix.idx }}: now=$now T0=$start wait=${wait}s"
-          if [ "$wait" -gt 0 ]; then sleep "$wait"; fi
-      - name: Run k6 generator
-        env:
-          BASE_URL: ${{ github.event.inputs.base_url }}
-          PROGRAM_SLUG: ${{ github.event.inputs.program_slug }}
-          STREAM_ID: ${{ github.event.inputs.stream_id }}
-          HEARTBEAT_MS: ${{ github.event.inputs.heartbeat_ms }}
-          POLL_MS: ${{ github.event.inputs.poll_ms }}
-          JOB_ID: ${{ matrix.idx }}
-          HOLD_SEC: "0"           # 0 => derive a long per-VU hold; ramp/hold below governs concurrency
-        run: |
-          VUS="${{ github.event.inputs.vus_per_job }}"
-          RAMP="${{ github.event.inputs.ramp_sec }}"
-          HOLD="${{ github.event.inputs.hold_min }}"
-          export STAGES_JSON="[{\"duration\":\"${RAMP}s\",\"target\":${VUS}},{\"duration\":\"${HOLD}m\",\"target\":${VUS}},{\"duration\":\"30s\",\"target\":0}]"
-          # HOLD_SEC must outlast the hold so VUs don't leave+rejoin mid-test:
-          export HOLD_SEC=$(( (RAMP) + (HOLD*60) + 60 ))
-          echo "runner ${{ matrix.idx }}: ${VUS} VUs, ramp ${RAMP}s, hold ${HOLD}m"
-          k6 run --no-color \
-            --summary-export "summary-${{ matrix.idx }}.json" \
-            scripts/load/listener-presence-load.js | tee "k6-${{ matrix.idx }}.log" || true
-      - name: Upload runner results
+    loadtest:
+        needs: prepare
+        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false # one saturating runner must not cancel the others
+            matrix:
+                idx: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+        steps:
+            - uses: actions/checkout@v4
+            - name: Install k6
+              run: |
+                  curl -s https://dl.k6.io/key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
+                  echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list >/dev/null
+                  sudo apt-get update -qq && sudo apt-get install -y k6
+            - name: Wait for synchronized T0
+              run: |
+                  now=$(date +%s); start="${{ needs.prepare.outputs.start_epoch }}"
+                  wait=$(( start - now ))
+                  echo "runner ${{ matrix.idx }}: now=$now T0=$start wait=${wait}s"
+                  if [ "$wait" -gt 0 ]; then sleep "$wait"; fi
+            - name: Run k6 generator
+              env:
+                  BASE_URL: ${{ github.event.inputs.base_url }}
+                  PROGRAM_SLUG: ${{ github.event.inputs.program_slug }}
+                  STREAM_ID: ${{ github.event.inputs.stream_id }}
+                  HEARTBEAT_MS: ${{ github.event.inputs.heartbeat_ms }}
+                  POLL_MS: ${{ github.event.inputs.poll_ms }}
+                  JOB_ID: ${{ matrix.idx }}
+                  HOLD_SEC: '0' # 0 => derive a long per-VU hold; ramp/hold below governs concurrency
+              run: |
+                  VUS="${{ github.event.inputs.vus_per_job }}"
+                  RAMP="${{ github.event.inputs.ramp_sec }}"
+                  HOLD="${{ github.event.inputs.hold_min }}"
+                  export STAGES_JSON="[{\"duration\":\"${RAMP}s\",\"target\":${VUS}},{\"duration\":\"${HOLD}m\",\"target\":${VUS}},{\"duration\":\"30s\",\"target\":0}]"
+                  # HOLD_SEC must outlast the hold so VUs don't leave+rejoin mid-test:
+                  export HOLD_SEC=$(( (RAMP) + (HOLD*60) + 60 ))
+                  echo "runner ${{ matrix.idx }}: ${VUS} VUs, ramp ${RAMP}s, hold ${HOLD}m"
+                  k6 run --no-color \
+                    --summary-export "summary-${{ matrix.idx }}.json" \
+                    scripts/load/listener-presence-load.js | tee "k6-${{ matrix.idx }}.log" || true
+            - name: Upload runner results
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: loadtest-runner-${{ matrix.idx }}
+                  path: |
+                      summary-${{ matrix.idx }}.json
+                      k6-${{ matrix.idx }}.log
+                  retention-days: 7
+
+    aggregate:
+        needs: loadtest
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: loadtest-runner-${{ matrix.idx }}
-          path: |
-            summary-${{ matrix.idx }}.json
-            k6-${{ matrix.idx }}.log
-          retention-days: 7
-
-  aggregate:
-    needs: loadtest
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: loadtest-runner-*
-          merge-multiple: true
-      - name: Combine per-runner summaries
-        run: |
-          echo "### Distributed load test — per-runner summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "| runner | hb fail% | poll fail% | join fail% | http fail% | hb p95 | poll p95 |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          for f in summary-*.json; do
-            [ -f "$f" ] || continue
-            node -e '
-              const m=require("./"+process.argv[1]).metrics||{};
-              const r=(k)=>m[k]&&m[k].value!=null?(m[k].value*100).toFixed(2)+"%":"-";
-              const p=(k)=>m[k]&&(m[k]["p(95)"]!=null)?Math.round(m[k]["p(95)"])+"ms":"-";
-              const id=process.argv[1].replace(/[^0-9]/g,"");
-              console.log(`| ${id} | ${r("listener_heartbeat_failed")} | ${r("listener_status_poll_failed")} | ${r("listener_join_failed")} | ${r("http_req_failed")} | ${p("listener_heartbeat_ms")} | ${p("listener_status_poll_ms")} |`);
-            ' "$f" >> "$GITHUB_STEP_SUMMARY" || echo "| $f | parse-error |" >> "$GITHUB_STEP_SUMMARY"
-          done
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "> NOTE: per-runner k6 failures can be single-runner saturation, not server collapse. Cross-check the independent /status probe + Cloudflare dashboard (DO req/s, D1 latency/errors) for the SERVER-side verdict." >> "$GITHUB_STEP_SUMMARY"
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/download-artifact@v4
+              with:
+                  pattern: loadtest-runner-*
+                  merge-multiple: true
+            - name: Combine per-runner summaries
+              run: |
+                  echo "### Distributed load test — per-runner summary" >> "$GITHUB_STEP_SUMMARY"
+                  echo "| runner | hb fail% | poll fail% | join fail% | http fail% | hb p95 | poll p95 |" >> "$GITHUB_STEP_SUMMARY"
+                  echo "|---|---|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+                  for f in summary-*.json; do
+                    [ -f "$f" ] || continue
+                    node -e '
+                      const m=require("./"+process.argv[1]).metrics||{};
+                      const r=(k)=>m[k]&&m[k].value!=null?(m[k].value*100).toFixed(2)+"%":"-";
+                      const p=(k)=>m[k]&&(m[k]["p(95)"]!=null)?Math.round(m[k]["p(95)"])+"ms":"-";
+                      const id=process.argv[1].replace(/[^0-9]/g,"");
+                      console.log(`| ${id} | ${r("listener_heartbeat_failed")} | ${r("listener_status_poll_failed")} | ${r("listener_join_failed")} | ${r("http_req_failed")} | ${p("listener_heartbeat_ms")} | ${p("listener_status_poll_ms")} |`);
+                    ' "$f" >> "$GITHUB_STEP_SUMMARY" || echo "| $f | parse-error |" >> "$GITHUB_STEP_SUMMARY"
+                  done
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  echo "> NOTE: per-runner k6 failures can be single-runner saturation, not server collapse. Cross-check the independent /status probe + Cloudflare dashboard (DO req/s, D1 latency/errors) for the SERVER-side verdict." >> "$GITHUB_STEP_SUMMARY"

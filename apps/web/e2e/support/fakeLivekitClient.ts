@@ -35,84 +35,84 @@
 type Listener = (...args: unknown[]) => void;
 
 declare global {
-  interface Window {
-    // Exposed so a test can reach into a live fake Room and simulate a
-    // transport event (e.g. `room.emit(RoomEvent.Disconnected)`) if a future
-    // spec needs it. Not required by the current specs.
-    __fakeLiveKitRooms?: FakeRoom[];
-  }
+    interface Window {
+        // Exposed so a test can reach into a live fake Room and simulate a
+        // transport event (e.g. `room.emit(RoomEvent.Disconnected)`) if a future
+        // spec needs it. Not required by the current specs.
+        __fakeLiveKitRooms?: FakeRoom[];
+    }
 }
 
 export const RoomEvent = {
-  Reconnecting: "reconnecting",
-  Reconnected: "reconnected",
-  Disconnected: "disconnected",
-  TrackSubscribed: "trackSubscribed",
-  TrackUnsubscribed: "trackUnsubscribed"
+    Reconnecting: 'reconnecting',
+    Reconnected: 'reconnected',
+    Disconnected: 'disconnected',
+    TrackSubscribed: 'trackSubscribed',
+    TrackUnsubscribed: 'trackUnsubscribed',
 } as const;
 
 export const Track = {
-  Source: {
-    Microphone: "microphone",
-    Camera: "camera"
-  }
+    Source: {
+        Microphone: 'microphone',
+        Camera: 'camera',
+    },
 } as const;
 
 export class FakeRoom {
-  static instances: FakeRoom[] = [];
+    static instances: FakeRoom[] = [];
 
-  readonly connectCalls: Array<{ url: string; token: string }> = [];
-  readonly publishedTracks: Array<{
-    track: MediaStreamTrack;
-    options?: Record<string, unknown>;
-  }> = [];
+    readonly connectCalls: Array<{ url: string; token: string }> = [];
+    readonly publishedTracks: Array<{
+        track: MediaStreamTrack;
+        options?: Record<string, unknown>;
+    }> = [];
 
-  private readonly listeners = new Map<string, Set<Listener>>();
+    private readonly listeners = new Map<string, Set<Listener>>();
 
-  readonly localParticipant = {
-    publishTrack: async (
-      track: MediaStreamTrack,
-      options?: Record<string, unknown>
-    ): Promise<unknown> => {
-      this.publishedTracks.push({ track, ...(options ? { options } : {}) });
-      return {};
+    readonly localParticipant = {
+        publishTrack: async (
+            track: MediaStreamTrack,
+            options?: Record<string, unknown>,
+        ): Promise<unknown> => {
+            this.publishedTracks.push({ track, ...(options ? { options } : {}) });
+            return {};
+        },
+    };
+
+    constructor() {
+        FakeRoom.instances.push(this);
+        if (typeof window !== 'undefined') {
+            window.__fakeLiveKitRooms = window.__fakeLiveKitRooms ?? [];
+            window.__fakeLiveKitRooms.push(this);
+        }
     }
-  };
 
-  constructor() {
-    FakeRoom.instances.push(this);
-    if (typeof window !== "undefined") {
-      window.__fakeLiveKitRooms = window.__fakeLiveKitRooms ?? [];
-      window.__fakeLiveKitRooms.push(this);
+    async connect(url: string, token: string): Promise<void> {
+        this.connectCalls.push({ url, token });
     }
-  }
 
-  async connect(url: string, token: string): Promise<void> {
-    this.connectCalls.push({ url, token });
-  }
-
-  async disconnect(): Promise<void> {
-    // No real transport to tear down.
-  }
-
-  on(event: string, listener: Listener): this {
-    const set = this.listeners.get(event) ?? new Set();
-    set.add(listener);
-    this.listeners.set(event, set);
-    return this;
-  }
-
-  off(event: string, listener: Listener): this {
-    this.listeners.get(event)?.delete(listener);
-    return this;
-  }
-
-  /** Not part of the real Room API -- a test hook to simulate a RoomEvent. */
-  emit(event: string, ...args: unknown[]): void {
-    for (const listener of this.listeners.get(event) ?? []) {
-      listener(...args);
+    async disconnect(): Promise<void> {
+        // No real transport to tear down.
     }
-  }
+
+    on(event: string, listener: Listener): this {
+        const set = this.listeners.get(event) ?? new Set();
+        set.add(listener);
+        this.listeners.set(event, set);
+        return this;
+    }
+
+    off(event: string, listener: Listener): this {
+        this.listeners.get(event)?.delete(listener);
+        return this;
+    }
+
+    /** Not part of the real Room API -- a test hook to simulate a RoomEvent. */
+    emit(event: string, ...args: unknown[]): void {
+        for (const listener of this.listeners.get(event) ?? []) {
+            listener(...args);
+        }
+    }
 }
 
 export { FakeRoom as Room };

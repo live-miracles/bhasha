@@ -1,4 +1,4 @@
-import type { Database } from "../../src/db/sqlite";
+import type { Database } from '../../src/db/sqlite';
 
 /**
  * Test helper: wraps a better-sqlite3 `Database` so every `prepare(sql)` call
@@ -9,37 +9,37 @@ import type { Database } from "../../src/db/sqlite";
  * Read-only: it observes the SQL without mutating behavior.
  */
 export function countingDb(db: Database, log: string[]): Database {
-  return new Proxy(db, {
-    get(target, property, receiver) {
-      if (property !== "prepare") {
-        const value = Reflect.get(target, property, receiver);
-        return typeof value === "function" ? value.bind(target) : value;
-      }
+    return new Proxy(db, {
+        get(target, property, receiver) {
+            if (property !== 'prepare') {
+                const value = Reflect.get(target, property, receiver);
+                return typeof value === 'function' ? value.bind(target) : value;
+            }
 
-      return (sql: string) => {
-        log.push(sql);
-        return target.prepare(sql);
-      };
-    }
-  }) as Database;
+            return (sql: string) => {
+                log.push(sql);
+                return target.prepare(sql);
+            };
+        },
+    }) as Database;
 }
 
 /** True when the SQL statement is a SELECT (ignoring leading whitespace). */
 export function isSelect(sql: string): boolean {
-  return /^\s*SELECT/i.test(sql);
+    return /^\s*SELECT/i.test(sql);
 }
 
 /** True when the SQL statement is an UPDATE (ignoring leading whitespace). */
 export function isUpdate(sql: string): boolean {
-  return /^\s*UPDATE/i.test(sql);
+    return /^\s*UPDATE/i.test(sql);
 }
 
 /** True when the SQL statement is an INSERT (ignoring leading whitespace). */
 export function isInsert(sql: string): boolean {
-  return /^\s*INSERT/i.test(sql);
+    return /^\s*INSERT/i.test(sql);
 }
 
 /** True when the SQL statement targets the given table name. */
 export function targetsTable(sql: string, table: string): boolean {
-  return new RegExp(`\\b${table}\\b`, "i").test(sql);
+    return new RegExp(`\\b${table}\\b`, 'i').test(sql);
 }

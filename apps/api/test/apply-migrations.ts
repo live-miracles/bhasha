@@ -7,22 +7,22 @@
 // file -- test files that need that (most of them) already have their own
 // local `resetDb()`/`beforeEach` that deletes rows between cases, same as
 // before.
-import { afterAll, beforeAll } from "vitest";
-import { openDatabase, type Database } from "../src/db/sqlite";
-import { runMigrations } from "../src/db/migrate";
-import { __setTestDatabase } from "./test-env";
-import { __resetPresenceForTests } from "../src/presence/status";
+import { afterAll, beforeAll } from 'vitest';
+import { openDatabase, type Database } from '../src/db/sqlite';
+import { runMigrations } from '../src/db/migrate';
+import { __setTestDatabase } from './test-env';
+import { __resetPresenceForTests } from '../src/presence/status';
 
 let db: Database | null = null;
 
 beforeAll(() => {
-  db = openDatabase(":memory:");
-  runMigrations(db);
-  __setTestDatabase(db);
-  __resetPresenceForTests();
+    db = openDatabase(':memory:');
+    runMigrations(db);
+    __setTestDatabase(db);
+    __resetPresenceForTests();
 });
 
 afterAll(() => {
-  db?.close();
-  db = null;
+    db?.close();
+    db = null;
 });

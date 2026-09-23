@@ -1,5 +1,5 @@
-import { RoomServiceClient, WebhookReceiver } from "livekit-server-sdk";
-import type { Env } from "../env";
+import { RoomServiceClient, WebhookReceiver } from 'livekit-server-sdk';
+import type { Env } from '../env';
 
 /**
  * Whether all three LiveKit env vars are present. Used both by
@@ -8,7 +8,7 @@ import type { Env } from "../env";
  * of minting a JWT that a real LiveKit server would reject.
  */
 export function isLiveKitConfigured(env: Env): boolean {
-  return Boolean(env.LIVEKIT_URL && env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET);
+    return Boolean(env.LIVEKIT_URL && env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET);
 }
 
 /**
@@ -21,25 +21,25 @@ export function isLiveKitConfigured(env: Env): boolean {
  * unchanged.
  */
 export function livekitHttpUrl(wsUrl: string): string {
-  if (wsUrl.startsWith("wss://")) {
-    return `https://${wsUrl.slice("wss://".length)}`;
-  }
-  if (wsUrl.startsWith("ws://")) {
-    return `http://${wsUrl.slice("ws://".length)}`;
-  }
-  return wsUrl;
+    if (wsUrl.startsWith('wss://')) {
+        return `https://${wsUrl.slice('wss://'.length)}`;
+    }
+    if (wsUrl.startsWith('ws://')) {
+        return `http://${wsUrl.slice('ws://'.length)}`;
+    }
+    return wsUrl;
 }
 
 export function createRoomServiceClient(env: Env): RoomServiceClient {
-  return new RoomServiceClient(
-    livekitHttpUrl(env.LIVEKIT_URL ?? ""),
-    env.LIVEKIT_API_KEY ?? "",
-    env.LIVEKIT_API_SECRET ?? ""
-  );
+    return new RoomServiceClient(
+        livekitHttpUrl(env.LIVEKIT_URL ?? ''),
+        env.LIVEKIT_API_KEY ?? '',
+        env.LIVEKIT_API_SECRET ?? '',
+    );
 }
 
 export function createWebhookReceiver(env: Env): WebhookReceiver {
-  return new WebhookReceiver(env.LIVEKIT_API_KEY ?? "", env.LIVEKIT_API_SECRET ?? "");
+    return new WebhookReceiver(env.LIVEKIT_API_KEY ?? '', env.LIVEKIT_API_SECRET ?? '');
 }
 
 /**
@@ -51,23 +51,23 @@ export function createWebhookReceiver(env: Env): WebhookReceiver {
  * kind of best-effort teardown call.
  */
 export async function removeParticipantBestEffort(
-  roomService: RoomServiceClient,
-  roomName: string,
-  identity: string
+    roomService: RoomServiceClient,
+    roomName: string,
+    identity: string,
 ): Promise<void> {
-  try {
-    await roomService.removeParticipant(roomName, identity);
-  } catch (error) {
-    console.info(
-      JSON.stringify({
-        level: "info",
-        msg: "livekit_remove_participant_failed",
-        roomName,
-        identity,
-        error: error instanceof Error ? error.message : String(error)
-      })
-    );
-  }
+    try {
+        await roomService.removeParticipant(roomName, identity);
+    } catch (error) {
+        console.info(
+            JSON.stringify({
+                level: 'info',
+                msg: 'livekit_remove_participant_failed',
+                roomName,
+                identity,
+                error: error instanceof Error ? error.message : String(error),
+            }),
+        );
+    }
 }
 
 /**
@@ -77,19 +77,19 @@ export async function removeParticipantBestEffort(
  * room that was never created (or is already gone) is an expected no-op.
  */
 export async function deleteRoomBestEffort(
-  roomService: RoomServiceClient,
-  roomName: string
+    roomService: RoomServiceClient,
+    roomName: string,
 ): Promise<void> {
-  try {
-    await roomService.deleteRoom(roomName);
-  } catch (error) {
-    console.info(
-      JSON.stringify({
-        level: "info",
-        msg: "livekit_delete_room_failed",
-        roomName,
-        error: error instanceof Error ? error.message : String(error)
-      })
-    );
-  }
+    try {
+        await roomService.deleteRoom(roomName);
+    } catch (error) {
+        console.info(
+            JSON.stringify({
+                level: 'info',
+                msg: 'livekit_delete_room_failed',
+                roomName,
+                error: error instanceof Error ? error.message : String(error),
+            }),
+        );
+    }
 }

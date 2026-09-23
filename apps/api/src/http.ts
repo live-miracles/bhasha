@@ -6,35 +6,35 @@
  * completion and log if it rejects" — a plain fire-and-forget.
  */
 export interface WaitUntilCtx {
-  waitUntil(promise: Promise<unknown>): void;
+    waitUntil(promise: Promise<unknown>): void;
 }
 
 export function createFireAndForgetCtx(): WaitUntilCtx {
-  return {
-    waitUntil(promise: Promise<unknown>) {
-      promise.catch((error: unknown) => {
-        console.error(
-          JSON.stringify({
-            level: "error",
-            message: "background_task_failed",
-            error: error instanceof Error ? error.message : String(error)
-          })
-        );
-      });
-    }
-  };
+    return {
+        waitUntil(promise: Promise<unknown>) {
+            promise.catch((error: unknown) => {
+                console.error(
+                    JSON.stringify({
+                        level: 'error',
+                        message: 'background_task_failed',
+                        error: error instanceof Error ? error.message : String(error),
+                    }),
+                );
+            });
+        },
+    };
 }
 
 export function json(data: unknown, init: ResponseInit = {}): Response {
-  const headers = new Headers(init.headers);
-  headers.set("content-type", "application/json; charset=utf-8");
-  return Response.json(data, { ...init, headers });
+    const headers = new Headers(init.headers);
+    headers.set('content-type', 'application/json; charset=utf-8');
+    return Response.json(data, { ...init, headers });
 }
 
 export function notFound(): Response {
-  return json({ error: "not_found" }, { status: 404 });
+    return json({ error: 'not_found' }, { status: 404 });
 }
 
 export async function readJson<T>(request: Request): Promise<T> {
-  return (await request.json()) as T;
+    return (await request.json()) as T;
 }

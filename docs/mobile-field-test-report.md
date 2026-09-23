@@ -8,18 +8,18 @@ This report tracks real-device listener and translator behavior. Mobile browser 
 
 ## Test Matrix
 
-| Scenario | Status | Result | Blocker |
-| --- | --- | --- | --- |
-| iPhone Safari listener start/switch/reconnect | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
+| Scenario                                       | Status  | Result       | Blocker                                                                              |
+| ---------------------------------------------- | ------- | ------------ | ------------------------------------------------------------------------------------ |
+| iPhone Safari listener start/switch/reconnect  | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
 | Android Chrome listener start/switch/reconnect | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
-| iPhone Safari with Bluetooth audio | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
-| Android Chrome with Bluetooth audio | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
-| iPhone Safari lock screen/background | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
-| Android Chrome lock screen/background | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
-| iPhone Safari low-power mode | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
-| Android Chrome battery saver | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
-| Mobile data | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
-| Venue Wi-Fi | NOT RUN | Not measured | Requires venue network access and a deployed or locally reachable HTTPS event URL. |
+| iPhone Safari with Bluetooth audio             | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
+| Android Chrome with Bluetooth audio            | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
+| iPhone Safari lock screen/background           | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
+| Android Chrome lock screen/background          | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
+| iPhone Safari low-power mode                   | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
+| Android Chrome battery saver                   | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
+| Mobile data                                    | NOT RUN | Not measured | Requires physical device access and a deployed or locally reachable HTTPS event URL. |
+| Venue Wi-Fi                                    | NOT RUN | Not measured | Requires venue network access and a deployed or locally reachable HTTPS event URL.   |
 
 ## Required Observations
 

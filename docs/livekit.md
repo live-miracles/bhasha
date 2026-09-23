@@ -15,11 +15,11 @@ Build a proof-of-concept live translation audio broadcast system using **3 self-
 
 The first use case is:
 
-* Original event audio is in English.
-* Translator listens to English externally or through an admin/source feed.
-* Translator speaks Hindi.
-* Participants scan a QR code and listen to the Hindi translation stream.
-* Listeners are distributed across 3 LiveKit rooms/servers.
+- Original event audio is in English.
+- Translator listens to English externally or through an admin/source feed.
+- Translator speaks Hindi.
+- Participants scan a QR code and listen to the Hindi translation stream.
+- Listeners are distributed across 3 LiveKit rooms/servers.
 
 LiveKit rooms should be treated as **audio broadcast shards**.
 
@@ -98,11 +98,11 @@ LiveKit self-hosted rooms must be sized so that each room fits on one node. Do n
 
 Can create:
 
-* Program
-* Language stream
-* Translator login/password
-* QR code / public program URL
-* LiveKit shard configuration
+- Program
+- Language stream
+- Translator login/password
+- QR code / public program URL
+- LiveKit shard configuration
 
 ### 2. Translator
 
@@ -114,11 +114,11 @@ URL:
 
 Translator can:
 
-* Login with password
-* Select assigned language, e.g. Hindi
-* Start/stop microphone
-* See connection status
-* See whether audio is being relayed to all shards
+- Login with password
+- Select assigned language, e.g. Hindi
+- Start/stop microphone
+- See connection status
+- See whether audio is being relayed to all shards
 
 Translator should publish as:
 
@@ -137,10 +137,10 @@ URL:
 
 Listener can:
 
-* Select Hindi stream
-* Join as listener
-* Listen only
-* Not publish microphone/camera
+- Select Hindi stream
+- Join as listener
+- Listen only
+- Not publish microphone/camera
 
 Listener token should have:
 
@@ -205,9 +205,9 @@ Backend should:
 
 ```json
 {
-  "livekitUrl": "wss://livekit-2.example.com",
-  "roomName": "program-123-hi-shard-2",
-  "token": "..."
+    "livekitUrl": "wss://livekit-2.example.com",
+    "roomName": "program-123-hi-shard-2",
+    "token": "..."
 }
 ```
 
@@ -233,18 +233,18 @@ This language stream is currently full. Please try again in a few minutes.
 
 Backend should regularly check:
 
-* Is LiveKit server reachable?
-* Can room be listed?
-* Current participant count
-* Is relay publisher connected?
-* Is audio track active?
+- Is LiveKit server reachable?
+- Can room be listed?
+- Current participant count
+- Is relay publisher connected?
+- Is audio track active?
 
 Mark shard unhealthy if:
 
-* Server API unavailable
-* Relay disconnected
-* No audio packets received for a defined timeout
-* Participant count query fails repeatedly
+- Server API unavailable
+- Relay disconnected
+- No audio packets received for a defined timeout
+- Participant count query fails repeatedly
 
 ---
 
@@ -268,24 +268,24 @@ Relay should expose status:
 
 ```json
 {
-  "sourceConnected": true,
-  "shards": [
-    {
-      "room": "program-123-hi-shard-1",
-      "connected": true,
-      "publishing": true
-    },
-    {
-      "room": "program-123-hi-shard-2",
-      "connected": true,
-      "publishing": true
-    },
-    {
-      "room": "program-123-hi-shard-3",
-      "connected": true,
-      "publishing": true
-    }
-  ]
+    "sourceConnected": true,
+    "shards": [
+        {
+            "room": "program-123-hi-shard-1",
+            "connected": true,
+            "publishing": true
+        },
+        {
+            "room": "program-123-hi-shard-2",
+            "connected": true,
+            "publishing": true
+        },
+        {
+            "room": "program-123-hi-shard-3",
+            "connected": true,
+            "publishing": true
+        }
+    ]
 }
 ```
 
@@ -305,11 +305,11 @@ Route:
 
 Show:
 
-* Program title
-* Available language streams
-* Hindi button
-* Stream status: Live / Not Live
-* Join button
+- Program title
+- Available language streams
+- Hindi button
+- Stream status: Live / Not Live
+- Join button
 
 When user selects Hindi:
 
@@ -332,13 +332,13 @@ Route:
 
 Show:
 
-* Password login
-* Assigned language
-* Start microphone button
-* Audio level meter
-* Source room connection status
-* Relay status to all 3 shards
-* Warning if any shard is down
+- Password login
+- Assigned language
+- Start microphone button
+- Audio level meter
+- Source room connection status
+- Relay status to all 3 shards
+- Warning if any shard is down
 
 ---
 
@@ -346,13 +346,13 @@ Show:
 
 Basic version:
 
-* Create program
-* Add Hindi stream
-* Configure 3 LiveKit shards
-* Generate QR URL
-* See listener counts per shard
-* See translator online/offline
-* See stream live/offline
+- Create program
+- Add Hindi stream
+- Configure 3 LiveKit shards
+- Generate QR URL
+- See listener counts per shard
+- See translator online/offline
+- See stream live/offline
 
 ---
 
@@ -381,11 +381,11 @@ Response:
 
 ```json
 {
-  "language": "Hindi",
-  "shardId": "hi-shard-2",
-  "livekitUrl": "wss://livekit-2.example.com",
-  "roomName": "program-123-hi-shard-2",
-  "token": "LIVEKIT_JWT"
+    "language": "Hindi",
+    "shardId": "hi-shard-2",
+    "livekitUrl": "wss://livekit-2.example.com",
+    "roomName": "program-123-hi-shard-2",
+    "token": "LIVEKIT_JWT"
 }
 ```
 
@@ -454,11 +454,11 @@ LiveKit Server 3
 
 Each should have:
 
-* Public WSS endpoint
-* TURN/STUN configured
-* API key/secret
-* Monitoring enabled
-* Sufficient CPU/network capacity
+- Public WSS endpoint
+- TURN/STUN configured
+- API key/secret
+- Monitoring enabled
+- Sufficient CPU/network capacity
 
 ---
 
@@ -481,15 +481,15 @@ Test cases:
 
 Metrics to monitor:
 
-* CPU
-* RAM
-* Network egress
-* Packet loss
-* Audio latency
-* Join failure rate
-* Reconnect rate
-* Listener count accuracy
-* Relay status
+- CPU
+- RAM
+- Network egress
+- Packet loss
+- Audio latency
+- Join failure rate
+- Reconnect rate
+- Listener count accuracy
+- Relay status
 
 ---
 
@@ -497,15 +497,15 @@ Metrics to monitor:
 
 The POC is successful if:
 
-* One translator can speak Hindi.
-* Audio is heard by listeners across all 3 LiveKit shard rooms.
-* Listeners are distributed approximately evenly.
-* Each listener joins as subscribe-only.
-* Translator does not need to manually connect to 3 rooms.
-* Admin can see listener count per shard.
-* If one shard fails, new listeners are routed to healthy shards.
-* Existing listeners on healthy shards continue unaffected.
-* System can support at least 2,000 simulated listeners per shard in testing.
+- One translator can speak Hindi.
+- Audio is heard by listeners across all 3 LiveKit shard rooms.
+- Listeners are distributed approximately evenly.
+- Each listener joins as subscribe-only.
+- Translator does not need to manually connect to 3 rooms.
+- Admin can see listener count per shard.
+- If one shard fails, new listeners are routed to healthy shards.
+- Existing listeners on healthy shards continue unaffected.
+- System can support at least 2,000 simulated listeners per shard in testing.
 
 ---
 
@@ -527,9 +527,9 @@ Use a backend relay.
 
 If translator uses a phone and the screen locks, the microphone may stop. Translator should ideally use:
 
-* Laptop browser
-* Phone with screen awake
-* Native mobile app if phone-lock support is required
+- Laptop browser
+- Phone with screen awake
+- Native mobile app if phone-lock support is required
 
 ### 3. Server Capacity
 

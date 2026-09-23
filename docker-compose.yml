@@ -28,145 +28,145 @@
 # separate static file on disk.
 
 services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    depends_on:
-      - livekit
-    environment:
-      ADMIN_PASSWORD_HASH: "${ADMIN_PASSWORD_HASH:?ADMIN_PASSWORD_HASH must be set (see .env.example)}"
-      ADMIN_SESSION_SECRET: "${ADMIN_SESSION_SECRET:?ADMIN_SESSION_SECRET must be set (see .env.example)}"
-      PLATFORM_ADMIN_EMAIL: "${PLATFORM_ADMIN_EMAIL:-}"
-      TRANSLATOR_PASSWORD_PEPPER: "${TRANSLATOR_PASSWORD_PEPPER:?TRANSLATOR_PASSWORD_PEPPER must be set (see .env.example)}"
-      TRANSLATOR_SESSION_SECRET: "${TRANSLATOR_SESSION_SECRET:?TRANSLATOR_SESSION_SECRET must be set (see .env.example)}"
-      VOLUNTEER_SESSION_SECRET: "${VOLUNTEER_SESSION_SECRET:-}"
-      REALTIME_SMOKE_ENABLED: "${REALTIME_SMOKE_ENABLED:-}"
-      PRESENCE_LIVE_COUNT: "${PRESENCE_LIVE_COUNT:-}"
-      DATABASE_PATH: "${DATABASE_PATH:-/data/bhasha.sqlite}"
-      # Matches this image's own layout (see the Dockerfile) -- set
-      # explicitly (rather than left absent) so an accidental empty-string
-      # override can't shadow apps/api/src/index.ts's built-in default with
-      # an unusable path.
-      WEB_DIST_PATH: "${WEB_DIST_PATH:-/app/apps/web/dist}"
-      LIVEKIT_URL: "${LIVEKIT_URL:?LIVEKIT_URL must be set (see .env.example)}"
-      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY must be set (see .env.example)}"
-      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set (see .env.example)}"
-      PORT: "${PORT:-8787}"
-    volumes:
-      # Named volume for the SQLite file's directory -- DATABASE_PATH above
-      # points inside it, so the DB (and its WAL files) survive container
-      # recreation.
-      - bhasha_data:/data
-    ports:
-      # Bound to the VM's own loopback interface only (127.0.0.1), NOT
-      # 0.0.0.0 -- reachable as http://localhost:8787 from the VM itself
-      # (SSH tunnel, or a local health-check probe) for debugging, but never
-      # from the public internet. Caddy (ports 80/443 below) is the only path
-      # the public internet should ever reach the app through; a plain
-      # 0.0.0.0 publish here would let anyone bypass Caddy's TLS entirely and
-      # hit login/session endpoints over unencrypted HTTP.
-      - "127.0.0.1:${APP_PORT:-8787}:8787"
-    networks:
-      - bhasha
+    app:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        restart: unless-stopped
+        depends_on:
+            - livekit
+        environment:
+            ADMIN_PASSWORD_HASH: '${ADMIN_PASSWORD_HASH:?ADMIN_PASSWORD_HASH must be set (see .env.example)}'
+            ADMIN_SESSION_SECRET: '${ADMIN_SESSION_SECRET:?ADMIN_SESSION_SECRET must be set (see .env.example)}'
+            PLATFORM_ADMIN_EMAIL: '${PLATFORM_ADMIN_EMAIL:-}'
+            TRANSLATOR_PASSWORD_PEPPER: '${TRANSLATOR_PASSWORD_PEPPER:?TRANSLATOR_PASSWORD_PEPPER must be set (see .env.example)}'
+            TRANSLATOR_SESSION_SECRET: '${TRANSLATOR_SESSION_SECRET:?TRANSLATOR_SESSION_SECRET must be set (see .env.example)}'
+            VOLUNTEER_SESSION_SECRET: '${VOLUNTEER_SESSION_SECRET:-}'
+            REALTIME_SMOKE_ENABLED: '${REALTIME_SMOKE_ENABLED:-}'
+            PRESENCE_LIVE_COUNT: '${PRESENCE_LIVE_COUNT:-}'
+            DATABASE_PATH: '${DATABASE_PATH:-/data/bhasha.sqlite}'
+            # Matches this image's own layout (see the Dockerfile) -- set
+            # explicitly (rather than left absent) so an accidental empty-string
+            # override can't shadow apps/api/src/index.ts's built-in default with
+            # an unusable path.
+            WEB_DIST_PATH: '${WEB_DIST_PATH:-/app/apps/web/dist}'
+            LIVEKIT_URL: '${LIVEKIT_URL:?LIVEKIT_URL must be set (see .env.example)}'
+            LIVEKIT_API_KEY: '${LIVEKIT_API_KEY:?LIVEKIT_API_KEY must be set (see .env.example)}'
+            LIVEKIT_API_SECRET: '${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set (see .env.example)}'
+            PORT: '${PORT:-8787}'
+        volumes:
+            # Named volume for the SQLite file's directory -- DATABASE_PATH above
+            # points inside it, so the DB (and its WAL files) survive container
+            # recreation.
+            - bhasha_data:/data
+        ports:
+            # Bound to the VM's own loopback interface only (127.0.0.1), NOT
+            # 0.0.0.0 -- reachable as http://localhost:8787 from the VM itself
+            # (SSH tunnel, or a local health-check probe) for debugging, but never
+            # from the public internet. Caddy (ports 80/443 below) is the only path
+            # the public internet should ever reach the app through; a plain
+            # 0.0.0.0 publish here would let anyone bypass Caddy's TLS entirely and
+            # hit login/session endpoints over unencrypted HTTP.
+            - '127.0.0.1:${APP_PORT:-8787}:8787'
+        networks:
+            - bhasha
 
-  livekit:
-    image: livekit/livekit-server:latest
-    restart: unless-stopped
-    command: ["--config", "/etc/livekit.yaml"]
-    configs:
-      - source: livekit_config
-        target: /etc/livekit.yaml
-    ports:
-      # rtc.tcp_port: WebRTC ICE-over-TCP fallback for clients that can't
-      # reach the UDP range below. LiveKit's own docs are explicit that this
-      # port "cannot be behind load balancer or TLS, and must be exposed on
-      # the node" -- so it's published directly, not proxied through Caddy.
-      - "7881:7881/tcp"
-      # rtc.port_range_start/end: the actual WebRTC media (SRTP) transport.
-      # This is the primary candidate path for both the translator's
-      # publish and every listener's subscribe connection. 50000-60000 is
-      # LiveKit's own documented default range; open it on any firewall in
-      # front of the VM too.
-      - "50000-60000:50000-60000/udp"
-      # turn.udp_port: LiveKit's built-in TURN server (UDP), for listeners
-      # on networks that block direct/STUN-only WebRTC (the
-      # `turn_configured` readiness check assumes this is reachable).
-      - "3478:3478/udp"
-    networks:
-      - bhasha
+    livekit:
+        image: livekit/livekit-server:latest
+        restart: unless-stopped
+        command: ['--config', '/etc/livekit.yaml']
+        configs:
+            - source: livekit_config
+              target: /etc/livekit.yaml
+        ports:
+            # rtc.tcp_port: WebRTC ICE-over-TCP fallback for clients that can't
+            # reach the UDP range below. LiveKit's own docs are explicit that this
+            # port "cannot be behind load balancer or TLS, and must be exposed on
+            # the node" -- so it's published directly, not proxied through Caddy.
+            - '7881:7881/tcp'
+            # rtc.port_range_start/end: the actual WebRTC media (SRTP) transport.
+            # This is the primary candidate path for both the translator's
+            # publish and every listener's subscribe connection. 50000-60000 is
+            # LiveKit's own documented default range; open it on any firewall in
+            # front of the VM too.
+            - '50000-60000:50000-60000/udp'
+            # turn.udp_port: LiveKit's built-in TURN server (UDP), for listeners
+            # on networks that block direct/STUN-only WebRTC (the
+            # `turn_configured` readiness check assumes this is reachable).
+            - '3478:3478/udp'
+        networks:
+            - bhasha
 
-  caddy:
-    image: caddy:2
-    restart: unless-stopped
-    depends_on:
-      - app
-      - livekit
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      # Caddy interpolates {$DOMAIN} in the Caddyfile natively -- no Compose
-      # substitution needed for this one.
-      DOMAIN: "${DOMAIN:?DOMAIN must be set to your public domain (see .env.example)}"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - bhasha
+    caddy:
+        image: caddy:2
+        restart: unless-stopped
+        depends_on:
+            - app
+            - livekit
+        ports:
+            - '80:80'
+            - '443:443'
+        environment:
+            # Caddy interpolates {$DOMAIN} in the Caddyfile natively -- no Compose
+            # substitution needed for this one.
+            DOMAIN: '${DOMAIN:?DOMAIN must be set to your public domain (see .env.example)}'
+        volumes:
+            - ./Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
+        networks:
+            - bhasha
 
 networks:
-  bhasha: {}
+    bhasha: {}
 
 volumes:
-  bhasha_data: {}
-  caddy_data: {}
-  caddy_config: {}
+    bhasha_data: {}
+    caddy_data: {}
+    caddy_config: {}
 
 configs:
-  livekit_config:
-    content: |
-      # Generated by docker-compose.yml's `configs.livekit_config` block --
-      # see that file for why this isn't a plain bind-mounted static file.
-      port: 7880
-      log_level: info
+    livekit_config:
+        content: |
+            # Generated by docker-compose.yml's `configs.livekit_config` block --
+            # see that file for why this isn't a plain bind-mounted static file.
+            port: 7880
+            log_level: info
 
-      rtc:
-        tcp_port: 7881
-        port_range_start: 50000
-        port_range_end: 60000
-        # Most cloud VMs have a public IP that isn't bound directly to the
-        # container's network interface. use_external_ip makes LiveKit
-        # discover it via STUN and advertise that address to clients
-        # instead of the private container/VM-internal IP.
-        use_external_ip: true
+            rtc:
+              tcp_port: 7881
+              port_range_start: 50000
+              port_range_end: 60000
+              # Most cloud VMs have a public IP that isn't bound directly to the
+              # container's network interface. use_external_ip makes LiveKit
+              # discover it via STUN and advertise that address to clients
+              # instead of the private container/VM-internal IP.
+              use_external_ip: true
 
-      # Single source of truth: the same LIVEKIT_API_KEY/LIVEKIT_API_SECRET
-      # the app uses to mint tokens (apps/api/src/livekit/client.ts) and to
-      # verify this server's webhook signatures (apps/api/src/livekit/webhook.ts).
-      keys:
-        "${LIVEKIT_API_KEY}": "${LIVEKIT_API_SECRET}"
+            # Single source of truth: the same LIVEKIT_API_KEY/LIVEKIT_API_SECRET
+            # the app uses to mint tokens (apps/api/src/livekit/client.ts) and to
+            # verify this server's webhook signatures (apps/api/src/livekit/webhook.ts).
+            keys:
+              "${LIVEKIT_API_KEY}": "${LIVEKIT_API_SECRET}"
 
-      # LiveKit's built-in TURN server -- apps/api/src/domain/readiness.ts's
-      # turn_configured check assumes this exists whenever LiveKit itself is
-      # configured. UDP-only (no turn.tls_port/domain/cert): this deployment
-      # relies on Caddy for the one TLS cert the app needs; adding a second,
-      # separately-certed TURN/TLS domain is more than this single-VM,
-      # 1-2k-listener target needs today. Revisit if event-day networks turn
-      # out to block plain UDP/STUN entirely.
-      turn:
-        enabled: true
-        udp_port: 3478
+            # LiveKit's built-in TURN server -- apps/api/src/domain/readiness.ts's
+            # turn_configured check assumes this exists whenever LiveKit itself is
+            # configured. UDP-only (no turn.tls_port/domain/cert): this deployment
+            # relies on Caddy for the one TLS cert the app needs; adding a second,
+            # separately-certed TURN/TLS domain is more than this single-VM,
+            # 1-2k-listener target needs today. Revisit if event-day networks turn
+            # out to block plain UDP/STUN entirely.
+            turn:
+              enabled: true
+              udp_port: 3478
 
-      # Drives apps/api/src/livekit/webhook.ts (participant/track events ->
-      # presence + publisher-reservation bookkeeping). Plain HTTP + the
-      # `app` service's Compose-network name: this call never leaves the
-      # bhasha network, so it doesn't need to round-trip through Caddy/TLS.
-      # The port must match the app's actual PORT (default 8787, from
-      # .env.example) since this static string can't reference that env var.
-      webhook:
-        api_key: "${LIVEKIT_API_KEY}"
-        urls:
-          - http://app:8787/api/livekit/webhook
+            # Drives apps/api/src/livekit/webhook.ts (participant/track events ->
+            # presence + publisher-reservation bookkeeping). Plain HTTP + the
+            # `app` service's Compose-network name: this call never leaves the
+            # bhasha network, so it doesn't need to round-trip through Caddy/TLS.
+            # The port must match the app's actual PORT (default 8787, from
+            # .env.example) since this static string can't reference that env var.
+            webhook:
+              api_key: "${LIVEKIT_API_KEY}"
+              urls:
+                - http://app:8787/api/livekit/webhook

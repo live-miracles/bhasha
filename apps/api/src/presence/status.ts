@@ -28,28 +28,28 @@
 // unit-tested) as public API surface for a future signal that wants to
 // refresh a specific listener's liveness without a full join/leave, but has
 // no production caller as of this slice.
-import type { AudioActivitySnapshot } from "./streamState";
+import type { AudioActivitySnapshot } from './streamState';
 
 export interface PresenceSnapshot {
-  total: number;
-  streams: Record<string, number>;
-  audioActivity: Record<string, AudioActivitySnapshot>;
-  lastUpdatedAt: string;
+    total: number;
+    streams: Record<string, number>;
+    audioActivity: Record<string, AudioActivitySnapshot>;
+    lastUpdatedAt: string;
 }
 
 export interface PresenceStatusSnapshot {
-  total: number;
-  streams: Record<string, number>;
-  audioActivity: Record<string, AudioActivitySnapshot>;
-  updatedAt: string | null;
-  stale: boolean;
-  degraded: boolean;
-  serverTime: string;
+    total: number;
+    streams: Record<string, number>;
+    audioActivity: Record<string, AudioActivitySnapshot>;
+    updatedAt: string | null;
+    stale: boolean;
+    degraded: boolean;
+    serverTime: string;
 }
 
 export interface AudioActivityReport {
-  transition: "started" | "stopped" | null;
-  active: boolean;
+    transition: 'started' | 'stopped' | null;
+    active: boolean;
 }
 
 // Defense-in-depth safety net against a lost/dropped `participant_left`
@@ -57,191 +57,187 @@ export interface AudioActivityReport {
 // Six hours comfortably outlasts any real single-event program while still
 // bounding a leaked listener's lifetime to "eventually", not "forever".
 export const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
-const NEVER_UPDATED_AT = "1970-01-01T00:00:00.000Z";
+const NEVER_UPDATED_AT = '1970-01-01T00:00:00.000Z';
 const STALE_STATUS_AFTER_MS = 5_000;
 
 interface ListenerPresenceRecord {
-  streamId: string;
-  lastSeenAt: number;
+    streamId: string;
+    lastSeenAt: number;
 }
 
 interface ProgramPresenceState {
-  records: Map<string, ListenerPresenceRecord>;
-  knownStreamIds: Set<string>;
-  audioActivity: Map<string, AudioActivitySnapshot>;
-  lastUpdatedAt: string;
+    records: Map<string, ListenerPresenceRecord>;
+    knownStreamIds: Set<string>;
+    audioActivity: Map<string, AudioActivitySnapshot>;
+    lastUpdatedAt: string;
 }
 
 const programStates = new Map<string, ProgramPresenceState>();
 
 function emptyState(): ProgramPresenceState {
-  return {
-    records: new Map(),
-    knownStreamIds: new Set(),
-    audioActivity: new Map(),
-    lastUpdatedAt: NEVER_UPDATED_AT
-  };
+    return {
+        records: new Map(),
+        knownStreamIds: new Set(),
+        audioActivity: new Map(),
+        lastUpdatedAt: NEVER_UPDATED_AT,
+    };
 }
 
 function getState(programId: string): ProgramPresenceState {
-  let state = programStates.get(programId);
-  if (!state) {
-    state = emptyState();
-    programStates.set(programId, state);
-  }
-  return state;
+    let state = programStates.get(programId);
+    if (!state) {
+        state = emptyState();
+        programStates.set(programId, state);
+    }
+    return state;
 }
 
 function pruneStale(state: ProgramPresenceState, now: number): boolean {
-  let pruned = false;
-  for (const [connectionId, record] of state.records) {
-    if (now - record.lastSeenAt > STALE_AFTER_MS) {
-      state.knownStreamIds.add(record.streamId);
-      state.records.delete(connectionId);
-      pruned = true;
+    let pruned = false;
+    for (const [connectionId, record] of state.records) {
+        if (now - record.lastSeenAt > STALE_AFTER_MS) {
+            state.knownStreamIds.add(record.streamId);
+            state.records.delete(connectionId);
+            pruned = true;
+        }
     }
-  }
-  return pruned;
+    return pruned;
 }
 
 function snapshot(state: ProgramPresenceState): PresenceSnapshot {
-  const streams: Record<string, number> = {};
-  for (const streamId of state.knownStreamIds) {
-    streams[streamId] = 0;
-  }
-  for (const record of state.records.values()) {
-    streams[record.streamId] = (streams[record.streamId] ?? 0) + 1;
-  }
+    const streams: Record<string, number> = {};
+    for (const streamId of state.knownStreamIds) {
+        streams[streamId] = 0;
+    }
+    for (const record of state.records.values()) {
+        streams[record.streamId] = (streams[record.streamId] ?? 0) + 1;
+    }
 
-  const audioActivity: Record<string, AudioActivitySnapshot> = {};
-  for (const [streamId, activity] of state.audioActivity) {
-    audioActivity[streamId] = activity;
-  }
+    const audioActivity: Record<string, AudioActivitySnapshot> = {};
+    for (const [streamId, activity] of state.audioActivity) {
+        audioActivity[streamId] = activity;
+    }
 
-  return {
-    total: state.records.size,
-    streams,
-    audioActivity,
-    lastUpdatedAt: state.lastUpdatedAt
-  };
+    return {
+        total: state.records.size,
+        streams,
+        audioActivity,
+        lastUpdatedAt: state.lastUpdatedAt,
+    };
 }
 
 /** Record a listener joining `streamId` for presence-counting purposes. */
-export function presenceJoin(
-  programId: string,
-  connectionId: string,
-  streamId: string
-): void {
-  const state = getState(programId);
-  const now = Date.now();
-  pruneStale(state, now);
-  state.knownStreamIds.add(streamId);
-  state.records.set(connectionId, { streamId, lastSeenAt: now });
-  state.lastUpdatedAt = new Date(now).toISOString();
+export function presenceJoin(programId: string, connectionId: string, streamId: string): void {
+    const state = getState(programId);
+    const now = Date.now();
+    pruneStale(state, now);
+    state.knownStreamIds.add(streamId);
+    state.records.set(connectionId, { streamId, lastSeenAt: now });
+    state.lastUpdatedAt = new Date(now).toISOString();
 }
 
 /** Record a liveness heartbeat for an already-known (or rejoining) listener. */
 export function presenceHeartbeat(
-  programId: string,
-  connectionId: string,
-  streamId: string | null
+    programId: string,
+    connectionId: string,
+    streamId: string | null,
 ): void {
-  const state = getState(programId);
-  const now = Date.now();
-  pruneStale(state, now);
+    const state = getState(programId);
+    const now = Date.now();
+    pruneStale(state, now);
 
-  const existing = state.records.get(connectionId);
-  const resolvedStreamId = existing?.streamId ?? streamId;
-  if (!resolvedStreamId) {
-    return;
-  }
+    const existing = state.records.get(connectionId);
+    const resolvedStreamId = existing?.streamId ?? streamId;
+    if (!resolvedStreamId) {
+        return;
+    }
 
-  state.knownStreamIds.add(resolvedStreamId);
-  state.records.set(connectionId, {
-    streamId: resolvedStreamId,
-    lastSeenAt: now
-  });
-  state.lastUpdatedAt = new Date(now).toISOString();
+    state.knownStreamIds.add(resolvedStreamId);
+    state.records.set(connectionId, {
+        streamId: resolvedStreamId,
+        lastSeenAt: now,
+    });
+    state.lastUpdatedAt = new Date(now).toISOString();
 }
 
 /** Record a listener leaving. */
 export function presenceLeave(programId: string, connectionId: string): void {
-  const state = getState(programId);
-  const now = Date.now();
-  pruneStale(state, now);
+    const state = getState(programId);
+    const now = Date.now();
+    pruneStale(state, now);
 
-  const record = state.records.get(connectionId);
-  if (record) {
-    state.knownStreamIds.add(record.streamId);
-    state.records.delete(connectionId);
-  }
-  state.lastUpdatedAt = new Date(now).toISOString();
+    const record = state.records.get(connectionId);
+    if (record) {
+        state.knownStreamIds.add(record.streamId);
+        state.records.delete(connectionId);
+    }
+    state.lastUpdatedAt = new Date(now).toISOString();
 }
 
 export async function readPresenceStatusSnapshot(
-  _env: unknown,
-  programId: string
+    _env: unknown,
+    programId: string,
 ): Promise<PresenceStatusSnapshot> {
-  const serverTime = new Date();
-  const state = getState(programId);
-  pruneStale(state, serverTime.getTime());
-  const snap = snapshot(state);
+    const serverTime = new Date();
+    const state = getState(programId);
+    pruneStale(state, serverTime.getTime());
+    const snap = snapshot(state);
 
-  return {
-    total: snap.total,
-    streams: snap.streams,
-    audioActivity: snap.audioActivity,
-    updatedAt: snap.lastUpdatedAt === NEVER_UPDATED_AT ? null : snap.lastUpdatedAt,
-    stale: isStale(snap.lastUpdatedAt, serverTime),
-    degraded: false,
-    serverTime: serverTime.toISOString()
-  };
+    return {
+        total: snap.total,
+        streams: snap.streams,
+        audioActivity: snap.audioActivity,
+        updatedAt: snap.lastUpdatedAt === NEVER_UPDATED_AT ? null : snap.lastUpdatedAt,
+        stale: isStale(snap.lastUpdatedAt, serverTime),
+        degraded: false,
+        serverTime: serverTime.toISOString(),
+    };
 }
 
 export async function reportAudioActivity(
-  _env: unknown,
-  programId: string,
-  input: { streamId: string; publishSessionId: string; active: boolean }
+    _env: unknown,
+    programId: string,
+    input: { streamId: string; publishSessionId: string; active: boolean },
 ): Promise<AudioActivityReport> {
-  const state = getState(programId);
-  const now = Date.now();
-  const previous = state.audioActivity.get(input.streamId);
-  const wasActiveForSession =
-    previous !== undefined &&
-    previous.publishSessionId === input.publishSessionId &&
-    previous.active === true;
+    const state = getState(programId);
+    const now = Date.now();
+    const previous = state.audioActivity.get(input.streamId);
+    const wasActiveForSession =
+        previous !== undefined &&
+        previous.publishSessionId === input.publishSessionId &&
+        previous.active === true;
 
-  let transition: "started" | "stopped" | null = null;
-  if (input.active && !wasActiveForSession) {
-    transition = "started";
-  } else if (!input.active && wasActiveForSession) {
-    transition = "stopped";
-  }
+    let transition: 'started' | 'stopped' | null = null;
+    if (input.active && !wasActiveForSession) {
+        transition = 'started';
+    } else if (!input.active && wasActiveForSession) {
+        transition = 'stopped';
+    }
 
-  state.audioActivity.set(input.streamId, {
-    publishSessionId: input.publishSessionId,
-    lastAudioActivityAt: now,
-    active: input.active
-  });
-  state.lastUpdatedAt = new Date(now).toISOString();
+    state.audioActivity.set(input.streamId, {
+        publishSessionId: input.publishSessionId,
+        lastAudioActivityAt: now,
+        active: input.active,
+    });
+    state.lastUpdatedAt = new Date(now).toISOString();
 
-  return { transition, active: input.active };
+    return { transition, active: input.active };
 }
 
 function isStale(lastUpdatedAt: string, serverTime: Date): boolean {
-  if (lastUpdatedAt === NEVER_UPDATED_AT) {
-    return true;
-  }
+    if (lastUpdatedAt === NEVER_UPDATED_AT) {
+        return true;
+    }
 
-  const updatedAtMs = Date.parse(lastUpdatedAt);
-  if (!Number.isFinite(updatedAtMs)) {
-    return true;
-  }
+    const updatedAtMs = Date.parse(lastUpdatedAt);
+    if (!Number.isFinite(updatedAtMs)) {
+        return true;
+    }
 
-  return serverTime.getTime() - updatedAtMs > STALE_STATUS_AFTER_MS;
+    return serverTime.getTime() - updatedAtMs > STALE_STATUS_AFTER_MS;
 }
 
 /** Test-only: reset all in-process presence state between test files/cases. */
 export function __resetPresenceForTests(): void {
-  programStates.clear();
+    programStates.clear();
 }

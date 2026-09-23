@@ -1,5 +1,5 @@
-import { AdminScreen } from "../features/admin/AdminScreen";
+import { AdminScreen } from '../features/admin/AdminScreen';
 
 export function AdminRoute() {
-  return <AdminScreen />;
+    return <AdminScreen />;
 }

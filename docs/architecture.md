@@ -267,8 +267,8 @@ API adapter (`apps/api/src/livekit/`):
   URL from the ws(s) `LIVEKIT_URL` browser clients use for signaling (LiveKit serves
   both on the same host/port).
 - `tokens.ts` -- `mintTranslatorToken` (publish-only grant: `canPublish: true,
-  canSubscribe: false`) and `mintListenerToken` (subscribe-only grant: `canPublish:
-  false, canSubscribe: true`), both via `livekit-server-sdk`'s `AccessToken`.
+canSubscribe: false`) and `mintListenerToken` (subscribe-only grant: `canPublish:
+false, canSubscribe: true`), both via `livekit-server-sdk`'s `AccessToken`.
   Participant identity is `translator:{translatorId}` / `listener:{connectionId}`.
 - `webhook.ts` -- `POST /api/livekit/webhook` handler: verifies LiveKit's webhook
   signature (`WebhookReceiver.receive`), then dispatches `participant_joined`/

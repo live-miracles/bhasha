@@ -13,15 +13,17 @@ are the exported screens under `exports/`.
 
 Audience: **1000s of concurrent, mostly-mobile users, low tech-literacy,
 vernacular backgrounds**, arriving cold via a venue QR code. The whole job:
-*see the program name → tap PLAY for your language → hear audio → adjust volume.*
+_see the program name → tap PLAY for your language → hear audio → adjust volume._
 
 Exports:
+
 - `exports/01-listener-idle.png` — landing after QR scan
 - `exports/02-listener-now-playing.png` — a language playing + volume bar
 - `exports/03-listener-connection-lost.png` — reconnect / recovery
 - `exports/listener-page-screens.pdf` — all three (vector)
 
 ### Key decisions
+
 - **Neutral / white-label.** One swappable accent token (`color-accent`, default
   `#1A6DCC`); everything else neutral so any client can rebrand by changing one value.
 - **Native script is the hero.** Each language shows its native script large
@@ -37,6 +39,7 @@ Exports:
   operator/admin telemetry only.
 
 ### Backend dependency
+
 Native-script labels need a **`nativeName`** field per stream. Today the public
 contract only returns English `languageName` + ISO `languageCode`
 (`apps/web/src/api/public.ts`). Removing counts and the PLAY/STOP toggle are
@@ -45,10 +48,11 @@ front-end-only.
 ## Translator Console (`/{programSlug}/translate`)
 
 Audience: **translators on phone or laptop, briefed but not techy**, usually
-assigned **one** language. Core need: unambiguous reassurance that *"I am ON AIR
-and my voice is being heard."*
+assigned **one** language. Core need: unambiguous reassurance that _"I am ON AIR
+and my voice is being heard."_
 
 Exports (full state set):
+
 - `exports/translator-01-login.png` — email + password login
 - `exports/translator-02-ready.png` — logged in, assigned language, big Go Live
 - `exports/translator-03-live.png` — ON AIR + microphone-level meter + controls
@@ -61,6 +65,7 @@ Exports (full state set):
 - `exports/translator-console-screens.pdf` — all nine (vector)
 
 ### Key decisions
+
 - **Login is by email** + password (program comes from the URL).
 - **ON AIR = green, not red.** Broadcast convention is red, but red is reserved
   for errors in this system. The live state is a large, animated green "ON AIR"
@@ -76,6 +81,7 @@ Exports (full state set):
 - Single focused column at all widths (phone + centered on desktop).
 
 ### Backend dependency
+
 Login currently takes a **`translatorId`**; this design uses **email**. The
 translator login contract (`apps/web/src/api/translator.ts` →
 `/api/translator/login`) needs to accept email. Native-script for the assigned
@@ -86,19 +92,20 @@ All publish states from the `TranslatorRoute` state machine are now drawn:
 `reconnecting`, `stopped`, and `error`.
 
 ## Design tokens (shared)
+
 Defined as Pencil variables in the listener `.pen`:
 
-| Token | Hex | Use |
-|---|---|---|
-| `color-bg` | `#F5F6F8` | page background |
-| `color-surface` | `#FFFFFF` | cards / bars |
-| `color-border` | `#DDE1E7` | borders |
-| `color-text-primary` | `#111318` | native script, headings |
-| `color-text-secondary` | `#5A6473` | English sublabels |
-| `color-text-muted` | `#8F97A3` | meta |
-| `color-accent` | `#1A6DCC` | **swap per client** — play, active ring |
-| `color-live` | `#16A249` | live state |
-| `color-silent` | `#D97706` | paused / silent (amber) |
-| `color-offline` | `#C0C7D0` | offline (grey) |
+| Token                  | Hex       | Use                                     |
+| ---------------------- | --------- | --------------------------------------- |
+| `color-bg`             | `#F5F6F8` | page background                         |
+| `color-surface`        | `#FFFFFF` | cards / bars                            |
+| `color-border`         | `#DDE1E7` | borders                                 |
+| `color-text-primary`   | `#111318` | native script, headings                 |
+| `color-text-secondary` | `#5A6473` | English sublabels                       |
+| `color-text-muted`     | `#8F97A3` | meta                                    |
+| `color-accent`         | `#1A6DCC` | **swap per client** — play, active ring |
+| `color-live`           | `#16A249` | live state                              |
+| `color-silent`         | `#D97706` | paused / silent (amber)                 |
+| `color-offline`        | `#C0C7D0` | offline (grey)                          |
 
 Font: **Noto Sans** (weights 400/600), line-height ≥1.4 for Indic scripts.

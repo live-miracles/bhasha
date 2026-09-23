@@ -1,12 +1,12 @@
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
-import BetterSqlite3 from "better-sqlite3";
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import BetterSqlite3 from 'better-sqlite3';
 
 // Re-exported so the rest of the codebase can `import type { Database } from
 // "./sqlite"` instead of reaching into the `better-sqlite3` package directly.
 export type Database = BetterSqlite3.Database;
 
-const DEFAULT_DATABASE_PATH = "./data/bhasha.sqlite";
+const DEFAULT_DATABASE_PATH = './data/bhasha.sqlite';
 
 /**
  * Open a better-sqlite3 database file (or `:memory:` for tests) and apply the
@@ -22,17 +22,17 @@ const DEFAULT_DATABASE_PATH = "./data/bhasha.sqlite";
  *   this pragma being on. Forgetting it silently turns cascades into no-ops.
  */
 export function openDatabase(databasePath?: string): Database {
-  const path = databasePath ?? process.env.DATABASE_PATH ?? DEFAULT_DATABASE_PATH;
+    const path = databasePath ?? process.env.DATABASE_PATH ?? DEFAULT_DATABASE_PATH;
 
-  if (path !== ":memory:") {
-    const dir = dirname(path);
-    if (dir && dir !== ".") {
-      mkdirSync(dir, { recursive: true });
+    if (path !== ':memory:') {
+        const dir = dirname(path);
+        if (dir && dir !== '.') {
+            mkdirSync(dir, { recursive: true });
+        }
     }
-  }
 
-  const db = new BetterSqlite3(path);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  return db;
+    const db = new BetterSqlite3(path);
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    return db;
 }

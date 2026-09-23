@@ -126,7 +126,7 @@ Rules:
   React) — there is NO pyright. For TS/FE slices the dispatched agent MUST run
   `tsc` itself (the sandbox's vitest strips types, so vitest-green ≠ type-clean).
   Gate criterion = `codex_par.py gate --cwd <wt> --cmd "npm run typecheck
-  --workspace apps/web" --baseline <f>` content-diff (zero NEW errors), NEVER a
+--workspace apps/web" --baseline <f>` content-diff (zero NEW errors), NEVER a
   filename grep. `--capture` the baseline before dispatch.
 - **Test commands to hand the agent**: `npm test --workspace apps/web` /
   `--workspace apps/api` (vitest), `npm run e2e --workspace apps/web`
