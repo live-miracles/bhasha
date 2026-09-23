@@ -4,6 +4,7 @@ import {
     Checkbox,
     Group,
     Paper,
+    NativeSelect,
     SimpleGrid,
     Stack,
     Text,
@@ -2015,108 +2016,102 @@ function ProgramDetailForm({
     readOnly: boolean;
 }) {
     return (
-        <div className="admin-card">
-            <form className="admin-form" onSubmit={onSubmit}>
-                <h2>Program detail</h2>
-                <label className="admin-access-toggle">
-                    <input
-                        aria-describedby="edit-listener-approval-hint"
+        <Paper p="lg" radius="md" withBorder>
+            <form onSubmit={onSubmit}>
+                <Stack gap="md">
+                    <Title order={2}>Program detail</Title>
+                    <Checkbox
+                        aria-label="Require listener approval before they can listen"
                         checked={form.accessControlEnabled}
+                        description="Listeners must be approved by a volunteer before they can listen"
                         disabled={readOnly}
+                        label="Require listener approval"
                         onChange={(event) =>
                             onChange({
                                 ...form,
-                                accessControlEnabled: event.target.checked,
+                                accessControlEnabled: event.currentTarget.checked,
                             })
                         }
-                        type="checkbox"
                     />
-                    <span className="admin-access-toggle-copy">
-                        <strong>Require listener approval</strong>
-                        <span className="admin-hint" id="edit-listener-approval-hint">
-                            Listeners must be approved by a volunteer before they can listen
-                        </span>
-                    </span>
-                </label>
-                <label>
-                    Detail program name
-                    <input
+                    <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                        <TextInput
+                            disabled={readOnly}
+                            label="Detail program name"
+                            onChange={(event) => onChange({ ...form, name: event.target.value })}
+                            value={form.name}
+                        />
+                        <TextInput
+                            disabled={readOnly}
+                            label="Detail venue"
+                            onChange={(event) => onChange({ ...form, venue: event.target.value })}
+                            value={form.venue}
+                        />
+                        <TextInput
+                            disabled={readOnly}
+                            label="Detail date"
+                            onChange={(event) =>
+                                onChange({ ...form, eventDate: event.target.value })
+                            }
+                            type="date"
+                            value={form.eventDate}
+                        />
+                        <TextInput
+                            aria-describedby={slugLocked ? 'next-slug-hint' : undefined}
+                            disabled={readOnly || slugLocked}
+                            label="Next slug"
+                            onChange={(event) =>
+                                onChange({ ...form, nextSlug: event.target.value })
+                            }
+                            value={form.nextSlug}
+                        />
+                    </SimpleGrid>
+                    {slugLocked ? (
+                        <Text c="dimmed" id="next-slug-hint" size="sm">
+                            Slug is locked once the program leaves draft.
+                        </Text>
+                    ) : null}
+                    <NativeSelect
+                        data={['draft', 'live', 'archived']}
                         disabled={readOnly}
-                        onChange={(event) => onChange({ ...form, name: event.target.value })}
-                        value={form.name}
-                    />
-                </label>
-                <label>
-                    Detail venue
-                    <input
-                        disabled={readOnly}
-                        onChange={(event) => onChange({ ...form, venue: event.target.value })}
-                        value={form.venue}
-                    />
-                </label>
-                <label>
-                    Detail date
-                    <input
-                        onChange={(event) => onChange({ ...form, eventDate: event.target.value })}
-                        disabled={readOnly}
-                        type="date"
-                        value={form.eventDate}
-                    />
-                </label>
-                <label>
-                    Next slug
-                    <input
-                        aria-describedby={slugLocked ? 'next-slug-hint' : undefined}
-                        disabled={readOnly || slugLocked}
-                        onChange={(event) => onChange({ ...form, nextSlug: event.target.value })}
-                        value={form.nextSlug}
-                    />
-                </label>
-                {slugLocked ? (
-                    <p className="admin-hint" id="next-slug-hint">
-                        Slug is locked once the program leaves draft.
-                    </p>
-                ) : null}
-                <label>
-                    Detail status
-                    <select
-                        disabled={readOnly}
+                        label="Detail status"
                         onChange={(event) =>
-                            onChange({ ...form, status: event.target.value as ProgramStatus })
+                            onChange({
+                                ...form,
+                                status: event.currentTarget.value as ProgramStatus,
+                            })
                         }
                         value={form.status}
-                    >
-                        <option value="draft">draft</option>
-                        <option value="live">live</option>
-                        <option value="archived">archived</option>
-                    </select>
-                </label>
-                <label>
-                    Detail notes
-                    <textarea
+                    />
+                    <Textarea
                         disabled={readOnly}
+                        label="Detail notes"
+                        minRows={4}
                         onChange={(event) => onChange({ ...form, adminNotes: event.target.value })}
                         value={form.adminNotes}
                     />
-                </label>
-                {readOnly ? null : (
-                    <>
-                        <div className="admin-actions">
-                            <button type="submit">Update program</button>
-                        </div>
-                        <div className="admin-danger-zone">
-                            <h3>Danger zone</h3>
-                            <button onClick={onArchive} type="button">
-                                Archive program
-                            </button>
-                            <button onClick={onDelete} type="button">
-                                Delete program
-                            </button>
-                        </div>
-                    </>
-                )}
+                    {readOnly ? null : (
+                        <>
+                            <Group>
+                                <Button type="submit">Update program</Button>
+                            </Group>
+                            <Paper p="md" radius="md" withBorder>
+                                <Stack gap="sm">
+                                    <Title order={3}>Danger zone</Title>
+                                    <Group>
+                                        <Button color="red" onClick={onArchive} type="button">
+                                            Archive program
+                                        </Button>
+                                        <Button color="red" onClick={onDelete} type="button">
+                                            Delete program
+                                        </Button>
+                                    </Group>
+                                </Stack>
+                            </Paper>
+                        </>
+                    )}
+                </Stack>
             </form>
-        </div>
+        </Paper>
     );
 }
 

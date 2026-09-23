@@ -46,3 +46,18 @@ if (!globalThis.MediaStream) {
         value: TestMediaStream,
     });
 }
+
+if (!globalThis.ResizeObserver) {
+    class TestResizeObserver {
+        observe() {}
+
+        unobserve() {}
+
+        disconnect() {}
+    }
+
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+        configurable: true,
+        value: TestResizeObserver,
+    });
+}

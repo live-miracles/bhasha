@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '../src/env';
 import { createApp } from '../src/index';
 import { UsersRepository } from '../src/db/usersRepository';
-import { ADMIN_TEST_USERNAME, adminCookie, buildTestEnv, seedAdmin, seedUser, testEnv } from './test-env';
+import {
+    ADMIN_TEST_USERNAME,
+    adminCookie,
+    buildTestEnv,
+    seedAdmin,
+    seedUser,
+    testEnv,
+} from './test-env';
 
 async function request(path: string, init: RequestInit = {}, requestEnv: Env = buildTestEnv()) {
     const app = createApp(requestEnv);
@@ -201,9 +208,9 @@ describe('admin user management APIs', () => {
         expect(await reset.json()).toEqual({ ok: true });
 
         // The old session is revoked.
-        expect(
-            (await request('/api/admin/me', { headers: { Cookie: targetCookie } })).status,
-        ).toBe(401);
+        expect((await request('/api/admin/me', { headers: { Cookie: targetCookie } })).status).toBe(
+            401,
+        );
 
         // Cannot reset the admin's own password via this endpoint.
         const resetAdmin = await request(`/api/admin/users/${adminId}/password`, {

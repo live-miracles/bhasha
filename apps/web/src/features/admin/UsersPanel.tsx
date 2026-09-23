@@ -151,9 +151,7 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
                     <label>
                         Username
                         <input
-                            onChange={(event) =>
-                                setForm({ ...form, username: event.target.value })
-                            }
+                            onChange={(event) => setForm({ ...form, username: event.target.value })}
                             required
                             type="text"
                             value={form.username}
