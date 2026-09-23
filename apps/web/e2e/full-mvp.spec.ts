@@ -32,8 +32,9 @@ test('full MVP event flow keeps listeners receive-only and operators informed', 
         await installTranslatorMocks(translator);
         await installListenerMocks(listener);
 
-        await admin.goto('/admin');
-        await admin.getByLabel('Admin password').fill('admin-secret');
+        await admin.goto('/manage');
+        await admin.getByLabel('Username').fill('admin');
+        await admin.getByLabel('Management password').fill('admin-secret');
         await admin.getByRole('button', { name: 'Log in' }).click();
         await admin
             .getByRole('textbox', { name: 'Program name', exact: true })
@@ -42,19 +43,22 @@ test('full MVP event flow keeps listeners receive-only and operators informed', 
         await admin.getByLabel('Program venue').fill('Main Hall');
         await admin.getByLabel('Program date').fill('2026-07-01');
         await admin.getByRole('button', { name: 'Create program' }).click();
-        await admin.getByRole('button', { name: 'Open Patna Event 2026' }).click();
-        await expect(admin.getByRole('region', { name: 'Listener QR' })).toBeVisible();
+        await admin.getByRole('button', { name: /Patna Event 2026/ }).click();
+        await admin.getByRole('button', { name: 'Share / QR' }).click();
+        await expect(admin.getByRole('region', { name: 'Share QR' })).toBeVisible();
         await expect(admin.getByRole('img', { name: 'Listener QR' })).toBeVisible();
         await expect(
             admin
-                .getByRole('region', { name: 'Listener QR' })
+                .getByRole('region', { name: 'Share QR' })
                 .locator('p')
-                .filter({ hasText: 'http://127.0.0.1:4173/patna-event-2026' }),
+                .filter({ hasText: /^http:\/\/127\.0\.0\.1:4173\/patna-event-2026$/ }),
         ).toBeVisible();
 
+        await admin.getByRole('button', { name: 'Streams' }).click();
         await admin.getByLabel('Stream language').selectOption('hi');
         await admin.getByLabel('Stream display order').fill('1');
         await admin.getByRole('button', { name: 'Create stream' }).click();
+        await admin.getByRole('button', { name: 'Translators' }).click();
         await admin.getByLabel('Translator email').fill('hi@example.com');
         await admin.getByLabel('Translator name').fill('Hindi translator');
         await admin.getByLabel('Translator password').fill('translator-secret');
@@ -88,7 +92,8 @@ test('full MVP event flow keeps listeners receive-only and operators informed', 
         await expect.poll(() => listener.evaluate(() => window.__listenerMediaRequests)).toBe(0);
 
         await admin.reload();
-        await admin.getByRole('button', { name: 'Open Patna Event 2026' }).click();
+        await admin.getByRole('button', { name: /Patna Event 2026/ }).click();
+        await admin.getByRole('button', { name: 'Status' }).click();
         await expect(admin.getByRole('region', { name: 'Listener counts' })).toContainText('Total');
         await expect(admin.getByRole('region', { name: 'Listener counts' })).toContainText('Live');
     } finally {
@@ -100,6 +105,12 @@ test('full MVP event flow keeps listeners receive-only and operators informed', 
 
 async function installAdminMocks(page: Page): Promise<void> {
     let authenticated = false;
+    await page.route(/\/api\/admin\/programs\?deleted=true$/, async (route) => {
+        await route.fulfill({
+            contentType: 'application/json',
+            json: { programs: [] },
+        });
+    });
 
     // In-memory program detail that grows as the operator creates streams,
     // translators, and assignments. Deterministic, no network state.
@@ -164,19 +175,27 @@ async function installAdminMocks(page: Page): Promise<void> {
         });
     });
 
+    await page.route('**/api/admin/me', async (route) => {
+        await route.fulfill({
+            contentType: 'application/json',
+            json: { id: 'admin_1', username: 'admin', role: 'admin' },
+        });
+    });
+
     await page.route('**/api/admin/programs', async (route) => {
         if (route.request().method() === 'GET') {
+            const deleted = new URL(route.request().url()).searchParams.get('deleted') === 'true';
             if (!authenticated) {
                 await route.fulfill({
                     contentType: 'application/json',
-                    json: { error: 'admin_auth_required' },
-                    status: 401,
+                    json: deleted ? { programs: [] } : { error: 'admin_auth_required' },
+                    status: deleted ? 200 : 401,
                 });
                 return;
             }
             await route.fulfill({
                 contentType: 'application/json',
-                json: { programs: [program] },
+                json: { programs: deleted ? [] : [program] },
             });
             return;
         }
@@ -238,6 +257,18 @@ async function installAdminMocks(page: Page): Promise<void> {
                         detail: 'Program details are configured.',
                     },
                 ],
+            },
+        });
+    });
+
+    await page.route('**/api/admin/programs/program_1/volunteer-access', async (route) => {
+        await route.fulfill({
+            contentType: 'application/json',
+            json: {
+                configured: false,
+                loginId: null,
+                passwordUpdatedAt: null,
+                activeSessionCount: 0,
             },
         });
     });
@@ -359,6 +390,26 @@ async function installTranslatorMocks(page: Page): Promise<void> {
         // `Room.connect()`, which this e2e build swaps out entirely for a no-real-
         // transport double (see apps/web/e2e/support/fakeLivekitClient.ts and
         // apps/web/vite.config.ts's E2E_FAKE_LIVEKIT alias).
+    });
+
+    await page.route('**/api/public/programs/patna-event-2026', async (route) => {
+        await route.fulfill({
+            contentType: 'application/json',
+            json: {
+                program: {
+                    slug: 'patna-event-2026',
+                    name: 'Patna Event 2026',
+                    venue: 'Main Hall',
+                    eventDate: '2026-07-01',
+                    status: 'live',
+                },
+                streams: [],
+                urls: {
+                    listenerUrl: 'http://127.0.0.1:4173/patna-event-2026',
+                    translatorUrl: 'http://127.0.0.1:4173/patna-event-2026/translate',
+                },
+            },
+        });
     });
 
     // Logged out on load; login provides the session.

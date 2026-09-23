@@ -41,22 +41,29 @@ const detail = {
     suggestedQrFilename: 'patna-event-2026-listener-qr.png',
 };
 
-test('admin dashboard smoke with mocked APIs', async ({ page }) => {
+test('management workspace smoke with mocked APIs', async ({ page }) => {
     let authenticated = false;
+    await page.route(/\/api\/admin\/programs\?deleted=true$/, async (route) => {
+        await route.fulfill({
+            contentType: 'application/json',
+            json: { programs: [] },
+        });
+    });
 
     await page.route('**/api/admin/programs', async (route) => {
         if (route.request().method() === 'GET') {
+            const deleted = new URL(route.request().url()).searchParams.get('deleted') === 'true';
             if (!authenticated) {
                 await route.fulfill({
                     contentType: 'application/json',
-                    json: { error: 'admin_auth_required' },
-                    status: 401,
+                    json: deleted ? { programs: [] } : { error: 'admin_auth_required' },
+                    status: deleted ? 200 : 401,
                 });
                 return;
             }
             await route.fulfill({
                 contentType: 'application/json',
-                json: { programs: [program] },
+                json: { programs: deleted ? [] : [program] },
             });
             return;
         }
@@ -83,6 +90,13 @@ test('admin dashboard smoke with mocked APIs', async ({ page }) => {
         await route.fulfill({
             contentType: 'application/json',
             json: { ok: true },
+        });
+    });
+
+    await page.route('**/api/admin/me', async (route) => {
+        await route.fulfill({
+            contentType: 'application/json',
+            json: { id: 'admin_1', username: 'admin', role: 'admin' },
         });
     });
 
@@ -263,8 +277,20 @@ test('admin dashboard smoke with mocked APIs', async ({ page }) => {
         });
     });
 
-    await page.goto('/admin');
-    await expect(page.getByRole('heading', { name: 'Admin login' })).toBeVisible();
+    await page.route('**/api/admin/programs/program_1/volunteer-access', async (route) => {
+        await route.fulfill({
+            contentType: 'application/json',
+            json: {
+                configured: false,
+                loginId: null,
+                passwordUpdatedAt: null,
+                activeSessionCount: 0,
+            },
+        });
+    });
+
+    await page.goto('/manage');
+    await expect(page.getByRole('heading', { name: 'Management login' })).toBeVisible();
 
     // Anonymous fetch to an admin report endpoint is denied before login.
     const unauthenticatedStatus = await page.evaluate(async () => {
@@ -275,23 +301,27 @@ test('admin dashboard smoke with mocked APIs', async ({ page }) => {
     });
     expect(unauthenticatedStatus).toBe(401);
 
-    await page.getByLabel('Admin password').fill('admin-pass');
+    await page.getByLabel('Username').fill('admin');
+    await page.getByLabel('Management password').fill('admin-pass');
     await page.getByRole('button', { name: 'Log in' }).click();
     await expect(page.getByRole('heading', { name: 'Patna Event 2026' })).toBeVisible();
 
     await expect(
         page.getByText('http://127.0.0.1:4173/patna-event-2026', { exact: true }),
     ).toBeVisible();
-    await page.getByRole('button', { name: 'Open Patna Event 2026' }).click();
+    await page.getByRole('button', { name: /Patna Event 2026/ }).click();
 
+    await page.getByRole('button', { name: 'Status' }).click();
     await expect(page.getByLabel('Listener counts')).toContainText('18');
 
     // Report summary cards render with totals.
+    await page.getByRole('button', { name: 'Reports' }).click();
     const summaryPanel = page.getByLabel('Report summary');
-    await expect(summaryPanel).toContainText('Active listeners');
+    await expect(summaryPanel).toContainText('Active now');
     await expect(summaryPanel).toContainText('64');
 
     // Event readiness renders blockers/warnings and confirmation controls.
+    await page.getByRole('button', { name: 'Readiness' }).click();
     const readinessPanel = page.getByRole('region', { name: 'Event readiness' });
     await expect(readinessPanel).toContainText('Event readiness');
     await expect(readinessPanel).toContainText('Blocker');
@@ -313,6 +343,7 @@ test('admin dashboard smoke with mocked APIs', async ({ page }) => {
     ]);
     expect(download.suggestedFilename()).toMatch(/listener-report\.csv$/);
 
+    await page.getByRole('button', { name: 'Share / QR' }).click();
     await expect(page.getByRole('img', { name: 'Listener QR' })).toBeVisible();
     await expect(
         page
@@ -321,6 +352,7 @@ test('admin dashboard smoke with mocked APIs', async ({ page }) => {
             .filter({ hasText: 'http://127.0.0.1:4173/patna-event-2026' }),
     ).toBeVisible();
 
+    await page.getByRole('button', { name: '← Programs' }).click();
     await page.getByRole('textbox', { name: 'Program name', exact: true }).fill('Delhi Event 2026');
     await page.getByLabel('Program slug').fill('delhi-event-2026');
     await page.getByLabel('Program venue').fill('Auditorium');

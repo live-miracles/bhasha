@@ -3,6 +3,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { createPublicApi, type PublicApi } from './api/public';
 import { AdminRoute } from './routes/AdminRoute';
 import { AdminRoutes } from './routes/AdminRoutes';
+import { LandingRoute } from './routes/LandingRoute';
 import { ListenerRoute } from './routes/ListenerRoute';
 import { NotFoundRoute } from './routes/NotFoundRoute';
 import { TranslatorRoute } from './routes/TranslatorRoute';
@@ -16,7 +17,7 @@ export interface AppProps {
 
 export function App({ path, publicApi = createPublicApi() }: AppProps) {
     const currentPath = path ?? window.location.pathname;
-    if (currentPath === '/admin' || currentPath.startsWith('/admin/')) {
+    if (currentPath === '/manage' || currentPath.startsWith('/manage/')) {
         return (
             <BrowserRouter>
                 <AdminRoutes />
@@ -27,7 +28,9 @@ export function App({ path, publicApi = createPublicApi() }: AppProps) {
     const route = parseRoute(path ?? window.location.pathname);
 
     switch (route.type) {
-        case 'admin':
+        case 'landing':
+            return <LandingRoute />;
+        case 'manage':
             return <AdminRoute />;
         case 'listener':
             return <ListenerRoute programSlug={route.programSlug} publicApi={publicApi} />;

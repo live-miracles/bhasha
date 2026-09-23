@@ -3,8 +3,16 @@ import { describe, expect, it } from 'vitest';
 import { parseRoute } from '../src/routes/routeParser';
 
 describe('parseRoute', () => {
-    it('matches the admin route before slug routes', () => {
-        expect(parseRoute('/admin')).toEqual({ type: 'admin' });
+    it('matches the public landing page at the root', () => {
+        expect(parseRoute('/')).toEqual({ type: 'landing' });
+    });
+
+    it('matches the management route before slug routes', () => {
+        expect(parseRoute('/manage')).toEqual({ type: 'manage' });
+    });
+
+    it('does not reserve the removed admin route as a management route', () => {
+        expect(parseRoute('/admin')).toEqual({ type: 'notFound' });
     });
 
     it('matches listener routes with a decoded program slug', () => {

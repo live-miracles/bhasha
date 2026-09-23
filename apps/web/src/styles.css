@@ -95,6 +95,48 @@ body {
     max-width: 720px;
 }
 
+.shell-landing {
+    display: grid;
+    place-items: center;
+    background: linear-gradient(135deg, #f7f3ee 0%, #f5f6f8 55%, #eef3f8 100%);
+}
+
+.landing-panel {
+    width: min(100%, 640px);
+    padding: clamp(28px, 6vw, 64px);
+    border: 1px solid var(--lp-border);
+    border-radius: 24px;
+    background: rgb(255 255 255 / 92%);
+    box-shadow: 0 18px 48px rgb(42 42 42 / 10%);
+}
+
+.landing-panel p:not(.eyebrow) {
+    max-width: 52ch;
+    color: var(--lp-text-secondary);
+    font-size: 1.05rem;
+    line-height: 1.6;
+}
+
+.landing-action {
+    display: inline-block;
+    margin-top: 12px;
+    border-radius: var(--lp-radius-sm);
+    background: var(--hp-terracotta);
+    color: var(--hp-white);
+    font-weight: 700;
+    padding: 12px 18px;
+    text-decoration: none;
+}
+
+.landing-action:hover {
+    background: var(--hp-terracotta-hover);
+}
+
+.landing-note {
+    margin-bottom: 0;
+    font-size: 0.9rem !important;
+}
+
 .eyebrow {
     margin: 0 0 6px;
     color: var(--lp-text-muted);

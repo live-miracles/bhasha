@@ -68,11 +68,11 @@ afterEach(() => {
 
 function renderAdmin(ui: ReactElement) {
     return render(
-        <MemoryRouter initialEntries={['/admin']}>
+        <MemoryRouter initialEntries={['/manage']}>
             <Routes>
-                <Route path="/admin" element={ui} />
-                <Route path="/admin/programs/:slug" element={ui} />
-                <Route path="/admin/programs/:slug/:section" element={ui} />
+                <Route path="/manage" element={ui} />
+                <Route path="/manage/programs/:slug" element={ui} />
+                <Route path="/manage/programs/:slug/:section" element={ui} />
             </Routes>
         </MemoryRouter>,
     );
@@ -487,9 +487,11 @@ describe('AdminScreen', () => {
 
         renderAdmin(<AdminScreen adminApi={api} />);
 
-        expect(await screen.findByRole('heading', { name: 'Admin login' })).toBeInTheDocument();
+        expect(
+            await screen.findByRole('heading', { name: 'Management login' }),
+        ).toBeInTheDocument();
         expect(screen.getByLabelText('Username')).toBeInTheDocument();
-        expect(screen.getByLabelText('Admin password')).toBeInTheDocument();
+        expect(screen.getByLabelText('Management password')).toBeInTheDocument();
     });
 
     it('shows invalid login errors', async () => {
@@ -507,7 +509,7 @@ describe('AdminScreen', () => {
         fireEvent.change(await screen.findByLabelText('Username'), {
             target: { value: 'admin' },
         });
-        fireEvent.change(await screen.findByLabelText('Admin password'), {
+        fireEvent.change(await screen.findByLabelText('Management password'), {
             target: { value: 'wrong-pass' },
         });
         fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
@@ -527,7 +529,7 @@ describe('AdminScreen', () => {
         fireEvent.change(await screen.findByLabelText('Username'), {
             target: { value: 'admin' },
         });
-        fireEvent.change(await screen.findByLabelText('Admin password'), {
+        fireEvent.change(await screen.findByLabelText('Management password'), {
             target: { value: 'admin-pass' },
         });
         fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
@@ -898,10 +900,10 @@ describe('AdminScreen', () => {
         });
 
         render(
-            <MemoryRouter initialEntries={['/admin/programs/patna-event-2026']}>
-                <Link to="/admin/programs/delhi-event-2026">Switch to Delhi</Link>
+            <MemoryRouter initialEntries={['/manage/programs/patna-event-2026']}>
+                <Link to="/manage/programs/delhi-event-2026">Switch to Delhi</Link>
                 <Routes>
-                    <Route path="/admin/programs/:slug" element={<AdminScreen adminApi={api} />} />
+                    <Route path="/manage/programs/:slug" element={<AdminScreen adminApi={api} />} />
                 </Routes>
             </MemoryRouter>,
         );
@@ -1292,8 +1294,10 @@ describe('AdminScreen', () => {
         await openFirstProgram();
         await goToSection('Reports');
 
-        expect(await screen.findByRole('heading', { name: 'Admin login' })).toBeInTheDocument();
-        expect(screen.getByLabelText('Admin password')).toBeInTheDocument();
+        expect(
+            await screen.findByRole('heading', { name: 'Management login' }),
+        ).toBeInTheDocument();
+        expect(screen.getByLabelText('Management password')).toBeInTheDocument();
 
         const summaryCallsAfterExpiry = getReportSummary.mock.calls.length;
         const eventCallsAfterExpiry = getEventFeed.mock.calls.length;
@@ -1813,7 +1817,7 @@ describe('AdminScreen', () => {
             await Promise.resolve();
         });
 
-        expect(screen.queryByRole('heading', { name: 'Admin login' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Management login' })).not.toBeInTheDocument();
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
         expect(screen.getByLabelText('Report summary')).toHaveTextContent('42');
     });
@@ -2866,8 +2870,10 @@ describe('AdminScreen', () => {
         const card = screen.getByRole('heading', { name: 'Hindi Translator' }).closest('article')!;
         fireEvent.click(within(card).getByRole('button', { name: /Sessions/ }));
 
-        expect(await screen.findByRole('heading', { name: 'Admin login' })).toBeInTheDocument();
-        expect(screen.getByLabelText('Admin password')).toBeInTheDocument();
+        expect(
+            await screen.findByRole('heading', { name: 'Management login' }),
+        ).toBeInTheDocument();
+        expect(screen.getByLabelText('Management password')).toBeInTheDocument();
         expect(screen.queryByText('Could not load sessions. Retrying…')).not.toBeInTheDocument();
     });
 

@@ -14,8 +14,9 @@ clients never request audio/video publishing permission.
   microphone audio, mutes/unmutes, and reconnects. (`apps/api/src/routes/translator.ts`)
 - **Listener / participant** — opens `/{program_id}`, picks a live language,
   listens, switches streams, and reconnects. Receive-only. (`apps/api/src/routes/listeners.ts`)
-- **Admin** — manages programs, language streams, translator access, QR codes,
-  stream status, and listener counts. (`apps/api/src/routes/admin.ts`)
+- **Program manager** — manages owned programs, language streams, translator
+  access, QR codes, stream status, and listener counts. Admin users can manage
+  all programs and user accounts. (`apps/api/src/routes/admin.ts`)
 - **Volunteer** — approves/manages listener access at the event.
   (`apps/api/src/routes/volunteer.ts`)
 

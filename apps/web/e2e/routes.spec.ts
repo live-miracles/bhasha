@@ -52,9 +52,18 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
-test('admin route smoke', async ({ page }) => {
-    await page.goto('/admin');
-    await expect(page.getByRole('main', { name: 'Admin dashboard' })).toBeVisible();
+test('public landing route smoke', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('main', { name: 'Bhasha home' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Manage an event' })).toHaveAttribute(
+        'href',
+        '/manage',
+    );
+});
+
+test('management route smoke', async ({ page }) => {
+    await page.goto('/manage');
+    await expect(page.getByRole('main', { name: 'Management workspace' })).toBeVisible();
 });
 
 test('listener route smoke', async ({ page }) => {

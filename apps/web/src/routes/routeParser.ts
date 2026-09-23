@@ -1,5 +1,6 @@
 export type AppRoute =
-    | { type: 'admin' }
+    | { type: 'landing' }
+    | { type: 'manage' }
     | { type: 'listener'; programSlug: string }
     | { type: 'translator'; programSlug: string }
     | { type: 'volunteer'; programSlug: string }
@@ -8,8 +9,16 @@ export type AppRoute =
 export function parseRoute(pathname: string): AppRoute {
     const segments = pathname.split('/').filter((segment) => segment.length > 0);
 
+    if (segments.length === 0) {
+        return { type: 'landing' };
+    }
+
+    if (segments.length === 1 && segments[0] === 'manage') {
+        return { type: 'manage' };
+    }
+
     if (segments.length === 1 && segments[0] === 'admin') {
-        return { type: 'admin' };
+        return { type: 'notFound' };
     }
 
     if (segments.length === 2 && segments[1] === 'translate') {

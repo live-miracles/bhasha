@@ -69,6 +69,26 @@ test.beforeEach(async ({ page }) => {
         // below is needed to reach "ON AIR".
     });
 
+    await page.route('**/api/public/programs/patna-event-2026', async (route) => {
+        await route.fulfill({
+            contentType: 'application/json',
+            json: {
+                program: {
+                    slug: 'patna-event-2026',
+                    name: 'Patna Event 2026',
+                    venue: 'Main Hall',
+                    eventDate: '2026-07-01',
+                    status: 'live',
+                },
+                streams: [],
+                urls: {
+                    listenerUrl: 'http://127.0.0.1:4173/patna-event-2026',
+                    translatorUrl: 'http://127.0.0.1:4173/patna-event-2026/translate',
+                },
+            },
+        });
+    });
+
     // Logged out on load; login provides the session.
     await page.route('**/api/translator/session', async (route) => {
         await route.fulfill({

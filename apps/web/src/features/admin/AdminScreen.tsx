@@ -272,8 +272,8 @@ export function mapUrlSection(urlSection: string | undefined): AdminSection {
 
 function adminProgramPath(slug: string, section = 'overview'): string {
     return section === 'overview'
-        ? `/admin/programs/${slug}`
-        : `/admin/programs/${slug}/${section}`;
+        ? `/manage/programs/${slug}`
+        : `/manage/programs/${slug}/${section}`;
 }
 
 function formatRelativeTime(iso: string | null | undefined, referenceMs = Date.now()): string {
@@ -396,6 +396,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     const adminApi = useMemo(() => adminApiProp ?? createAdminApi(), [adminApiProp]);
     const navigate = useNavigate();
     const { slug, section } = useParams<{ slug?: string; section?: string }>();
+    const loadProgramsRequestId = useRef(0);
     const pendingRouteLoad = useRef<string | null>(null);
     const suppressRouteLoad = useRef(false);
     const reportsReqId = useRef(0);
@@ -475,6 +476,10 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     const reportDateRangeRef = useRef<HTMLDivElement | null>(null);
 
     const handleAuthExpired = useCallback(() => {
+        // Invalidate any auth/list probes still resolving. React can have an
+        // earlier probe in flight when a user submits the login form; its late
+        // 401 must not reset the state from the newer authenticated probe.
+        loadProgramsRequestId.current += 1;
         pendingRouteLoad.current = null;
         suppressRouteLoad.current = false;
         reportsReqId.current += 1;
@@ -533,6 +538,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     }, [adminApi, handleAuthExpired]);
 
     async function loadPrograms() {
+        const requestId = ++loadProgramsRequestId.current;
         setError(null);
         try {
             const [response, deletedResponse, me] = await Promise.all([
@@ -540,11 +546,17 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                 adminApi.listDeletedPrograms(),
                 adminApi.me(),
             ]);
+            if (requestId !== loadProgramsRequestId.current) {
+                return;
+            }
             setPrograms(response.programs);
             setDeletedPrograms(deletedResponse);
             setIdentity(me);
             setLoadState('ready');
         } catch (loadError) {
+            if (requestId !== loadProgramsRequestId.current) {
+                return;
+            }
             if (handleAuthError(loadError)) {
                 return;
             }
@@ -745,7 +757,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             setDetail(null);
             setActiveSection('programs');
             setError(`Program not found: ${slug}`);
-            navigate('/admin', { replace: true });
+            navigate('/manage', { replace: true });
             return;
         }
 
@@ -830,7 +842,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     function backToPrograms() {
         pendingRouteLoad.current = null;
         suppressRouteLoad.current = true;
-        navigate('/admin');
+        navigate('/manage');
         selectedProgramIdRef.current = null;
         setSelectedProgramId(null);
         setDetail(null);
@@ -1262,7 +1274,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             setPendingReadinessItem(null);
             pendingRouteLoad.current = null;
             suppressRouteLoad.current = true;
-            navigate('/admin');
+            navigate('/manage');
             await loadPrograms();
         } catch (programError) {
             setError(errorCode(programError));
@@ -1606,17 +1618,17 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     }
 
     return (
-        <main aria-label="Admin dashboard" className="shell shell-admin admin-screen">
+        <main aria-label="Management workspace" className="shell shell-admin admin-screen">
             {error ? (
                 <p className="admin-alert" role="alert">
                     {error}
                 </p>
             ) : null}
 
-            {loadState === 'checking' ? <p>Checking admin access...</p> : null}
+            {loadState === 'checking' ? <p>Checking management access...</p> : null}
             {loadState === 'login' ? (
                 <form className="admin-panel admin-login" onSubmit={submitLogin}>
-                    <h2>Admin login</h2>
+                    <h2>Management login</h2>
                     <label>
                         Username
                         <input
@@ -1628,7 +1640,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                         />
                     </label>
                     <label>
-                        Admin password
+                        Management password
                         <input
                             autoComplete="current-password"
                             required
@@ -1681,8 +1693,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                             }}
                                         />
                                     </section>
-                                ) : activeSection === 'users' &&
-                                  identity?.role === 'admin' ? (
+                                ) : activeSection === 'users' && identity?.role === 'admin' ? (
                                     <UsersPanel adminApi={adminApi} />
                                 ) : activeSection === 'account' ? (
                                     <AccountPanel

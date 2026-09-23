@@ -40,17 +40,38 @@ describe('App route shells', () => {
         cleanup();
     });
 
-    it('renders the auth-gated admin dashboard route', async () => {
+    it('renders the public landing page at the root', () => {
+        render(<App path="/" />);
+
+        expect(screen.getByRole('main', { name: 'Bhasha home' })).toBeInTheDocument();
+        expect(
+            screen.getByRole('heading', { name: 'Live translation for events' }),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Manage an event' })).toHaveAttribute(
+            'href',
+            '/manage',
+        );
+    });
+
+    it('renders the auth-gated management workspace route', async () => {
         vi.stubGlobal(
             'fetch',
             vi.fn(async () => Response.json({ error: 'admin_auth_required' }, { status: 401 })),
         );
 
-        window.history.pushState(null, '', '/admin');
+        window.history.pushState(null, '', '/manage');
+        render(<App path="/manage" />);
+
+        expect(
+            await screen.findByRole('main', { name: 'Management workspace' }),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Management login' })).toBeInTheDocument();
+    });
+
+    it('renders the removed admin route as not found', () => {
         render(<App path="/admin" />);
 
-        expect(await screen.findByRole('main', { name: 'Admin dashboard' })).toBeInTheDocument();
-        expect(screen.getByRole('heading', { name: 'Admin login' })).toBeInTheDocument();
+        expect(screen.getByRole('main', { name: 'Not found' })).toBeInTheDocument();
     });
 
     it('renders loading then listener metadata and status success', async () => {

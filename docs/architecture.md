@@ -83,7 +83,8 @@ work under directories such as `docs/design/`, `applications/`, or
 
 ```text
 Browser (SPA, built from apps/web)
-  /admin
+  /
+  /manage
   /{programSlug}
   /{programSlug}/translate
        |
@@ -155,7 +156,8 @@ with `no-store` where session-sensitive.
 
 Routes:
 
-- `/admin` -> `AdminRoute`
+- `/` -> `LandingRoute`
+- `/manage` -> `AdminRoute` (shared admin/program-manager workspace)
 - `/{programSlug}` -> `ListenerRoute`
 - `/{programSlug}/translate` -> `TranslatorRoute`
 - anything else -> `NotFoundRoute`
@@ -293,12 +295,12 @@ npx ctx7@latest docs <resolved-library-id> "<specific question>"
 
 ## Request Flows
 
-### Admin Setup Flow
+### Management Setup Flow
 
 Main route: `apps/api/src/routes/admin.ts`.
 
-1. Admin logs in via `POST /api/admin/login`.
-2. Admin creates a program via `POST /api/admin/programs`.
+1. An admin or program manager logs in via `POST /api/admin/login`.
+2. The caller creates a program via `POST /api/admin/programs`.
 3. Admin creates language streams under
    `/api/admin/programs/{programId}/streams`.
 4. Admin creates translators under
