@@ -5,8 +5,6 @@ declare global {
     __listenerMediaRequests?: number;
     __translatorAudioRequests?: number;
     __translatorVideoRequests?: number;
-    __listenerPeerCloses?: number;
-    __translatorPeerCloses?: number;
   }
 }
 
@@ -358,7 +356,6 @@ async function installTranslatorMocks(page: Page): Promise<void> {
   await page.addInitScript(() => {
     window.__translatorAudioRequests = 0;
     window.__translatorVideoRequests = 0;
-    window.__translatorPeerCloses = 0;
 
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
@@ -386,34 +383,11 @@ async function installTranslatorMocks(page: Page): Promise<void> {
       }
     });
 
-    class MockPeerConnection {
-      localDescription: RTCSessionDescriptionInit | null = null;
-      iceConnectionState: RTCIceConnectionState = "connected";
-
-      addTransceiver(_trackOrKind: unknown, _init?: RTCRtpTransceiverInit) {
-        return { mid: "0" };
-      }
-
-      async createOffer() {
-        return { type: "offer" as const, sdp: "offer-sdp" };
-      }
-
-      async setLocalDescription(description: RTCSessionDescriptionInit) {
-        this.localDescription = description;
-      }
-
-      async setRemoteDescription(_description: RTCSessionDescriptionInit) {}
-
-      setConfiguration(_configuration: RTCConfiguration) {}
-
-      close() {
-        window.__translatorPeerCloses =
-          (window.__translatorPeerCloses ?? 0) + 1;
-      }
-    }
-
-    window.RTCPeerConnection =
-      MockPeerConnection as unknown as typeof RTCPeerConnection;
+    // No RTCPeerConnection/WebSocket mock is needed here: translatorClient.ts
+    // hands the minted LiveKit token straight to a real `livekit-client`
+    // `Room.connect()`, which this e2e build swaps out entirely for a no-real-
+    // transport double (see apps/web/e2e/support/fakeLivekitClient.ts and
+    // apps/web/vite.config.ts's E2E_FAKE_LIVEKIT alias).
   });
 
   // Logged out on load; login provides the session.
@@ -443,35 +417,23 @@ async function installTranslatorMocks(page: Page): Promise<void> {
     });
   });
 
-  let sessionIndex = 0;
-  await page.route("**/api/translator/realtime/session", async (route) => {
-    const body = route.request().postDataJSON() as { streamId: string };
-    sessionIndex += 1;
-    await route.fulfill({
-      contentType: "application/json",
-      json: {
-        publishSessionId: `publish_${sessionIndex}`,
-        streamId: body.streamId,
-        sessionDescription: { type: "answer", sdp: "session-answer" },
-        iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }]
-      }
-    });
-  });
-
-  await page.route("**/api/translator/realtime/publish", async (route) => {
+  // Single LiveKit token-mint endpoint, replacing the old three-step SFU
+  // handshake (`/realtime/session` + `/realtime/publish` + `/realtime/track`).
+  // See apps/api/src/routes/translator.ts's handleTranslatorRealtimeToken.
+  let tokenIndex = 0;
+  await page.route("**/api/translator/realtime/token", async (route) => {
     const body = route.request().postDataJSON() as {
       streamId: string;
-      publishSessionId: string;
-      track: { mid: string; trackName: string };
+      reclaim?: boolean;
     };
+    tokenIndex += 1;
     await route.fulfill({
       contentType: "application/json",
       json: {
-        streamId: body.streamId,
-        publishSessionId: body.publishSessionId,
-        publishedTrack: { trackName: body.track.trackName, mid: body.track.mid },
-        sessionDescription: { type: "answer", sdp: "publish-answer" },
-        requiresImmediateRenegotiation: false
+        publishSessionId: `publish_${tokenIndex}`,
+        token: `jwt_${tokenIndex}`,
+        url: "wss://livekit.example.test",
+        roomName: `room_${body.streamId}`
       }
     });
   });
@@ -497,7 +459,6 @@ async function installTranslatorMocks(page: Page): Promise<void> {
 async function installListenerMocks(page: Page): Promise<void> {
   await page.addInitScript(() => {
     window.__listenerMediaRequests = 0;
-    window.__listenerPeerCloses = 0;
 
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
@@ -510,43 +471,11 @@ async function installListenerMocks(page: Page): Promise<void> {
       }
     });
 
-    class MockPeerConnection {
-      localDescription: RTCSessionDescriptionInit | null = null;
-      ontrack: ((event: RTCTrackEvent) => void) | null = null;
-
-      addTransceiver(_kind: string, _init: RTCRtpTransceiverInit) {
-        return {};
-      }
-
-      async createOffer() {
-        return { type: "offer" as const, sdp: "offer-sdp" };
-      }
-
-      async createAnswer() {
-        return { type: "answer" as const, sdp: "answer-sdp" };
-      }
-
-      async setLocalDescription(description: RTCSessionDescriptionInit) {
-        this.localDescription = description;
-      }
-
-      async setRemoteDescription(description: RTCSessionDescriptionInit) {
-        if (description.type === "offer" && this.ontrack) {
-          this.ontrack({
-            streams: [new MediaStream()]
-          } as unknown as RTCTrackEvent);
-        }
-      }
-
-      setConfiguration(_configuration: RTCConfiguration) {}
-
-      close() {
-        window.__listenerPeerCloses = (window.__listenerPeerCloses ?? 0) + 1;
-      }
-    }
-
-    window.RTCPeerConnection =
-      MockPeerConnection as unknown as typeof RTCPeerConnection;
+    // No RTCPeerConnection/WebSocket mock is needed here: listenerClient.ts
+    // hands the minted LiveKit token straight to a real `livekit-client`
+    // `Room.connect()`, which this e2e build swaps out entirely for a no-real-
+    // transport double (see apps/web/e2e/support/fakeLivekitClient.ts and
+    // apps/web/vite.config.ts's E2E_FAKE_LIVEKIT alias).
     HTMLMediaElement.prototype.play = async () => undefined;
     HTMLMediaElement.prototype.pause = () => undefined;
   });
@@ -619,47 +548,44 @@ async function installListenerMocks(page: Page): Promise<void> {
     });
   });
 
-  // Listener subscribe/session is the only place that carries the program
-  // identifier, so request-shape assertions are scoped here exclusively.
+  // createRequestedConnection (DB bookkeeping row) -- unrelated to the SFU/
+  // LiveKit surface, unchanged by the migration.
   let connectionIndex = 0;
-  await page.route("**/api/listeners/subscribe/session", async (route) => {
+  await page.route("**/api/listeners/request", async (route) => {
+    connectionIndex += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      status: 201,
+      json: { connectionId: `listener_connection_${connectionIndex}` }
+    });
+  });
+
+  // Single LiveKit token-mint endpoint, replacing the old `/subscribe/
+  // session` + `/subscribe/track` + `/subscribe/renegotiate` SDP dance. It is
+  // the direct successor of the old subscribe/session request-shape check
+  // (the only listener call that carries the program identifier -- others
+  // like /connected, /heartbeat, /leave only take a connectionId).
+  await page.route("**/api/listeners/token", async (route) => {
     expect(route.request().postDataJSON()).not.toHaveProperty("programId");
     expect(route.request().postDataJSON()).toHaveProperty(
       "programSlug",
       "patna-event-2026"
     );
     const body = route.request().postDataJSON() as {
-      connectionId?: string;
+      connectionId: string;
       streamId: string;
     };
-    connectionIndex += 1;
     await route.fulfill({
       contentType: "application/json",
-      status: 201,
       json: {
-        connectionId: body.connectionId ?? `listener_connection_${connectionIndex}`,
-        streamId: body.streamId,
-        sessionDescription: { type: "answer", sdp: "session-answer" },
-        iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }]
+        connectionId: body.connectionId,
+        token: `jwt_${body.connectionId}`,
+        url: "wss://livekit.example.test",
+        roomName: `room_${body.streamId}`
       }
     });
   });
 
-  await page.route("**/api/listeners/subscribe/track", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      json: {
-        connectionId: "listener_connection_current",
-        track: { mid: "0", trackName: "remote-track" },
-        requiresImmediateRenegotiation: true,
-        sessionDescription: { type: "offer", sdp: "remote-offer" }
-      }
-    });
-  });
-
-  await page.route("**/api/listeners/subscribe/renegotiate", async (route) => {
-    await route.fulfill({ contentType: "application/json", json: { ok: true } });
-  });
   await page.route("**/api/listeners/connected", async (route) => {
     await route.fulfill({ contentType: "application/json", json: { ok: true } });
   });

@@ -5,7 +5,7 @@ Browser-based, **voice-only** live translation for large in-person events.
 > One translator publishes. Thousands of people listen.
 
 A translator speaks into their microphone; the translated audio is fanned out to
-listeners over Cloudflare's Realtime SFU. Listeners are strictly receive-only —
+listeners over a self-hosted LiveKit WebRTC SFU. Listeners are strictly receive-only —
 clients never request audio/video publishing permission.
 
 ## Roles
@@ -21,51 +21,56 @@ clients never request audio/video publishing permission.
 
 ## Architecture & stack
 
-All Cloudflare:
+Single-server, self-hosted:
 
-- **Pages** — the React web app (`apps/web`).
-- **Workers** — the API (`apps/api`, entry `src/index.ts`).
-- **D1** — durable data for programs, streams, translators, listeners, event logs
-  (binding `DB`).
-- **Durable Objects** — live presence and stream relay:
-  `PROGRAM_PRESENCE` → `ProgramPresence`, `RELAY` → `StreamRelay`.
-- **Cloudflare Realtime SFU / TURN** — voice-only audio distribution
-  (base URL `https://rtc.live.cloudflare.com/v1`).
-- Also: a **Queue** (`CONNECTION_EVENTS`) for connection telemetry and a daily
-  **cron** trigger for retention.
+- **Web** — the React + Vite app (`apps/web`), built to static `dist/` and
+  served by the Node app itself (no separate frontend host).
+- **API** — Node.js + Hono (`apps/api`, entry `src/index.ts`), run directly
+  from TypeScript via `tsx`.
+- **better-sqlite3** — durable data for programs, streams, translators,
+  listeners, event logs, in one WAL-mode SQLite file (`DATABASE_PATH`).
+- **LiveKit** — a self-hosted LiveKit server is the WebRTC SFU: one room per
+  language stream, translator publishes, listeners subscribe directly (no
+  relay/bridge process). Live presence/listener counts come from LiveKit's
+  webhooks (`participant_joined`/`participant_left`/`track_published`/
+  `track_unpublished`), not a heartbeat proxy.
+- **Docker Compose** — three containers for deployment: `app` (Node/Hono +
+  the built SPA), `livekit` (`livekit/livekit-server`, built-in TURN), and
+  `caddy` (TLS-terminating reverse proxy, auto Let's Encrypt certs).
+- Also: `node-cron` for the daily retention job (in-process, no external
+  scheduler).
 
-The Vite dev server proxies `/api` to the local Worker, so the web app and API
-work together locally.
+The Vite dev server proxies `/api` to the local Node API, so the web app and
+API work together locally.
 
 See **[docs/architecture.md](docs/architecture.md)** for the full topology.
 
 ## Prerequisites
 
-- **Node.js 22** (matches CI).
+- **Node.js 22** (matches CI and the Docker image's base).
 - **npm** (repo uses npm workspaces).
-- **Wrangler** — pinned as a dev dependency (`4.102.0`); run via `npx wrangler`
-  or the workspace `dev` script. No global install needed.
-- A Cloudflare account is only required to **deploy**, not to boot the servers
-  locally. (Live **audio** — translator publish / listener subscribe — needs the
-  Realtime SFU/TURN secrets; the rest of the app runs fully on the local emulator.)
+- **Docker + Docker Compose** — only required to run the full deployment
+  topology (app + LiveKit + Caddy) locally or in production; not required to
+  run the API/web dev servers directly against Node.
+- A self-hosted **LiveKit** server is only required for live **audio**
+  (translator publish / listener subscribe) — the rest of the app (admin,
+  programs, streams, auth) runs fully without one configured. `docker-compose.yml`
+  provisions LiveKit for you; alternatively point `LIVEKIT_URL`/
+  `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` at any LiveKit server (including
+  LiveKit Cloud) for local development.
 
-> Secrets: Realtime SFU/TURN credentials and other secrets are provided via
-> `wrangler secret` / environment and are **not** committed. Do not add
-> credentials to this repo.
+> Secrets: admin/translator/volunteer session secrets and LiveKit API
+> credentials are provided via environment variables (see `.env.example`) and
+> are **not** committed. Do not add credentials to this repo.
 
-## Cloudflare configuration
+## Configuration
 
-Before running Wrangler commands, edit `apps/api/wrangler.jsonc` and replace
-the example values in these fields with resources from your own Cloudflare
-account:
-
-- `routes[0].pattern` — your Worker API domain followed by `/api/*`.
-- `routes[0].zone_name` — the Cloudflare zone containing that domain.
-- `d1_databases[0].database_id` — the ID of your D1 database.
-
-The example values are intentionally placeholders and must not be committed
-with real account-specific configuration. Keep runtime secrets in
-`apps/api/.dev.vars` locally or in Wrangler/GitHub secrets.
+Copy `.env.example` to `.env` and fill in real values — `.env` is gitignored
+and must never be committed with real secrets. See the comments in
+`.env.example` for what each variable does and how the app/LiveKit/Caddy
+containers share them (e.g. `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` are the
+one source of truth for the JWT trust relationship between the app and the
+LiveKit server).
 
 ## Install
 
@@ -73,24 +78,29 @@ with real account-specific configuration. Keep runtime secrets in
 
 ## Run locally
 
-Two terminals.
+Two terminals (this runs the Node API directly against whatever LiveKit
+server `.env`/your shell points at). To also exercise LiveKit and Caddy
+locally exactly as in production, use Docker Compose instead:
+`docker compose up --build` after populating `.env` (see "Configuration"
+above and `docker-compose.yml`).
 
-**1. API (Worker) — http://127.0.0.1:8787**
+**1. API — http://127.0.0.1:8787**
 
     npm run dev --workspace apps/api
-    # equivalent to `wrangler dev`; add `-- --port 8787` to pin the port
+    # tsx watch src/index.ts; requires the env vars in .env.example to be set
+    # (e.g. via `export $(grep -v '^#' .env | xargs)` or your shell's env loader)
 
 **2. Web app — http://127.0.0.1:5173**
 
     npm run dev --workspace apps/web
 
-The web dev server proxies `/api/*` to the Worker at `http://127.0.0.1:8787`,
-so start the API first.
+The web dev server proxies `/api/*` to the API at `http://127.0.0.1:8787`
+(see `apps/web/vite.config.ts`), so start the API first.
 
 Health check:
 
     curl http://127.0.0.1:8787/api/health
-    curl "http://127.0.0.1:8787/api/health?deep=1"   # includes a D1 check
+    curl "http://127.0.0.1:8787/api/health?deep=1"   # includes a DB check
 
 ## Tests
 
@@ -118,16 +128,17 @@ Health check:
 ## Documentation
 
 - [Architecture & onboarding](docs/architecture.md)
-- [Cloudflare Realtime SFU notes](docs/cloudflare-realtime-sfu.md)
-- [Deploy runbook](docs/deploy-runbook.md)
-- [Production deployment checklist](docs/production-deployment-checklist.md)
+- [LiveKit room-sharding brief](docs/livekit.md) (early speculative notes — see the note at
+  the top of that file for how it differs from what was actually built)
 - [Event-day checklist](docs/event-day-checklist.md)
-- [Pre-launch readiness](docs/pre-launch-readiness.md)
-- Troubleshooting: see the Notes / smoke sections of the [deploy runbook](docs/deploy-runbook.md)
+- [Mobile field test report](docs/mobile-field-test-report.md)
+- [Listener mobile checklist](docs/listener-mobile-checklist.md)
+- [`docs/archive/`](docs/archive/) — historical Cloudflare-era architecture/deploy/scale docs,
+  kept for context but not current
 - Contributor/agent workflow conventions: [AGENTS.md](AGENTS.md)
 
 ## Repository layout
 
-    apps/api    Cloudflare Worker API (D1, Durable Objects, Queues, Realtime)
-    apps/web    React + Vite web app (deployed to Cloudflare Pages)
-    docs/       Architecture, runbooks, checklists, and plans
+    apps/api    Node.js + Hono API (better-sqlite3, LiveKit server-sdk)
+    apps/web    React + Vite web app (built to static dist/, served by apps/api)
+    docs/       Architecture, runbooks, checklists, and plans (docs/archive/ is historical)

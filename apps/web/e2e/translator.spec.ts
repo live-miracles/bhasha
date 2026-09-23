@@ -4,7 +4,6 @@ declare global {
   interface Window {
     __micRequests?: number;
     __cameraRequests?: number;
-    __translatorPeerCloses?: number;
   }
 }
 
@@ -12,7 +11,6 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     window.__micRequests = 0;
     window.__cameraRequests = 0;
-    window.__translatorPeerCloses = 0;
 
     // Return REAL MediaStreams (from an AudioContext destination) so the
     // production Web Audio publish graph (createMediaStreamSource → gain →
@@ -50,41 +48,13 @@ test.beforeEach(async ({ page }) => {
       }
     });
 
-    class MockPeerConnection {
-      localDescription: RTCSessionDescriptionInit | null = null;
-      iceConnectionState: RTCIceConnectionState = "connected";
-      // The publisher client attaches transport-state listeners and reads
-      // connectionState (fast-recovery). The mock must expose both or
-      // attachStateListeners throws and publish fails ("Could not go live.").
-      connectionState: RTCPeerConnectionState = "connected";
-
-      addEventListener(_type: string, _handler: unknown) {}
-
-      removeEventListener(_type: string, _handler: unknown) {}
-
-      addTransceiver(_trackOrKind: unknown, _init?: RTCRtpTransceiverInit) {
-        return { mid: "0" };
-      }
-
-      async createOffer() {
-        return { type: "offer" as const, sdp: "offer-sdp" };
-      }
-
-      async setLocalDescription(description: RTCSessionDescriptionInit) {
-        this.localDescription = description;
-      }
-
-      async setRemoteDescription(_description: RTCSessionDescriptionInit) {}
-
-      setConfiguration(_configuration: RTCConfiguration) {}
-
-      close() {
-        window.__translatorPeerCloses = (window.__translatorPeerCloses ?? 0) + 1;
-      }
-    }
-
-    window.RTCPeerConnection =
-      MockPeerConnection as unknown as typeof RTCPeerConnection;
+    // No RTCPeerConnection/WebSocket mock is needed here: translatorClient.ts
+    // hands the minted LiveKit token straight to a real `livekit-client`
+    // `Room.connect()`, which this e2e build swaps out entirely for a no-real-
+    // transport double (see apps/web/e2e/support/fakeLivekitClient.ts and
+    // apps/web/vite.config.ts's E2E_FAKE_LIVEKIT alias). connect()/
+    // publishTrack() resolve immediately, so only the HTTP token-mint mock
+    // below is needed to reach "ON AIR".
   });
 
   // Logged out on load; login provides the session.
@@ -115,35 +85,23 @@ test.beforeEach(async ({ page }) => {
     });
   });
 
-  let sessionIndex = 0;
-  await page.route("**/api/translator/realtime/session", async (route) => {
-    const body = route.request().postDataJSON() as { streamId: string };
-    sessionIndex += 1;
-    await route.fulfill({
-      contentType: "application/json",
-      json: {
-        publishSessionId: `publish_${sessionIndex}`,
-        streamId: body.streamId,
-        sessionDescription: { type: "answer", sdp: "session-answer" },
-        iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }]
-      }
-    });
-  });
-
-  await page.route("**/api/translator/realtime/publish", async (route) => {
+  // Single LiveKit token-mint endpoint, replacing the old three-step SFU
+  // handshake (`/realtime/session` + `/realtime/publish` + `/realtime/track`).
+  // See apps/api/src/routes/translator.ts's handleTranslatorRealtimeToken.
+  let tokenIndex = 0;
+  await page.route("**/api/translator/realtime/token", async (route) => {
     const body = route.request().postDataJSON() as {
       streamId: string;
-      publishSessionId: string;
-      track: { mid: string; trackName: string };
+      reclaim?: boolean;
     };
+    tokenIndex += 1;
     await route.fulfill({
       contentType: "application/json",
       json: {
-        streamId: body.streamId,
-        publishSessionId: body.publishSessionId,
-        publishedTrack: { trackName: body.track.trackName, mid: body.track.mid },
-        sessionDescription: { type: "answer", sdp: "publish-answer" },
-        requiresImmediateRenegotiation: false
+        publishSessionId: `publish_${tokenIndex}`,
+        token: `jwt_${tokenIndex}`,
+        url: "wss://livekit.example.test",
+        roomName: `room_${body.streamId}`
       }
     });
   });

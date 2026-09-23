@@ -1,15 +1,13 @@
 # Architecture And Onboarding Guide
 
-Last updated: 2026-06-22.
+Last updated: 2026-09-22 (post-Cloudflare migration).
 
 This document is a fast onboarding guide for a new agent working in this repo.
 For product requirements and policy, read these first:
 
 - `AGENTS.md`
-- `docs/Requirements.pdf`
-- `docs/cloudflare-realtime-sfu.md`
-- `docs/Requirements.pdf`
-- `docs/cloudflare-realtime-sfu.md`
+- `docs/Requirements.pdf` (original product brief; note its suggested tech stack is
+  Cloudflare-based and predates the migration this document describes)
 
 The product principle is:
 
@@ -19,44 +17,62 @@ This is not a meeting app. It is voice-only live translation for events.
 Translators publish microphone audio. Listeners are receive-only and must never
 receive microphone, camera, local-track, or publishing permissions.
 
+This repo was migrated off Cloudflare (Workers/D1/Durable Objects/Realtime SFU/Pages)
+onto a single-server Node.js stack. The pre-migration Cloudflare-era docs (architecture
+notes, deploy runbooks, 5k/50k-listener scale findings) are kept under `docs/archive/`
+for historical context — they no longer describe the current system.
+
 ## Stack
 
-- Frontend: React, Vite, TypeScript, simple CSS, Cloudflare Pages.
-- API: Cloudflare Worker, TypeScript, Wrangler.
-- Durable data: Cloudflare D1.
-- Live presence/counts/audio activity: Cloudflare Durable Object.
-- Media transport: Cloudflare Realtime SFU plus TURN.
+- Frontend: React, Vite, TypeScript, simple CSS. Built to static `dist/`, served by the
+  API process (no separate frontend host).
+- API: Node.js + Hono, TypeScript, run directly via `tsx`.
+- Durable data: better-sqlite3 (one WAL-mode SQLite file, e.g. `/data/bhasha.sqlite`).
+- Live presence/counts/audio activity: in-process presence manager
+  (`apps/api/src/presence/status.ts`), driven by self-hosted LiveKit's webhooks
+  (`participant_joined`/`participant_left`/`track_published`/`track_unpublished`).
+- Media transport: self-hosted LiveKit (WebRTC SFU) plus its built-in TURN server. One
+  LiveKit room per language stream; listeners subscribe directly to the translator's
+  published track (no relay/bridge process).
+- Deployment: Docker Compose (`app` + `livekit` + `caddy` containers) on a single VM.
 - Tests: Vitest for API and web, Playwright for e2e.
 
-The Worker API owns Cloudflare Realtime/TURN secrets. Browser clients receive
-only short-lived negotiation responses, ICE servers, and public stream metadata.
+The API process owns LiveKit API key/secret and mints short-lived, role-scoped LiveKit
+access tokens (JWTs). Browser clients receive only those tokens plus the public
+`LIVEKIT_URL` and public stream metadata — never the API key/secret itself.
 
 ## Repository Shape
 
 ```text
 apps/
   api/
-    migrations/              D1 schema migrations
+    migrations/              better-sqlite3 schema migrations (plain SQL, run by a
+                              small hand-rolled runner -- db/migrate.ts)
     src/
-      index.ts               Worker entry point and route dispatch
+      index.ts               Node/Hono entry point, route dispatch, static SPA serving,
+                              retention cron wiring
       routes/                HTTP route handlers
-      db/                    D1 repositories and state transitions
-      realtime/              Cloudflare Realtime SFU/TURN adapters
-      presence/              Durable Object and stream-state derivation
-      auth/                  admin and translator cookie auth
-      domain/                validation, readiness, reports
-      smoke/                 browser smoke page for live Realtime testing
-    test/                    API tests using Cloudflare worker test pool
+      db/                    better-sqlite3 repositories and state transitions
+      livekit/               LiveKit server-sdk adapters: token minting (tokens.ts),
+                              RoomServiceClient/WebhookReceiver (client.ts), webhook
+                              handler (webhook.ts)
+      presence/              in-process presence manager and stream-state derivation
+      auth/                  admin/translator/volunteer cookie auth
+      domain/                validation, readiness, reports, retention service
+    test/                    API tests using Vitest against a real temp-file/in-memory
+                              better-sqlite3 DB
   web/
     src/
       App.tsx                top-level route switch
       routes/                admin/listener/translator screens
       api/                   browser HTTP API clients
-      realtime/              browser WebRTC clients
+      realtime/              browser LiveKit (livekit-client) WebRTC clients
       features/admin/        admin UI panels
     e2e/                     Playwright e2e tests
-docs/                        product, deployment, verification docs
+docs/                        product, deployment, verification docs (docs/archive/ is
+                              pre-migration Cloudflare-era, kept for historical context)
 scripts/claude_run.py        background Claude harness
+Dockerfile, docker-compose.yml, Caddyfile   deployment (Node app + LiveKit + Caddy)
 ```
 
 Avoid touching unrelated untracked work. This repo often has parallel agent
@@ -66,46 +82,72 @@ work under directories such as `docs/design/`, `applications/`, or
 ## Runtime Topology
 
 ```text
-Browser Pages app
+Browser (SPA, built from apps/web)
   /admin
   /{programSlug}
   /{programSlug}/translate
        |
-       | same-origin /api/*
+       | same-origin /api/*  (everything else falls through to static-file
+       |                      serving, then the index.html SPA fallback)
        v
-Cloudflare Worker: apps/api/src/index.ts
+Node/Hono app: apps/api/src/index.ts
        |
-       +-- D1: programs, streams, translators, sessions, reports
-       +-- Durable Object: ProgramPresence per program
-       +-- Cloudflare Realtime SFU/TURN HTTPS APIs
+       +-- better-sqlite3: programs, streams, translators, sessions, reports
+       +-- in-process presence manager (apps/api/src/presence/status.ts)
+       +-- LiveKit server-sdk: AccessToken (mint), RoomServiceClient (admin ops),
+       |   WebhookReceiver (POST /api/livekit/webhook)
+       v
+Self-hosted LiveKit server (separate container/process)
+       |
+       +-- one room per language stream: program-{programId}-stream-{streamId}
+       +-- built-in TURN (UDP) for connection fallback
 ```
 
-Current production API route is configured in `apps/api/wrangler.jsonc`:
+Deployment topology (see `docker-compose.yml`) is three containers behind Caddy:
 
-- Worker name: `bhasha-api`
-- API route: `translate.example.com/api/*`
-- D1 binding: `DB`
-- Durable Object binding: `PROGRAM_PRESENCE`
-- Realtime base URL: `https://rtc.live.cloudflare.com/v1`
+- `app` — this Node/Hono process, serves `/api/*` and the built SPA (`apps/web/dist`).
+- `livekit` — `livekit/livekit-server`, single node, no Redis (not needed without
+  clustering); TURN and the WebRTC media/ICE-TCP ports are published directly on the
+  host, not proxied through Caddy.
+- `caddy` — TLS-terminating reverse proxy: the main domain to `app`, `rtc.<domain>` to
+  LiveKit's signaling/admin port.
+
+Configuration (see `.env.example`, loaded by Compose):
+
+- `DATABASE_PATH` — path to the better-sqlite3 file (a named Docker volume in Compose).
+- `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` — shared by the app (token
+  minting, webhook verification) and the LiveKit container's own config (its `keys:`
+  map and `webhook.api_key`, generated from the same two values by
+  `docker-compose.yml`'s `configs.livekit_config` block).
+- `WEB_DIST_PATH` — directory the app serves the built SPA from (defaults to a path
+  resolved relative to `apps/api/src/index.ts` that matches both a local checkout and
+  the Docker image's layout).
+- `DOMAIN` — public domain Caddy requests a Let's Encrypt cert for.
 
 ## Main Entry Points
 
-### Worker Routing
+### API Routing
 
-`apps/api/src/index.ts` is the Worker entry point.
+`apps/api/src/index.ts` is the Node/Hono entry point.
 
 Dispatch order:
 
-1. `GET /api/health`
-2. `GET /smoke/realtime`
-3. public routes: `apps/api/src/routes/public.ts`
-4. admin routes: `apps/api/src/routes/admin.ts`
-5. translator routes: `apps/api/src/routes/translator.ts`
-6. listener routes: `apps/api/src/routes/listeners.ts`
+1. `GET /api/health` (and `?deep=1`, which also runs `SELECT 1` against the DB)
+2. `GET /smoke/realtime` (currently returns `501 not_implemented` outside localhost --
+   the old Cloudflare-Realtime debug smoke page was deleted; a LiveKit-flavored
+   equivalent hasn't been rebuilt yet)
+3. `POST /api/livekit/webhook` — LiveKit's signature-verified webhook (see `livekit/webhook.ts`)
+4. public routes: `apps/api/src/routes/public.ts`
+5. admin routes: `apps/api/src/routes/admin.ts`
+6. translator routes: `apps/api/src/routes/translator.ts`
+7. volunteer routes: `apps/api/src/routes/volunteer.ts`
+8. listener routes: `apps/api/src/routes/listeners.ts`
+9. an unmatched `/api/*` path is a hard 404; anything else falls through to
+   static-file serving from `WEB_DIST_PATH`, then the `index.html` SPA fallback
 
-Route handlers generally parse request bodies, authorize if needed, call a D1
-repository, call Realtime/TURN when needed, then return JSON with `no-store`
-where session-sensitive.
+Route handlers generally parse request bodies, authorize if needed, call a
+better-sqlite3 repository, call LiveKit's server-sdk when needed, then return JSON
+with `no-store` where session-sensitive.
 
 ### Web Routing
 
@@ -121,64 +163,79 @@ Routes:
 Browser HTTP clients are in `apps/web/src/api/`. Browser WebRTC orchestration is
 in `apps/web/src/realtime/`.
 
-## D1 Database
+## Database (better-sqlite3)
 
-Migrations are in `apps/api/migrations/`.
+One WAL-mode SQLite file (`apps/api/src/db/sqlite.ts`'s `openDatabase`, `DATABASE_PATH`
+env var). `foreign_keys = ON` is set explicitly on open (D1 enabled this by default;
+better-sqlite3 does not, and the repositories rely on FK-violation errors + every
+`ON DELETE CASCADE` in the schema). Migrations are the same 21 plain-SQL files as
+before the migration (verified to have no D1-only syntax), applied in filename order
+by a small hand-rolled runner (`apps/api/src/db/migrate.ts`) that tracks applied
+filenames in a `_migrations` table.
 
 Core tables:
 
 - `programs`: event/program records. Public URL identity is `slug`; internal
   joins use opaque `id`.
 - `language_streams`: language tracks for a program. Holds current live pointer
-  fields `cloudflare_session_id` and `current_track_id`. `language_code` is
-  validated against a fixed supported set (`apps/api/src/domain/languages.ts`),
-  and `language_name` is server-derived from the code, not trusted from the
-  client (the admin picks a language from a dropdown).
+  fields `cloudflare_session_id` and `current_track_id` -- columns kept verbatim
+  from the pre-migration schema (migrations were reused byte-for-byte) but now
+  repurposed to hold LiveKit-era identifiers rather than literal Cloudflare
+  session/track IDs. `language_code` is validated against a fixed supported set
+  (`apps/api/src/domain/languages.ts`), and `language_name` is server-derived from
+  the code, not trusted from the client (the admin picks a language from a
+  dropdown).
 - `translators`: program-scoped translators. Identified by an opaque,
   auto-generated `id`; the admin creates and the translator logs in by `email`
   (unique per program via `idx_translators_program_email`, migration `0007`).
 - `translator_stream_assignments`: which translator can publish which stream.
 - `translator_sessions`: translator login cookies.
-- `realtime_publish_sessions`: publisher state machine for translator SFU
-  sessions/tracks.
+- `realtime_publish_sessions`: publisher state machine for translator sessions.
+  The `POST /api/translator/realtime/token` route reserves a row here (state
+  `reserved`); LiveKit's `track_published` webhook flips it to `published` once
+  audio is actually flowing (see `livekit/webhook.ts`). Has one active publisher
+  per stream via a partial unique index over states `reserved`, `published`,
+  `closing`.
 - `listener_connections`: durable listener lifecycle/report rows. Stores IP and
   user agent only for admin operational reporting.
-- `listener_realtime_cleanup_targets`: retryable listener track cleanup markers.
+- `listener_realtime_cleanup_targets`: pre-migration listener-track cleanup
+  markers. No longer written to (LiveKit's client SDK owns its own
+  reconnect/track lifecycle) -- kept only so the retention cascade-delete has a
+  table to clean up for older, pre-migration rows.
 - `stream_events`: durable event feed for translator/listener lifecycle events.
 - `admin_sessions`: admin login cookies.
 - `program_readiness_checks`: event readiness confirmations.
 
 Important indexes/constraints:
 
-- `realtime_publish_sessions` has one active publisher per stream via a partial
-  unique index over states `reserved`, `published`, `closing`.
 - listener switch/reconnect successor IDs are unique so repeated browser retries
   do not duplicate successor connections.
 - translator IDs are program-scoped after migration `0004`.
 
-## Durable Object Presence
+## Presence (in-process, LiveKit-webhook-driven)
 
-`apps/api/src/presence/ProgramPresence.ts` stores live, per-program state:
+`apps/api/src/presence/status.ts` replaces the pre-migration `ProgramPresence`
+Durable Object with a plain in-process `Map`, keyed by program, storing:
 
 - active listener records keyed by `connectionId`
-- connection status versions to ignore stale joins/leaves
 - known stream IDs for zero-count snapshots
 - current audio activity by stream
 - last updated timestamp
 
-It exposes internal POST endpoints only through Worker stubs:
+It has no persistence and does not survive a process restart or run across multiple
+Node instances -- acceptable for the single-server target architecture. Listener
+join/leave is driven by `apps/api/src/livekit/webhook.ts`'s handling of LiveKit's
+`participant_joined`/`participant_left` webhook events (a materially stronger
+liveness signal than an app-level heartbeat, since it comes from LiveKit's real
+WebRTC connection state), **not** by `routes/listeners.ts`'s DB-lifecycle endpoints
+(`/request`, `/connected`, `/leave`, `/switch`, `/reconnect` still do their own
+`listener_connections` bookkeeping for admin reporting, but no longer call into the
+presence module directly). A staleness-pruning safety net (`STALE_AFTER_MS`, six
+hours) guards only against a lost/dropped webhook delivery, not normal operation.
 
-- `/snapshot`
-- `/join`
-- `/heartbeat`
-- `/leave`
-- `/audio-activity`
-
-`apps/api/src/presence/status.ts` wraps those internal calls and degrades
-gracefully if the Durable Object is unavailable.
-
-Counts are live DO state, not D1 truth. D1 stores durable lifecycle and report
-rows. Heartbeats must not write IP/user-agent data to D1.
+Counts are live in-process state, not better-sqlite3 truth. better-sqlite3 stores
+durable lifecycle and report rows. Heartbeats must not write IP/user-agent data to
+better-sqlite3.
 
 ## Stream State Semantics
 
@@ -195,34 +252,43 @@ translator is connected, a track is published, and recent audio activity exists.
 
 ## Realtime Model
 
-MVP topology is one Cloudflare Realtime SFU session per language stream. This
-keeps language isolation and listener switching simple.
+Topology is one self-hosted LiveKit room per language stream
+(`program-{programId}-stream-{streamId}`, see
+`apps/api/src/livekit/tokens.ts`'s `roomNameForStream`). This keeps language
+isolation and listener switching simple, and needs no relay/bridge process --
+LiveKit's own room model natively supports many subscribers off one publisher's
+track.
 
-Worker adapter:
+API adapter (`apps/api/src/livekit/`):
 
-- `apps/api/src/realtime/cloudflareRealtime.ts`
-- `apps/api/src/realtime/cloudflareTurn.ts`
+- `client.ts` -- `isLiveKitConfigured`, `createRoomServiceClient`,
+  `createWebhookReceiver`, and best-effort `removeParticipantBestEffort`/
+  `deleteRoomBestEffort` helpers. `livekitHttpUrl()` derives the http(s) admin-API
+  URL from the ws(s) `LIVEKIT_URL` browser clients use for signaling (LiveKit serves
+  both on the same host/port).
+- `tokens.ts` -- `mintTranslatorToken` (publish-only grant: `canPublish: true,
+  canSubscribe: false`) and `mintListenerToken` (subscribe-only grant: `canPublish:
+  false, canSubscribe: true`), both via `livekit-server-sdk`'s `AccessToken`.
+  Participant identity is `translator:{translatorId}` / `listener:{connectionId}`.
+- `webhook.ts` -- `POST /api/livekit/webhook` handler: verifies LiveKit's webhook
+  signature (`WebhookReceiver.receive`), then dispatches `participant_joined`/
+  `participant_left` to the presence module and `track_published`/
+  `track_unpublished` to `RealtimeStreamRepository`'s publisher state machine.
 
-Cloudflare SFU endpoints used by the Worker:
+No SDP/ICE ever passes through the API -- the app backend only mints JWTs and
+handles LiveKit's server-to-server webhook; browser clients negotiate WebRTC
+directly with the LiveKit server via `livekit-client`. TURN is LiveKit's own
+built-in TURN server (`docker-compose.yml`'s `livekit_config`), not a separately
+minted credential.
 
-- `POST /apps/{appId}/sessions/new`
-- `POST /apps/{appId}/sessions/{sessionId}/tracks/new`
-- `PUT /apps/{appId}/sessions/{sessionId}/renegotiate`
-- `PUT /apps/{appId}/sessions/{sessionId}/tracks/close`
-
-TURN credentials are generated server-side and returned as ICE servers when
-configured.
-
-Cloudflare Realtime docs and Wrangler command docs are temporally unstable. Use
-Context7 before changing Realtime, TURN, Wrangler, D1, Pages, or Worker API
-details:
+LiveKit's docs are the source of truth for its server-sdk/client-sdk/webhook
+behavior -- use Context7 before changing token grants, webhook handling, or
+`livekit-client` usage (resolve the library ID first, then fetch docs with it,
+per the two-step pattern in AGENTS.md's "Documentation Lookup"):
 
 ```bash
-npx ctx7@latest library "Cloudflare Realtime" "<specific question>"
-npx ctx7@latest docs /websites/developers_cloudflare_realtime "<specific question>"
-
-npx ctx7@latest library "Cloudflare Workers" "<specific question>"
-npx ctx7@latest docs /websites/developers_cloudflare_workers "<specific question>"
+npx ctx7@latest library "LiveKit" "<specific question>"
+npx ctx7@latest docs <resolved-library-id> "<specific question>"
 ```
 
 ## Request Flows
@@ -253,81 +319,103 @@ Repository modules:
 Browser:
 
 - UI: `apps/web/src/routes/TranslatorRoute.tsx`
-- WebRTC client: `apps/web/src/realtime/translatorClient.ts`
+- WebRTC client: `apps/web/src/realtime/translatorClient.ts` (`livekit-client`'s
+  `Room`)
 - API client: `apps/web/src/api/translator.ts`
 
-Worker:
+API:
 
 - route: `apps/api/src/routes/translator.ts`
 - repository: `RealtimeStreamRepository`
-- provider client: `createCloudflareRealtimeClient`
+- LiveKit adapter: `apps/api/src/livekit/tokens.ts` (`mintTranslatorToken`),
+  `apps/api/src/livekit/client.ts` (`RoomServiceClient`)
 
 Flow:
 
 1. Browser logs in: `POST /api/translator/login` with `programSlug`, `email`,
    and password (email is normalized: trimmed and lowercased, shared with
    translator creation).
-2. Worker verifies program, password hash, and stream assignments.
-3. Browser asks for publisher session:
-   `POST /api/translator/realtime/session`.
-4. Worker reserves a `realtime_publish_sessions` row in state `reserved`.
-5. Worker creates an empty Cloudflare Realtime session and stores its session ID.
-6. Browser creates a local audio-only `RTCPeerConnection` with a `sendonly`
-   transceiver.
-7. Browser sends offer and local audio track metadata to
-   `POST /api/translator/realtime/publish`.
-8. Worker calls Realtime `tracks/new`, stores `published_track_name` and
-   `published_track_mid`, marks the row `published`, and updates
-   `language_streams`.
-9. Browser applies the SFU answer and waits for ICE connected.
-10. Browser reports audio activity through
-    `POST /api/translator/realtime/audio-activity`.
-11. Worker writes audio transition events only on actual transitions.
+2. API verifies program, password hash, and stream assignments.
+3. Browser asks for a publish token: `POST /api/translator/realtime/token`.
+   This single endpoint replaces the old three-step SFU handshake
+   (session + publish + track): the API reserves a `realtime_publish_sessions`
+   row (state `reserved`) and mints a publish-only LiveKit JWT for this
+   stream's deterministic room name (`program-{programId}-stream-{streamId}`)
+   -- there is no separate "create SFU session" round-trip with LiveKit.
+4. Browser connects with `livekit-client`: `Room.connect(url, token)`, then
+   `room.localParticipant.publishTrack(micTrack)`.
+5. LiveKit's `track_published` webhook (`POST /api/livekit/webhook`) flips the
+   reservation from `reserved` to `published` once audio is actually flowing
+   (see `livekit/webhook.ts`).
+6. Browser sends periodic heartbeats: `POST /api/translator/realtime/heartbeat`,
+   which extends the reservation's expiry.
+7. Browser reports audio activity through
+   `POST /api/translator/realtime/audio-activity` (currently self-reported by
+   the browser's own mic-level meter -- a TODO in `routes/translator.ts` notes
+   switching to LiveKit-native audio-energy detection as a possible follow-up,
+   pending confirmation of what signal LiveKit exposes it through).
+8. API writes audio transition events only on actual transitions.
+9. On stop (`POST /api/translator/realtime/stop`) or logout
+   (`POST /api/translator/logout`), the API best-effort kicks the translator's
+   LiveKit room participant (`removeParticipantBestEffort`) and clears the
+   publisher reservation.
 
 Reconnect and recovery:
 
-- Browser publish/reconnect requests include `reclaim: true`.
-- If the same translator owns a stale active publisher row, the Worker attempts
-  provider cleanup, marks the old row closed, and reserves a new publisher.
-- Provider cleanup treats already-closed/missing tracks and disconnected
-  sessions as benign in publisher cleanup contexts.
-- A bare provider `404` on normal stop remains retryable and leaves local state
-  `closing`; a provider `410 session_error` means the SFU session is already
-  disconnected and can be treated as closed.
+- LiveKit's own client SDK owns transport-level reconnect/ICE-restart
+  internally; the translator client only reacts to LiveKit's `Room` events
+  (`RoomEvent.Reconnecting`/`Reconnected`/`Disconnected`) for UI state, not a
+  hand-rolled `RTCPeerConnectionState` machine.
+- On a terminal disconnect, the browser mints a fresh token and rejoins the
+  room, rather than a low-level renegotiation.
+- LiveKit's `participant_left` webhook best-effort closes the publisher
+  reservation too, in case the client's own `/stop` call never landed (tab
+  crash, network loss) -- idempotent against an already-closed reservation.
 
 ### Listener Subscribe Flow
 
 Browser:
 
 - UI: `apps/web/src/routes/ListenerRoute.tsx`
-- WebRTC client: `apps/web/src/realtime/listenerClient.ts`
+- WebRTC client: `apps/web/src/realtime/listenerClient.ts` (`livekit-client`'s
+  `Room`)
 - API client: `apps/web/src/api/listeners.ts`
 
-Worker:
+API:
 
 - route: `apps/api/src/routes/listeners.ts`
 - repository: `ListenerRepository`
-- active publisher lookup: `RealtimeStreamRepository.getActivePublisher`
+- LiveKit adapter: `apps/api/src/livekit/tokens.ts` (`mintListenerToken`)
 
 Flow:
 
 1. Listener opens `/{programSlug}` and loads public metadata/status.
 2. User taps a stream. This tap is required before audio playback.
-3. Browser creates a recv-only audio peer connection.
-4. Browser calls `POST /api/listeners/subscribe/session` with `programSlug`,
-   stream ID, anonymous client ID, and SDP offer.
-5. Worker creates a `listener_connections` row in `requested` state, stores IP
-   and user agent, creates a Realtime session, and returns SDP answer/ICE.
-6. Browser calls `POST /api/listeners/subscribe/track` to request the remote
-   publisher track.
-7. Browser renegotiates if Cloudflare requires it.
-8. Browser calls `POST /api/listeners/connected`.
-9. Worker marks the connection `connected` and increments DO presence.
-10. Browser sends heartbeats while connected.
-11. Leave/switch/reconnect updates D1 lifecycle rows and DO presence.
+3. Browser calls `POST /api/listeners/request` with `programSlug`, stream ID,
+   and an anonymous client ID (plus an access token if the program has access
+   control enabled). API creates a `listener_connections` row in `requested`
+   state, storing IP/user agent for admin reporting only.
+4. Browser calls `POST /api/listeners/token`, which mints a subscribe-only
+   LiveKit JWT for the stream's room.
+5. Browser connects with `livekit-client`: `Room.connect(url, token)`, then
+   handles `TrackSubscribed`/`TrackUnsubscribed` room events. Presence join is
+   driven by LiveKit's own `participant_joined` webhook once this connection
+   actually lands (see `livekit/webhook.ts`) -- not by the `/request` call
+   above.
+6. Browser calls `POST /api/listeners/connected` once subscribed; the API
+   marks the `listener_connections` row `connected` (for admin
+   reporting/audit -- live presence counts already came from the webhook).
+7. Browser sends heartbeats (`POST /api/listeners/heartbeat`) while connected,
+   extending the `listener_connections` row's liveness for admin
+   reporting/audit only -- these no longer feed live presence counts either.
+8. Leave/switch/reconnect (`POST /api/listeners/leave|switch|reconnect`)
+   updates `listener_connections` lifecycle rows; the corresponding presence
+   leave/join comes from LiveKit's `participant_left`/`participant_joined`
+   webhooks, not from these calls directly.
 
 Listener clients must never call `getUserMedia`, create local audio/video
-tracks, or send a `sendonly` transceiver.
+tracks, or publish a track -- listener tokens are minted with `canPublish:
+false`.
 
 ### Public Status Flow
 
@@ -336,9 +424,10 @@ active stream list.
 
 `GET /api/public/programs/{programSlug}/status` combines:
 
-- active streams from D1
-- active publisher pointers from D1
-- listener counts and audio activity from the Durable Object
+- active streams from better-sqlite3
+- active publisher pointers from better-sqlite3
+- listener counts and audio activity from the in-process presence manager
+  (`apps/api/src/presence/status.ts`)
 
 It returns public states, active listener counts, `publisherVersion`, stale flag,
 degraded flag, and server time.
@@ -347,27 +436,30 @@ degraded flag, and server time.
 
 Never print, commit, or copy credential values into docs or source.
 
-Local secret material must live outside the repository.
-The API can also use `apps/api/.dev.vars` locally. Treat both as secret sources.
+Local secret material must live outside the repository. `.env` (gitignored, see
+`.env.example` for the full documented list and format) is the local/production
+secret source; `env.ts`'s `Env`/`WorkerEnv` type is the code-level contract.
 
-Important Worker env vars:
+Important env vars (see `.env.example` for full descriptions of each):
 
 - `ADMIN_PASSWORD_HASH`
 - `ADMIN_SESSION_SECRET`
 - `TRANSLATOR_PASSWORD_PEPPER`
 - `TRANSLATOR_SESSION_SECRET`
-- `CLOUDFLARE_REALTIME_APP_ID`
-- `CLOUDFLARE_REALTIME_APP_SECRET`
-- `CLOUDFLARE_REALTIME_BASE_URL`
-- `CLOUDFLARE_TURN_KEY_ID`
-- `CLOUDFLARE_TURN_API_TOKEN`
-- `CLOUDFLARE_TURN_BASE_URL`
+- `VOLUNTEER_SESSION_SECRET`
+- `LIVEKIT_URL`
+- `LIVEKIT_API_KEY`
+- `LIVEKIT_API_SECRET`
+- `DATABASE_PATH`
+- `WEB_DIST_PATH`
 - `REALTIME_SMOKE_ENABLED`
+- `PRESENCE_LIVE_COUNT`
 
-Bindings:
-
-- `DB`
-- `PROGRAM_PRESENCE`
+`LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` are optional at the type
+level and not required at process boot (`buildEnvFromProcess`) so the app can
+start before LiveKit is provisioned; `routes/admin.ts`'s readiness check
+(`isRealtimeConfigured`/`isTurnConfigured`, both backed by
+`isLiveKitConfigured`) reports this as a blocker until all three are set.
 
 ## Development Commands
 
@@ -379,10 +471,12 @@ Install dependencies:
 npm install
 ```
 
-API dev server:
+API dev server (reads env vars from the process environment -- export them from
+`.env` first, e.g. `export $(grep -v '^#' .env | xargs)`):
 
 ```bash
-npm run dev --workspace apps/api -- --port 8787
+PORT=8787 npm run dev --workspace apps/api
+# tsx watch src/index.ts
 ```
 
 Web dev server:
@@ -412,58 +506,73 @@ Full regression:
 npm run test:regression
 ```
 
-Deploy Worker API:
+Run the full deployment topology locally (app + LiveKit + Caddy, matching
+production):
 
 ```bash
-. /tmp/translation_cfenv.sh
-npx wrangler deploy --config apps/api/wrangler.jsonc
+cp .env.example .env   # then fill in real values
+docker compose up --build
 ```
 
-Cloudflare docs currently show `wrangler dev`, `wrangler deploy`, and
-`wrangler deploy --dry-run` as the core Worker commands. Re-check current docs
-with Context7 before changing deployment tooling.
+Build and push the deployment image directly (no Compose), e.g. for a manual
+remote deploy:
+
+```bash
+docker build -t bhasha-app .
+```
+
+On the VM, `docker compose up -d --build` (re)builds and (re)starts all three
+containers; `apps/api/src/db/migrate.ts`'s migration runner runs automatically
+on the app container's boot, before it starts serving.
 
 ## Production Debugging Commands
 
 Health:
 
 ```bash
-curl -fsS https://translate.example.com/api/health
+curl -fsS https://<domain>/api/health
 ```
 
 Public status:
 
 ```bash
-curl -fsS https://translate.example.com/api/public/programs/<programSlug>/status
+curl -fsS https://<domain>/api/public/programs/<programSlug>/status
 ```
 
-Worker tail:
+App container logs (on the VM, in the repo/Compose directory):
 
 ```bash
-. /tmp/translation_cfenv.sh
-npx wrangler tail bhasha-api --format json --sampling-rate 0.999
+docker compose logs -f app
+docker compose logs -f livekit
+docker compose logs -f caddy
 ```
 
-D1 query:
+Query the database. The runtime image has no `sqlite3` CLI installed (only
+Node + better-sqlite3's native binding, see the Dockerfile) -- run queries
+through Node inside the `app` container instead:
 
 ```bash
-. /tmp/translation_cfenv.sh
-npx wrangler d1 execute bhasha-dev --remote --command "<SQL>"
+docker compose exec app node -e "
+  const db = require('better-sqlite3')(process.env.DATABASE_PATH);
+  console.log(db.prepare('<SQL>').all());
+"
 ```
 
-Check active publishers for a program:
+Check active publishers for a program (`cloudflare_session_id` holds the
+LiveKit room name post-migration, not a Cloudflare session ID -- see
+"Database" above):
 
 ```sql
 SELECT
   ls.id,
   ls.language_name,
   ls.is_live,
-  ls.cloudflare_session_id,
+  ls.cloudflare_session_id AS livekit_room_name,
   ls.current_track_id,
   rps.id AS publish_session_id,
   rps.state,
   rps.translator_id,
-  rps.cloudflare_session_id AS rps_cf_session,
+  rps.cloudflare_session_id AS rps_livekit_room_name,
   rps.published_track_name,
   rps.published_track_mid,
   rps.closed_at,
@@ -488,37 +597,52 @@ WHERE program_id = (SELECT id FROM programs WHERE slug = '<programSlug>')
   AND state IN ('reserved','published','closing');
 ```
 
-Do not manually mutate production D1 unless you have first proven the API cannot
-recover through normal stop/reclaim paths. Prefer exercising the route that owns
-the state transition.
+List LiveKit rooms/participants directly (bypasses the app's own DB state --
+useful to check whether LiveKit's own view agrees with better-sqlite3's):
+
+```bash
+docker compose exec app node -e "
+  const { RoomServiceClient } = require('livekit-server-sdk');
+  const svc = new RoomServiceClient(process.env.LIVEKIT_URL.replace(/^ws/, 'http'), process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET);
+  svc.listRooms().then((rooms) => console.log(rooms));
+"
+```
+
+Do not manually mutate the production database unless you have first proven
+the API cannot recover through normal stop/reclaim paths. Prefer exercising
+the route that owns the state transition.
 
 ## Debugging Recipes
 
 ### Translator sees "Realtime connection failed"
 
 Likely surfaces from `ApiError.code === "realtime_error"` in
-`TranslatorRoute.tsx`.
+`TranslatorRoute.tsx`, or a LiveKit `Room.connect()` rejection in
+`translatorClient.ts`.
 
 Check:
 
-1. Tail Worker logs while reproducing.
+1. `docker compose logs -f app` (and `-f livekit`) while reproducing.
 2. Query `realtime_publish_sessions` for stale `reserved`, `published`, or
-   `closing` rows.
+   `closing` rows (see "Production Debugging Commands" above).
 3. Confirm the translator owns the blocking row.
-4. Check Cloudflare close response if necessary. Known benign cleanup responses:
-   track already closed / not found, and HTTP `410` with
-   `errorCode = session_error` for disconnected sessions.
+4. Confirm `LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` are set and
+   consistent between the app and the `livekit` container (see
+   `docker-compose.yml`'s `configs.livekit_config` comments) --
+   `isLiveKitConfigured`/`realtime_not_configured` is the most common
+   misconfiguration symptom.
 5. Run:
 
 ```bash
-npm test --workspace apps/api -- translator-realtime.test.ts
+npm test --workspace apps/api -- translator-realtime.test.ts livekit-tokens.test.ts translator-livekit-lifecycle.test.ts
 ```
 
 Relevant files:
 
 - `apps/api/src/routes/translator.ts`
 - `apps/api/src/db/realtimeStreamRepository.ts`
-- `apps/api/test/translator-realtime.test.ts`
+- `apps/api/src/livekit/tokens.ts`, `apps/api/src/livekit/client.ts`
+- `apps/api/test/translator-realtime.test.ts`, `apps/api/test/livekit-tokens.test.ts`
 - `apps/web/src/realtime/translatorClient.ts`
 
 ### Listener cannot hear a live translator
@@ -528,11 +652,16 @@ Check:
 1. Public status says stream is `live` or at least `silent`; if `offline`, there
    is no active publisher pointer.
 2. Listener API returns `stream_not_live` if `getActivePublisher` cannot find a
-   D1 publisher pointer aligned with `language_streams`.
-3. Listener browser must use recv-only transceiver and must call
-   `connected` only after subscription succeeds.
+   better-sqlite3 publisher pointer aligned with `language_streams`.
+3. Listener browser's LiveKit token must have `canPublish: false`, and the
+   client must call `connected` only after the LiveKit room subscription
+   actually succeeds.
 4. Audio playback can still fail if the browser blocks autoplay; user tap is
    required.
+5. Cross-check LiveKit's own view of the room directly (see the
+   `RoomServiceClient.listRooms()`/`listParticipants()` snippet in "Production
+   Debugging Commands") in case the webhook missed an event and the app's
+   presence/publisher state disagrees with LiveKit's actual state.
 
 Relevant files:
 
@@ -544,20 +673,28 @@ Relevant files:
 
 ### Counts look wrong
 
-Counts come from `ProgramPresence`, not D1.
+Counts come from the in-process presence manager (`apps/api/src/presence/status.ts`),
+driven by LiveKit webhooks -- not better-sqlite3.
 
 Check:
 
 1. `/api/public/programs/{slug}/status` for `stale` and `degraded`.
-2. Whether listener reached `POST /api/listeners/connected`.
-3. Whether browser is sending `POST /api/listeners/heartbeat`.
-4. Whether leave/switch/reconnect sent the right previous connection ID.
-5. DO state prunes after 30 seconds without heartbeat.
+2. Whether LiveKit actually delivered `participant_joined`/`participant_left`
+   webhooks (`docker compose logs -f app | grep livekit_webhook`) -- a
+   dropped/lost webhook delivery is the main way this drifts.
+3. Whether the listener's LiveKit token/room name matches the stream it's
+   supposed to be counted under.
+4. Whether leave/switch/reconnect sent the right previous connection ID
+   (`listener_connections` bookkeeping is unaffected by presence, but still
+   worth checking for admin-reporting accuracy).
+5. In-process presence state prunes after `STALE_AFTER_MS` (six hours -- a
+   defense-in-depth safety net for a lost webhook, not a normal-operation
+   timer) and resets on every app process restart (no persistence).
 
 Tests:
 
 ```bash
-npm test --workspace apps/api -- presence.test.ts listeners.test.ts
+npm test --workspace apps/api -- listener-presence.test.ts presence-live-count.test.ts livekit-webhook.test.ts listeners.test.ts
 ```
 
 ### Stream stuck silent
@@ -569,8 +706,11 @@ Check:
 
 1. Browser mic permissions and track enabled state.
 2. Translator audio meter in `TranslatorRoute.tsx`.
-3. `POST /api/translator/realtime/audio-activity` calls.
-4. DO audio activity snapshot and `AUDIO_ACTIVITY_WINDOW_MS`.
+3. `POST /api/translator/realtime/audio-activity` calls (still self-reported
+   by the browser's own mic-level meter, not LiveKit-native audio detection --
+   see the TODO in `routes/translator.ts`).
+4. In-process audio-activity snapshot (`presence/status.ts`) and
+   `AUDIO_ACTIVITY_WINDOW_MS`.
 
 ### Validation errors in admin APIs
 
@@ -583,37 +723,49 @@ Tests:
 npm test --workspace apps/api -- domain.test.ts programs.test.ts admin-translators.test.ts
 ```
 
-### Cloudflare Realtime provider behavior changed
+### LiveKit behavior changed (server-sdk, client-sdk, or webhook payloads)
 
-Do not guess from memory. Use Context7 and official Cloudflare docs. Then add a
-fake-provider regression test in the relevant API test file before changing
-production code.
+Do not guess from memory. Use Context7 and official LiveKit docs. Then add a
+fake-receiver/fake-client regression test in the relevant API or web test file
+before changing production code.
 
-Known Realtime cleanup edge cases already covered:
+Known LiveKit integration edge cases already covered:
 
-- already-closed publisher tracks
-- remote track not found
-- bare 404 during normal stop remains retryable
-- 404 during reclaim can mean stale publisher is gone
-- 410 `session_error` can mean stale Realtime session is disconnected
+- webhook signature verification failure (`invalid_webhook_signature`, 401)
+- malformed or unrecognized participant `metadata` JSON on a webhook event
+- a webhook-claimed role/id that doesn't match the token's signed `identity`
+  (`logIdentityMismatch` in `livekit/webhook.ts`)
+- `participant_left`/`track_unpublished` racing the client's own explicit
+  `/stop` call (both paths are idempotent against an already-closed reservation)
+- `removeParticipantBestEffort`/`deleteRoomBestEffort` treat a participant/room
+  that's already gone (or an unreachable LiveKit server) as a benign no-op
 
 ## Test Map
 
 API:
 
-- `cloudflare-realtime.test.ts`: provider adapter behavior and error parsing.
-- `translator-realtime.test.ts`: translator session/publish/stop/audio activity.
-- `listener-realtime.test.ts`: listener SFU session/track/subscription flows.
-- `realtime-stream-repository.test.ts`: publisher state machine.
+- `livekit-tokens.test.ts`: token-minting (grants, identity, room naming).
+- `livekit-webhook.test.ts`: webhook signature verification and event dispatch.
+- `translator-realtime.test.ts`, `translator-livekit-lifecycle.test.ts`:
+  translator token/heartbeat/audio-activity/stop flows.
+- `listener-realtime.test.ts`: listener token/subscription flows.
+- `realtime-stream-repository.test.ts`, `realtimeStreamRepository.test.ts`:
+  publisher state machine.
+- `admin-livekit-lifecycle.test.ts`: admin kick-publisher/kick-session against LiveKit.
 - `listeners.test.ts`: listener lifecycle, reporting, presence integration.
-- `presence.test.ts`: Durable Object semantics.
-- `public-status.test.ts`: public live/silent/offline status.
+- `listener-presence.test.ts`, `presence-live-count.test.ts`: in-process presence
+  manager semantics.
+- `public-status.test.ts`, `public-status-cache.test.ts`, `public-contract.test.ts`:
+  public live/silent/offline status.
+- `retention-prune.test.ts`, `retention-service.test.ts`: retention cron behavior.
 - `admin-*.test.ts`, `programs.test.ts`, `reports.test.ts`, `readiness.test.ts`:
   admin control-plane behavior.
+- `static-serving.test.ts`: SPA static-file + index.html fallback serving.
+- `schema.test.ts`: migration-applied schema shape.
 
 Web:
 
-- `translatorRealtimeClient.test.ts`: browser publisher WebRTC orchestration.
+- `translatorRealtimeClient.test.ts`: browser publisher LiveKit orchestration.
 - `listenerRealtimeClient.test.ts`: browser listener receive-only flow.
 - `translatorRoute.test.tsx`, `listenerRoute.test.tsx`, `adminScreen.test.tsx`:
   UI state and API integration.
@@ -623,8 +775,9 @@ E2E:
 
 - `apps/web/e2e/full-mvp.spec.ts` uses deterministic browser mocks to prove the
   full MVP flow.
-- Live mic-to-speaker verification still requires actual browser permissions,
-  configured Worker secrets, seeded D1 data, and localhost or HTTPS.
+- Live mic-to-speaker verification still requires actual browser permissions, a
+  reachable LiveKit server (`LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`
+  configured), seeded database data, and localhost or HTTPS.
 
 ## Background Agent Workflow
 
@@ -675,7 +828,7 @@ dumping logs unless exact evidence is needed.
 
 - Listener clients are receive-only.
 - Translator clients request microphone only, never camera.
-- Keep all Cloudflare secrets server-side.
+- Keep all LiveKit/session secrets server-side.
 - Do not store listener IP/user-agent on heartbeats.
 - Do not count token/session request as active listener; count only after
   subscribe/connected confirmation.

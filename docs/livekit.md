@@ -1,3 +1,12 @@
+> **Note:** this is an early speculative brief exploring a multi-server, room-sharded LiveKit
+> design (3 servers, 2,000 listeners/shard, a backend shard allocator, and an audio relay/bridge
+> service republishing into every shard). That is **not** what was actually built. The implemented
+> architecture (see `docs/architecture.md`) targets 1–2k listeners with a **single self-hosted
+> LiveKit server and one room per language stream** — no sharding, no shard allocator, and no
+> relay/bridge process (LiveKit's own room model natively supports many subscribers off one
+> publisher's track). Kept for historical context; do not treat this as current-stack
+> documentation.
+
 # Brief: Live Translation App Using LiveKit Room Sharding
 
 ## Goal

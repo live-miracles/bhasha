@@ -12,20 +12,23 @@ The system is voice-only. Translators publish microphone audio. Participants are
 
 Before planning or implementing product work, read:
 
-- `docs/Requirements.pdf`
-- `docs/cloudflare-realtime-sfu.md`
+- `docs/Requirements.pdf` (original product brief — note its suggested tech stack is
+  Cloudflare-based and predates the migration described below)
+- `docs/architecture.md`
 
 Use those files as the product and architecture source of truth unless the user gives newer written instructions.
 
-Current stack decision:
+Current stack decision (migrated off Cloudflare — see `docs/archive/` for the pre-migration
+Cloudflare Workers/D1/Durable Objects/Realtime docs, kept for historical context):
 
-- Cloudflare Pages for the frontend.
-- Cloudflare Workers for the API.
-- Cloudflare D1 for durable program, stream, translator, listener, and event-log data.
-- Cloudflare Durable Objects for live per-program/per-stream presence and active listener counts.
-- Cloudflare Realtime SFU/TURN for voice-only audio distribution.
+- React + Vite frontend (`apps/web`), built to static `dist/` and served by the API process.
+- Node.js + Hono for the API (`apps/api`).
+- better-sqlite3 (one WAL-mode SQLite file) for durable program, stream, translator, listener, and event-log data.
+- In-process presence, driven by self-hosted LiveKit's webhooks, for live per-program/per-stream presence and active listener counts.
+- Self-hosted LiveKit (one room per language stream) for voice-only audio distribution; LiveKit's built-in TURN server for connection fallback.
+- Docker Compose (app + LiveKit + Caddy) for deployment.
 
-Local Cloudflare credential material must live outside the repository. Treat it as secret material: verify existence when needed, but do not print, copy into repo files, or commit its contents.
+Local LiveKit/session-secret credential material must live outside the repository. Treat it as secret material: verify existence when needed, but do not print, copy into repo files, or commit its contents.
 
 ## Documentation Lookup
 
@@ -38,7 +41,7 @@ Use the `ctx7` CLI:
 2. Fetch docs using the selected `/org/project` ID:
    `npx ctx7@latest docs <libraryId> "<user question>"`
 
-Do not rely on memory for API syntax, Cloudflare Realtime SFU/TURN behavior, Next.js behavior, database SDKs, auth libraries, or deployment tooling.
+Do not rely on memory for API syntax, LiveKit server-sdk/client-sdk behavior, better-sqlite3 behavior, auth libraries, or deployment tooling (Docker Compose, Caddy).
 
 ## Engineering Workflow
 
@@ -119,7 +122,7 @@ Rules:
 - **Hard-fence every prompt**: absolute worktree path (codex_par paths must be
   absolute), allowed-file list, exact test commands, output format. Free-range
   prompts stall.
-- **This repo is TypeScript on both ends** (`apps/api` Workers, `apps/web`
+- **This repo is TypeScript on both ends** (`apps/api` Node.js/Hono, `apps/web`
   React) — there is NO pyright. For TS/FE slices the dispatched agent MUST run
   `tsc` itself (the sandbox's vitest strips types, so vitest-green ≠ type-clean).
   Gate criterion = `codex_par.py gate --cwd <wt> --cmd "npm run typecheck
@@ -186,7 +189,7 @@ For any bug fix:
 - Translators can authenticate, select an assigned language stream, publish microphone audio, mute/unmute, and reconnect.
 - Participants can open `/{program_id}`, choose a live language, listen, switch language streams, and reconnect.
 - Listener clients must be receive-only.
-- Use short-lived server-generated credentials/tokens for Cloudflare Realtime access.
+- Use short-lived server-generated credentials/tokens (LiveKit access tokens) for realtime access.
 - Do not count a listener token/request as active. Active listener counts begin only after the listener is connected/subscribed.
 - For listener reporting, store listener IP address and user agent only as authenticated admin operational telemetry. Do not write IP data on heartbeats.
 - Treat mobile browser behavior as a first-class constraint: audio starts only after a user tap, reconnect controls must remain visible, and iPhone Safari plus Android Chrome must be tested before real events.

@@ -8,7 +8,7 @@
 - [ ] Verify the listener QR opens the expected public listener URL.
 - [ ] Run the realtime smoke test from the target environment.
 - [ ] Complete iPhone Safari and Android Chrome checks in `docs/mobile-field-test-report.md`.
-- [ ] Run load testing or record the exact blocker in `docs/load-test-report.md`.
+- [ ] Run load testing or record the exact blocker (see `docs/archive/load-test-report.md` for the format used by the last Cloudflare-era report; no current-stack load-test report exists yet).
 - [ ] Verify current Cloudflare Realtime, Workers, Pages, D1, Durable Objects, and TURN limits in Cloudflare docs/dashboard.
 
 ## Day Before Event

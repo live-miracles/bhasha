@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TrackType, type WebhookReceiver } from "livekit-server-sdk";
+import { TrackType, type RoomServiceClient, type WebhookReceiver } from "livekit-server-sdk";
 
 import { handleLiveKitWebhook } from "../src/livekit/webhook";
 import { RealtimeStreamRepository } from "../src/db/realtimeStreamRepository";
@@ -8,13 +8,24 @@ import { buildTestEnv, testEnv } from "./test-env";
 
 // A duck-typed stand-in for the real (protobuf-generated) WebhookEvent --
 // only the fields webhook.ts actually reads (event/participant.identity/
-// participant.metadata/track.sid/track.type). Deliberately not `Partial<
-// WebhookEvent>`: the real class's generated types fight
+// participant.metadata/track.sid/track.type/room.name). Deliberately not
+// `Partial<WebhookEvent>`: the real class's generated types fight
 // `exactOptionalPropertyTypes` for no benefit here.
 interface FakeWebhookEvent {
   event: string;
   participant?: { identity: string; metadata: string };
   track?: { sid: string; type: number };
+  room?: { name: string };
+}
+
+// A duck-typed stand-in for RoomServiceClient, exercising only
+// `getParticipant` -- the one method webhook.ts's fallback path calls when a
+// track_* event's inline participant metadata is empty (see the real
+// LiveKit-server behavior documented on `resolveParticipantMetadata`).
+function fakeRoomService(
+  getParticipant: (room: string, identity: string) => Promise<{ metadata: string; identity: string }>
+): RoomServiceClient {
+  return { getParticipant: vi.fn().mockImplementation(getParticipant) } as unknown as RoomServiceClient;
 }
 
 // handleLiveKitWebhook takes its WebhookReceiver as an injectable parameter
@@ -40,7 +51,8 @@ function fakeReceiver(
 
 async function postWebhook(
   receiver: WebhookReceiver,
-  body = "{}"
+  body = "{}",
+  roomService?: RoomServiceClient
 ): Promise<Response> {
   return handleLiveKitWebhook(
     new Request("https://bhasha.test/api/livekit/webhook", {
@@ -49,7 +61,8 @@ async function postWebhook(
       body
     }),
     buildTestEnv(),
-    receiver
+    receiver,
+    ...(roomService ? [roomService] : [])
   );
 }
 
@@ -350,6 +363,116 @@ describe("handleLiveKitWebhook", () => {
 
     expect(response.status).toBe(200);
     expect(await publisherState("publish_4")).toBe("published");
+  });
+
+  it("confirms track_published via a RoomServiceClient refetch when LiveKit's inline participant metadata is empty", async () => {
+    // Regression test for a real behavior discovered by testing against a
+    // live LiveKit server (not just this suite's own fixtures): LiveKit's
+    // track_published/track_unpublished webhook payloads carry a PARTIAL
+    // participant snapshot with metadata always empty (confirmed empirically
+    // -- participant_joined/participant_left DO carry full metadata, track_*
+    // events do not). Every other test in this file supplies inline
+    // metadata on a track_* event, which is NOT what a real LiveKit server
+    // sends -- this is the one that matches reality and would have caught
+    // the original bug (a stream could never leave "reserved"/"offline" via
+    // a real webhook).
+    await seedReservedPublisher({
+      programId: "program_4b",
+      streamId: "stream_4b",
+      translatorId: "translator_4b",
+      publishSessionId: "publish_4b"
+    });
+    const roomService = fakeRoomService(async (room, identity) => {
+      expect(room).toBe("program-program_4b-stream-stream_4b");
+      expect(identity).toBe("translator:translator_4b");
+      return {
+        identity,
+        metadata: translatorMetadata({
+          programId: "program_4b",
+          streamId: "stream_4b",
+          translatorId: "translator_4b",
+          publishSessionId: "publish_4b"
+        })
+      };
+    });
+
+    const response = await postWebhook(
+      fakeReceiver({
+        event: {
+          event: "track_published",
+          room: { name: "program-program_4b-stream-stream_4b" },
+          participant: { identity: "translator:translator_4b", metadata: "" },
+          track: { sid: "TR_audio1", type: TrackType.AUDIO }
+        }
+      }),
+      "{}",
+      roomService
+    );
+
+    expect(response.status).toBe(200);
+    expect(await publisherState("publish_4b")).toBe("published");
+  });
+
+  it("does not refetch via RoomServiceClient when inline metadata is present but invalid", async () => {
+    // A present-but-malformed/mismatched inline metadata is a different,
+    // already-logged failure mode -- refetching would just return the same
+    // rejected value, so the fallback must not fire here.
+    await seedReservedPublisher({
+      programId: "program_4c",
+      streamId: "stream_4c",
+      translatorId: "translator_4c",
+      publishSessionId: "publish_4c"
+    });
+    const getParticipant = vi.fn();
+    const roomService = fakeRoomService(getParticipant);
+
+    const response = await postWebhook(
+      fakeReceiver({
+        event: {
+          event: "track_published",
+          room: { name: "program-program_4c-stream-stream_4c" },
+          participant: { identity: "translator:translator_4c", metadata: "not-json{" },
+          track: { sid: "TR_audio1", type: TrackType.AUDIO }
+        }
+      }),
+      "{}",
+      roomService
+    );
+
+    expect(response.status).toBe(200);
+    expect(getParticipant).not.toHaveBeenCalled();
+    expect(await publisherState("publish_4c")).toBe("reserved");
+  });
+
+  it("no-ops without throwing when the RoomServiceClient refetch itself fails", async () => {
+    // E.g. the participant already left by the time this webhook is
+    // processed -- LiveKit's getParticipant rejects. Must not surface as a
+    // webhook failure, and must leave the reservation exactly as-is.
+    await seedReservedPublisher({
+      programId: "program_4d",
+      streamId: "stream_4d",
+      translatorId: "translator_4d",
+      publishSessionId: "publish_4d"
+    });
+    const roomService = fakeRoomService(async () => {
+      throw new Error("participant not found");
+    });
+
+    const response = await postWebhook(
+      fakeReceiver({
+        event: {
+          event: "track_published",
+          room: { name: "program-program_4d-stream-stream_4d" },
+          participant: { identity: "translator:translator_4d", metadata: "" },
+          track: { sid: "TR_audio1", type: TrackType.AUDIO }
+        }
+      }),
+      "{}",
+      roomService
+    );
+
+    expect(response.status).toBe(200);
+    expect(await publisherState("publish_4d")).toBe("reserved");
   });
 
   it("ignores a non-audio track_published event", async () => {

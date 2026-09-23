@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 declare global {
   interface Window {
     __listenerMediaRequests?: number;
-    __listenerPeerCloses?: number;
   }
 }
 
@@ -19,45 +18,14 @@ test.beforeEach(async ({ page }) => {
       }
     });
 
-    class MockPeerConnection {
-      localDescription: RTCSessionDescriptionInit | null = null;
-      ontrack: ((event: RTCTrackEvent) => void) | null = null;
-
-      addTransceiver(_kind: string, _init: RTCRtpTransceiverInit) {
-        return {};
-      }
-
-      async createOffer() {
-        return { type: "offer" as const, sdp: "offer-sdp" };
-      }
-
-      async createAnswer() {
-        return { type: "answer" as const, sdp: "answer-sdp" };
-      }
-
-      async setLocalDescription(description: RTCSessionDescriptionInit) {
-        this.localDescription = description;
-      }
-
-      async setRemoteDescription(description: RTCSessionDescriptionInit) {
-        if (description.type === "offer" && this.ontrack) {
-          this.ontrack({
-            streams: [new MediaStream()]
-          } as unknown as RTCTrackEvent);
-        }
-      }
-
-      setConfiguration(_configuration: RTCConfiguration) {}
-
-      close() {
-        window.__listenerPeerCloses = (window.__listenerPeerCloses ?? 0) + 1;
-      }
-    }
-
     window.__listenerMediaRequests = 0;
-    window.__listenerPeerCloses = 0;
-    window.RTCPeerConnection =
-      MockPeerConnection as unknown as typeof RTCPeerConnection;
+    // No RTCPeerConnection/WebSocket mock is needed here: listenerClient.ts
+    // hands the minted LiveKit token straight to a real `livekit-client`
+    // `Room.connect()`, which this e2e build swaps out entirely for a no-real-
+    // transport double (see apps/web/e2e/support/fakeLivekitClient.ts and
+    // apps/web/vite.config.ts's E2E_FAKE_LIVEKIT alias). connect() resolves
+    // immediately, so only the HTTP mocks below are needed to reach
+    // "Listening to X".
     HTMLMediaElement.prototype.play = async () => undefined;
     HTMLMediaElement.prototype.pause = () => undefined;
   });
@@ -130,37 +98,40 @@ test.beforeEach(async ({ page }) => {
     });
   });
 
+  // createRequestedConnection (DB bookkeeping row) -- unrelated to the SFU/
+  // LiveKit surface, unchanged by the migration. listenerClient.ts's
+  // subscribe() calls this first, then joinRoom() mints the LiveKit token.
   let connectionIndex = 0;
-  await page.route("**/api/listeners/subscribe/session", async (route) => {
-    const body = route.request().postDataJSON() as { connectionId?: string; streamId: string };
+  await page.route("**/api/listeners/request", async (route) => {
     connectionIndex += 1;
     await route.fulfill({
       contentType: "application/json",
       status: 201,
-      json: {
-        connectionId: body.connectionId ?? `listener_connection_${connectionIndex}`,
-        streamId: body.streamId,
-        sessionDescription: { type: "answer", sdp: "session-answer" },
-        iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }]
-      }
+      json: { connectionId: `listener_connection_${connectionIndex}` }
     });
   });
 
-  await page.route("**/api/listeners/subscribe/track", async (route) => {
+  // Single LiveKit token-mint endpoint, replacing the old `/subscribe/
+  // session` + `/subscribe/track` + `/subscribe/renegotiate` SDP dance. See
+  // apps/api/src/routes/listeners.ts's handleListenerRealtimeToken. Every
+  // join path (subscribe/switch/reconnect) ends here via listenerClient.ts's
+  // shared joinRoom().
+  await page.route("**/api/listeners/token", async (route) => {
+    const body = route.request().postDataJSON() as {
+      connectionId: string;
+      streamId: string;
+    };
     await route.fulfill({
       contentType: "application/json",
       json: {
-        connectionId: "listener_connection_current",
-        track: { mid: "0", trackName: "remote-track" },
-        requiresImmediateRenegotiation: true,
-        sessionDescription: { type: "offer", sdp: "remote-offer" }
+        connectionId: body.connectionId,
+        token: `jwt_${body.connectionId}`,
+        url: "wss://livekit.example.test",
+        roomName: `room_${body.streamId}`
       }
     });
   });
 
-  await page.route("**/api/listeners/subscribe/renegotiate", async (route) => {
-    await route.fulfill({ contentType: "application/json", json: { ok: true } });
-  });
   await page.route("**/api/listeners/connected", async (route) => {
     await route.fulfill({ contentType: "application/json", json: { ok: true } });
   });
@@ -205,11 +176,10 @@ test("listener can start, switch, and leave without requesting media", async ({ 
 test("listener can reconnect after a failed first listen without requesting media", async ({
   page
 }) => {
-  let firstSubscribe = true;
-  await page.route("**/api/listeners/subscribe/session", async (route) => {
-    const body = route.request().postDataJSON() as { streamId: string };
-    if (firstSubscribe) {
-      firstSubscribe = false;
+  let firstToken = true;
+  await page.route("**/api/listeners/token", async (route) => {
+    if (firstToken) {
+      firstToken = false;
       await route.fulfill({
         contentType: "application/json",
         status: 502,
@@ -218,14 +188,17 @@ test("listener can reconnect after a failed first listen without requesting medi
       return;
     }
 
+    const body = route.request().postDataJSON() as {
+      connectionId: string;
+      streamId: string;
+    };
     await route.fulfill({
       contentType: "application/json",
-      status: 201,
       json: {
-        connectionId: "listener_connection_recovered",
-        streamId: body.streamId,
-        sessionDescription: { type: "answer", sdp: "session-answer" },
-        iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }]
+        connectionId: body.connectionId,
+        token: "jwt_recovered",
+        url: "wss://livekit.example.test",
+        roomName: `room_${body.streamId}`
       }
     });
   });

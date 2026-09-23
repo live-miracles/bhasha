@@ -1,4 +1,9 @@
-import { TrackType, type WebhookEvent, type WebhookReceiver } from "livekit-server-sdk";
+import {
+  TrackType,
+  type RoomServiceClient,
+  type WebhookEvent,
+  type WebhookReceiver
+} from "livekit-server-sdk";
 import type { Env } from "../env";
 import { json } from "../http";
 import {
@@ -8,7 +13,7 @@ import {
   RealtimeStreamRepository
 } from "../db/realtimeStreamRepository";
 import { presenceJoin, presenceLeave } from "../presence/status";
-import { createWebhookReceiver } from "./client";
+import { createRoomServiceClient, createWebhookReceiver } from "./client";
 import { listenerIdentity, translatorIdentity } from "./tokens";
 
 interface TranslatorParticipantMetadata {
@@ -47,7 +52,8 @@ type ParticipantMetadata =
 export async function handleLiveKitWebhook(
   request: Request,
   env: Env,
-  receiver: WebhookReceiver = createWebhookReceiver(env)
+  receiver: WebhookReceiver = createWebhookReceiver(env),
+  roomService: RoomServiceClient = createRoomServiceClient(env)
 ): Promise<Response> {
   const body = await request.text();
   const authHeader = request.headers.get("authorization") ?? undefined;
@@ -73,7 +79,7 @@ export async function handleLiveKitWebhook(
   // handlers below already treat their own expected failure modes as
   // no-ops; this is a last-resort catch-all).
   try {
-    await dispatchLiveKitEvent(env, event);
+    await dispatchLiveKitEvent(env, event, roomService);
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -88,7 +94,11 @@ export async function handleLiveKitWebhook(
   return json({ ok: true });
 }
 
-async function dispatchLiveKitEvent(env: Env, event: WebhookEvent): Promise<void> {
+async function dispatchLiveKitEvent(
+  env: Env,
+  event: WebhookEvent,
+  roomService: RoomServiceClient
+): Promise<void> {
   switch (event.event) {
     case "participant_joined":
       await handleParticipantJoined(env, event);
@@ -97,10 +107,10 @@ async function dispatchLiveKitEvent(env: Env, event: WebhookEvent): Promise<void
       await handleParticipantLeft(env, event);
       return;
     case "track_published":
-      await handleTrackPublished(env, event);
+      await handleTrackPublished(env, event, roomService);
       return;
     case "track_unpublished":
-      await handleTrackUnpublished(env, event);
+      await handleTrackUnpublished(env, event, roomService);
       return;
     default:
       // room_started, room_finished, egress_*, ingress_*, etc. -- no-op in
@@ -139,8 +149,12 @@ async function handleParticipantLeft(env: Env, event: WebhookEvent): Promise<voi
   await closePublisherReservationBestEffort(env, metadata);
 }
 
-async function handleTrackPublished(env: Env, event: WebhookEvent): Promise<void> {
-  const metadata = parseParticipantMetadata(event);
+async function handleTrackPublished(
+  env: Env,
+  event: WebhookEvent,
+  roomService: RoomServiceClient
+): Promise<void> {
+  const metadata = await resolveParticipantMetadata(roomService, event);
   if (!metadata || metadata.role !== "translator") {
     return;
   }
@@ -172,8 +186,12 @@ async function handleTrackPublished(env: Env, event: WebhookEvent): Promise<void
   }
 }
 
-async function handleTrackUnpublished(env: Env, event: WebhookEvent): Promise<void> {
-  const metadata = parseParticipantMetadata(event);
+async function handleTrackUnpublished(
+  env: Env,
+  event: WebhookEvent,
+  roomService: RoomServiceClient
+): Promise<void> {
+  const metadata = await resolveParticipantMetadata(roomService, event);
   if (!metadata || metadata.role !== "translator") {
     return;
   }
@@ -237,7 +255,75 @@ function logBenignPublisherError(
 }
 
 function parseParticipantMetadata(event: WebhookEvent): ParticipantMetadata | null {
-  const raw = event.participant?.metadata;
+  return parseParticipantMetadataFields(
+    event.participant?.metadata,
+    event.participant?.identity,
+    event.event
+  );
+}
+
+// LiveKit's own webhook payload for track_published/track_unpublished carries
+// a PARTIAL `participant` reference with NO metadata (confirmed empirically
+// against a real LiveKit server: participant_joined/participant_left DO
+// include full metadata, track_* events do not -- LiveKit builds a lighter
+// participant snapshot for track-level events). Without this fallback,
+// handleTrackPublished can never identify the publishing translator via a
+// real LiveKit server, so a stream can never move out of "offline" -- only
+// caught by testing against a live server, since a synthetic WebhookEvent
+// fixture naturally has whatever fields a test author assumed were present.
+// Falls back to asking LiveKit directly for the full participant record
+// (by room + the still-present, signed identity) only when the inline
+// metadata is missing -- never when it's present-but-malformed/mismatched,
+// since a fresh fetch would just return the same already-rejected value.
+async function resolveParticipantMetadata(
+  roomService: RoomServiceClient,
+  event: WebhookEvent
+): Promise<ParticipantMetadata | null> {
+  const inline = parseParticipantMetadata(event);
+  if (inline) {
+    return inline;
+  }
+  if (event.participant?.metadata) {
+    // Metadata WAS present but failed to parse/validate -- already logged by
+    // parseParticipantMetadata; refetching would just return the same value.
+    return null;
+  }
+
+  const roomName = event.room?.name;
+  const identity = event.participant?.identity;
+  if (!roomName || !identity) {
+    return null;
+  }
+
+  let participant: { metadata: string; identity: string };
+  try {
+    participant = await roomService.getParticipant(roomName, identity);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        msg: "livekit_webhook_participant_refetch_failed",
+        event: event.event,
+        room: roomName,
+        identity,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    );
+    return null;
+  }
+
+  return parseParticipantMetadataFields(
+    participant.metadata,
+    participant.identity,
+    event.event
+  );
+}
+
+function parseParticipantMetadataFields(
+  raw: string | undefined,
+  identity: string | undefined,
+  eventName: string
+): ParticipantMetadata | null {
   if (!raw) {
     return null;
   }
@@ -250,7 +336,7 @@ function parseParticipantMetadata(event: WebhookEvent): ParticipantMetadata | nu
       JSON.stringify({
         level: "warn",
         msg: "livekit_webhook_metadata_malformed",
-        event: event.event,
+        event: eventName,
         error: error instanceof Error ? error.message : String(error)
       })
     );
@@ -261,7 +347,6 @@ function parseParticipantMetadata(event: WebhookEvent): ParticipantMetadata | nu
     return null;
   }
 
-  const identity = event.participant?.identity;
   const candidate = parsed as Record<string, unknown>;
   if (
     candidate.role === "translator" &&
@@ -271,7 +356,7 @@ function parseParticipantMetadata(event: WebhookEvent): ParticipantMetadata | nu
     typeof candidate.publishSessionId === "string"
   ) {
     if (identity !== translatorIdentity(candidate.translatorId)) {
-      logIdentityMismatch(event, identity);
+      logIdentityMismatch(eventName, identity);
       return null;
     }
     return candidate as unknown as TranslatorParticipantMetadata;
@@ -284,7 +369,7 @@ function parseParticipantMetadata(event: WebhookEvent): ParticipantMetadata | nu
     typeof candidate.connectionId === "string"
   ) {
     if (identity !== listenerIdentity(candidate.connectionId)) {
-      logIdentityMismatch(event, identity);
+      logIdentityMismatch(eventName, identity);
       return null;
     }
     return candidate as unknown as ListenerParticipantMetadata;
@@ -294,7 +379,7 @@ function parseParticipantMetadata(event: WebhookEvent): ParticipantMetadata | nu
     JSON.stringify({
       level: "warn",
       msg: "livekit_webhook_metadata_unrecognized",
-      event: event.event
+      event: eventName
     })
   );
   return null;
@@ -306,12 +391,12 @@ function parseParticipantMetadata(event: WebhookEvent): ParticipantMetadata | nu
 // but if that assumption is ever wrong (a future grant change, a LiveKit
 // server bug), this cross-check stops a participant whose claimed role/id in
 // metadata doesn't match its actual signed identity from being trusted.
-function logIdentityMismatch(event: WebhookEvent, identity: string | undefined): void {
+function logIdentityMismatch(eventName: string, identity: string | undefined): void {
   console.warn(
     JSON.stringify({
       level: "warn",
       msg: "livekit_webhook_identity_metadata_mismatch",
-      event: event.event,
+      event: eventName,
       identity
     })
   );
