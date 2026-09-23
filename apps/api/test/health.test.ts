@@ -72,6 +72,5 @@ describe('health route', () => {
         expect(env.TRANSLATOR_PASSWORD_PEPPER).toBeTruthy();
         expect(env.TRANSLATOR_SESSION_SECRET).toBeTruthy();
         expect(env.ADMIN_SESSION_SECRET).toBeTruthy();
-        expect(env.ADMIN_PASSWORD_HASH).toBeTruthy();
     });
 });

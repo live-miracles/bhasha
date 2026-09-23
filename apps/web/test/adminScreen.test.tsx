@@ -13,7 +13,6 @@ import type {
     AdminProgramDetail,
     AdminProgramVolunteerAccess,
     AdminProgramList,
-    AdminOrg,
     AdminProgramStatus,
     AdminReadiness,
     AdminRole,
@@ -275,32 +274,19 @@ function eventFeed(): AdminEventFeed {
     };
 }
 
-function adminMe(role: AdminRole = 'platform_admin'): AdminMe {
+function adminMe(role: AdminRole = 'admin'): AdminMe {
     return {
         id: `user-${role}`,
-        email: `${role}@example.com`,
+        username: `${role}_user`,
         role,
-        orgId: role === 'org_admin' ? 'org_1' : null,
-        orgName: role === 'org_admin' ? 'Org One' : null,
-    };
-}
-
-function adminOrg(overrides: Partial<AdminOrg> = {}): AdminOrg {
-    return {
-        id: 'org_1',
-        name: 'Org One',
-        createdAt: '2026-06-01T10:00:00.000Z',
-        updatedAt: '2026-06-01T10:00:00.000Z',
-        ...overrides,
     };
 }
 
 function adminUser(overrides: Partial<AdminUser> = {}): AdminUser {
     return {
         id: 'user_1',
-        email: 'user@example.com',
-        role: 'viewer',
-        orgId: 'org_1',
+        username: 'plain_user',
+        role: 'user',
         isDisabled: false,
         createdAt: '2026-06-01T10:00:00.000Z',
         updatedAt: '2026-06-01T10:00:00.000Z',
@@ -416,26 +402,15 @@ function makeApi(overrides: Partial<AdminApi> = {}): AdminApi {
         createProgram: vi.fn(async () => firstProgram()),
         createStream: vi.fn(async () => programDetail().streams[0]!),
         createTranslator: vi.fn(async () => programDetail().translators[0]!),
-        createOrg: vi.fn(async () => ({
-            org: adminOrg(),
-            admin: adminUser(),
-        })),
         deleteProgram: vi.fn(async () => undefined),
         deleteStream: vi.fn(async () => undefined),
         deleteTranslator: vi.fn(async () => undefined),
-        listOrgs: vi.fn(async () => ({ orgs: [adminOrg()] })),
-        updateOrg: vi.fn(async () => adminOrg()),
         listUsers: vi.fn(async () => ({ users: [adminUser()] })),
         downloadListenerReportCsv: vi.fn(
             async () => new Blob(['connectionId\r\n'], { type: 'text/csv' }),
         ),
         listDeletedPrograms: vi.fn(async () => []),
-        createUser: vi.fn(async () =>
-            adminUser({
-                role: 'viewer',
-                orgId: 'org_1',
-            }),
-        ),
+        createUser: vi.fn(async () => adminUser({ role: 'user' })),
         updateUser: vi.fn(async () => adminUser()),
         resetUserPassword: vi.fn(async () => ({ ok: true as const })),
         getEventFeed: vi.fn(async () => eventFeed()),
@@ -513,7 +488,7 @@ describe('AdminScreen', () => {
         renderAdmin(<AdminScreen adminApi={api} />);
 
         expect(await screen.findByRole('heading', { name: 'Admin login' })).toBeInTheDocument();
-        expect(screen.getByLabelText('Admin email')).toBeInTheDocument();
+        expect(screen.getByLabelText('Username')).toBeInTheDocument();
         expect(screen.getByLabelText('Admin password')).toBeInTheDocument();
     });
 
@@ -529,15 +504,15 @@ describe('AdminScreen', () => {
 
         renderAdmin(<AdminScreen adminApi={api} />);
 
-        fireEvent.change(await screen.findByLabelText('Admin email'), {
-            target: { value: 'admin@example.com' },
+        fireEvent.change(await screen.findByLabelText('Username'), {
+            target: { value: 'admin' },
         });
         fireEvent.change(await screen.findByLabelText('Admin password'), {
             target: { value: 'wrong-pass' },
         });
         fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
 
-        expect(await screen.findByRole('alert')).toHaveTextContent('Invalid email or password');
+        expect(await screen.findByRole('alert')).toHaveTextContent('Invalid username or password');
     });
 
     it('reprobes after successful login and loads the program list', async () => {
@@ -549,8 +524,8 @@ describe('AdminScreen', () => {
 
         renderAdmin(<AdminScreen adminApi={api} />);
 
-        fireEvent.change(await screen.findByLabelText('Admin email'), {
-            target: { value: 'admin@example.com' },
+        fireEvent.change(await screen.findByLabelText('Username'), {
+            target: { value: 'admin' },
         });
         fireEvent.change(await screen.findByLabelText('Admin password'), {
             target: { value: 'admin-pass' },
@@ -558,132 +533,61 @@ describe('AdminScreen', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
 
         expect(await screen.findByText('Patna Event 2026')).toBeInTheDocument();
-        expect(api.login).toHaveBeenCalledWith('admin@example.com', 'admin-pass');
+        expect(api.login).toHaveBeenCalledWith('admin', 'admin-pass');
         expect(listPrograms).toHaveBeenCalledTimes(2);
     });
 
-    it('renders role-aware app navigation for platform admins', async () => {
-        const api = makeApi({ me: vi.fn(async () => adminMe('platform_admin')) });
+    it('renders role-aware app navigation for admins', async () => {
+        const api = makeApi({ me: vi.fn(async () => adminMe('admin')) });
 
         renderAdmin(<AdminScreen adminApi={api} />);
 
         expect(await screen.findByRole('button', { name: 'Programs' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Recently deleted' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Organizations' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Users' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Account' })).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Team' })).not.toBeInTheDocument();
     });
 
-    it('renders role-aware app navigation for org admins', async () => {
-        const api = makeApi({ me: vi.fn(async () => adminMe('org_admin')) });
-
-        renderAdmin(<AdminScreen adminApi={api} />);
-
-        expect(await screen.findByRole('button', { name: 'Programs' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Recently deleted' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Team' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Account' })).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Organizations' })).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Users' })).not.toBeInTheDocument();
-    });
-
-    it('renders role-aware app navigation for viewers', async () => {
-        const api = makeApi({ me: vi.fn(async () => adminMe('viewer')) });
+    it("renders role-aware app navigation for plain 'user' accounts (no Users nav)", async () => {
+        const api = makeApi({ me: vi.fn(async () => adminMe('user')) });
 
         renderAdmin(<AdminScreen adminApi={api} />);
 
         expect(await screen.findByRole('button', { name: 'Programs' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Recently deleted' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Account' })).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Organizations' })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Users' })).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Team' })).not.toBeInTheDocument();
     });
 
-    it('calls createOrg from Organizations', async () => {
-        const createOrg = vi.fn(async () => ({
-            org: adminOrg({ id: 'org_2', name: 'Org Two' }),
-            admin: adminUser({
-                id: 'user_2',
-                email: 'admin@orgtwo.test',
-                role: 'platform_admin',
-            }),
-        }));
+    it('renders Users and posts create-user (admin only, hardcoded to the user role)', async () => {
+        const createUser = vi.fn(async () => adminUser({ id: 'user_2', username: 'new_user' }));
         const api = makeApi({
-            me: vi.fn(async () => adminMe('platform_admin')),
-            createOrg,
-            listOrgs: vi.fn(async () => ({ orgs: [adminOrg()] })),
-        });
-
-        renderAdmin(<AdminScreen adminApi={api} />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Organizations' }));
-
-        fireEvent.change(await screen.findByLabelText('Organization name'), {
-            target: { value: 'Org Two' },
-        });
-        fireEvent.change(screen.getByLabelText('Admin email'), {
-            target: { value: 'admin@orgtwo.test' },
-        });
-        fireEvent.change(screen.getByLabelText('Temp password'), {
-            target: { value: 'temp-pass-2' },
-        });
-        fireEvent.click(screen.getByRole('button', { name: 'Create organization' }));
-
-        expect(await screen.findByText('Org Two')).toBeInTheDocument();
-        expect(createOrg).toHaveBeenCalledWith({
-            orgName: 'Org Two',
-            email: 'admin@orgtwo.test',
-            tempPassword: 'temp-pass-2',
-        });
-    });
-
-    it('renders Team with viewer invite and posts create-user for org admins', async () => {
-        const createUser = vi.fn(async () =>
-            adminUser({ id: 'user_2', email: 'viewer@new.test', orgId: 'org_1' }),
-        );
-        // GET /api/admin/orgs is platform-only → 403 for an org_admin. The Team panel
-        // must NOT depend on it: no org selector, and it lists users regardless.
-        const listOrgs = vi.fn(async () => {
-            throw new ApiError({
-                status: 403,
-                code: 'admin_role_required',
-                body: { error: 'admin_role_required' },
-            });
-        });
-        const api = makeApi({
-            me: vi.fn(async () => adminMe('org_admin')),
+            me: vi.fn(async () => adminMe('admin')),
             createUser,
             listUsers: vi.fn(async () => ({
-                users: [adminUser({ id: 'user_1', email: 'viewer@existing.test' })],
+                users: [adminUser({ id: 'user_1', username: 'existing_user' })],
             })),
-            listOrgs,
         });
 
         renderAdmin(<AdminScreen adminApi={api} />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Team' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Users' }));
 
-        expect(await screen.findByRole('heading', { name: 'Team' })).toBeInTheDocument();
-        expect(screen.getByText('viewer@existing.test')).toBeInTheDocument();
-        // org_admin never queries the platform-only org list, and gets no org selector
-        expect(listOrgs).not.toHaveBeenCalled();
-        expect(screen.queryByLabelText('Organization')).not.toBeInTheDocument();
+        expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument();
+        expect(screen.getByText('existing_user')).toBeInTheDocument();
 
-        fireEvent.change(await screen.findByLabelText('User email'), {
-            target: { value: 'viewer@new.test' },
+        fireEvent.change(await screen.findByLabelText('Username'), {
+            target: { value: 'new_user' },
         });
         fireEvent.change(screen.getByLabelText('Temp password'), {
-            target: { value: 'viewer-pass' },
+            target: { value: 'new-user-pass' },
         });
-        fireEvent.click(screen.getByRole('button', { name: 'Create viewer' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Create user' }));
 
         await waitFor(() => {
-            // orgId null → the server forces the caller's own org
             expect(createUser).toHaveBeenCalledWith({
-                email: 'viewer@new.test',
-                role: 'viewer',
-                tempPassword: 'viewer-pass',
-                orgId: null,
+                username: 'new_user',
+                role: 'user',
+                tempPassword: 'new-user-pass',
             });
         });
     });
@@ -691,7 +595,7 @@ describe('AdminScreen', () => {
     it('calls changeMyPassword from the Account panel', async () => {
         const changeMyPassword = vi.fn(async () => ({ ok: true as const }));
         const api = makeApi({
-            me: vi.fn(async () => adminMe('platform_admin')),
+            me: vi.fn(async () => adminMe('admin')),
             changeMyPassword,
         });
 
@@ -719,7 +623,7 @@ describe('AdminScreen', () => {
     it('signs out from the Account panel and returns to the login screen', async () => {
         const logout = vi.fn(async () => ({ ok: true as const }));
         const api = makeApi({
-            me: vi.fn(async () => adminMe('platform_admin')),
+            me: vi.fn(async () => adminMe('admin')),
             logout,
         });
 
@@ -728,8 +632,8 @@ describe('AdminScreen', () => {
         fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
 
         expect(logout).toHaveBeenCalled();
-        // Back to the login screen (email/password fields visible again).
-        expect(await screen.findByLabelText(/email/i)).toBeInTheDocument();
+        // Back to the login screen (username/password fields visible again).
+        expect(await screen.findByLabelText('Username')).toBeInTheDocument();
     });
 
     it('derives listener and translator URLs from the program slug and browser origin', async () => {
@@ -775,12 +679,7 @@ describe('AdminScreen', () => {
                 },
             });
         });
-        // Only an org admin sees the create-program form (server: POST
-        // /api/admin/programs is org_admin-only), so drive this as an org admin.
-        const api = makeApi({
-            createProgram,
-            me: vi.fn(async () => adminMe('org_admin')),
-        });
+        const api = makeApi({ createProgram });
 
         renderAdmin(<AdminScreen adminApi={api} />);
 
@@ -805,34 +704,24 @@ describe('AdminScreen', () => {
         expect(screen.queryByText('validation_error')).not.toBeInTheDocument();
     });
 
-    it('hides the create-program form for a platform admin', async () => {
-        // POST /api/admin/programs is org_admin-only; a platform admin filling the
-        // form would hit a guaranteed 403, so the form must not render for them.
-        const api = makeApi({ me: vi.fn(async () => adminMe('platform_admin')) });
+    it.each(['admin', 'user'] as const)(
+        'shows the create-program form for %s accounts (both roles can now create programs)',
+        async (role) => {
+            const api = makeApi({ me: vi.fn(async () => adminMe(role)) });
 
-        renderAdmin(<AdminScreen adminApi={api} />);
+            renderAdmin(<AdminScreen adminApi={api} />);
 
-        await screen.findByText('Patna Event 2026');
-        expect(screen.queryByRole('button', { name: 'Create program' })).not.toBeInTheDocument();
-        expect(screen.queryByLabelText('Program name')).not.toBeInTheDocument();
-    });
-
-    it('shows the create-program form for an org admin', async () => {
-        const api = makeApi({ me: vi.fn(async () => adminMe('org_admin')) });
-
-        renderAdmin(<AdminScreen adminApi={api} />);
-
-        await screen.findByText('Patna Event 2026');
-        expect(await screen.findByRole('button', { name: 'Create program' })).toBeInTheDocument();
-        expect(screen.getByLabelText('Program name')).toBeInTheDocument();
-    });
+            await screen.findByText('Patna Event 2026');
+            expect(
+                await screen.findByRole('button', { name: 'Create program' }),
+            ).toBeInTheDocument();
+            expect(screen.getByLabelText('Program name')).toBeInTheDocument();
+        },
+    );
 
     it('includes the listener access toggle in the create-program payload', async () => {
         const createProgram = vi.fn(async () => firstProgram());
-        const api = makeApi({
-            createProgram,
-            me: vi.fn(async () => adminMe('org_admin')),
-        });
+        const api = makeApi({ createProgram });
 
         renderAdmin(<AdminScreen adminApi={api} />);
 
@@ -979,36 +868,6 @@ describe('AdminScreen', () => {
             expect(writeText).toHaveBeenCalledWith('ABCD2345EF');
         });
         expect(screen.getByRole('status')).toHaveTextContent('Copied');
-    });
-
-    it('renders volunteer access as read-only for viewers', async () => {
-        const updateProgram = vi.fn(async () => programDetail());
-        const api = makeApi({
-            me: vi.fn(async () => adminMe('viewer')),
-            updateProgram,
-        });
-
-        renderAdmin(<AdminScreen adminApi={api} />);
-        await openFirstProgram();
-
-        expect(
-            await screen.findByRole('heading', { name: 'Volunteer access' }),
-        ).toBeInTheDocument();
-        expect(await screen.findByLabelText('Volunteer login ID')).toBeDisabled();
-        expect(screen.getByLabelText('Volunteer password')).toBeDisabled();
-        expect(
-            screen.getByRole('checkbox', {
-                name: /Require listener approval.*before they can listen/i,
-            }),
-        ).toBeDisabled();
-        const nextSlug = screen.getByLabelText('Next slug');
-        expect(nextSlug).toBeDisabled();
-        fireEvent.submit(nextSlug.closest('form')!);
-        expect(updateProgram).not.toHaveBeenCalled();
-        expect(screen.queryByRole('button', { name: 'Generate' })).not.toBeInTheDocument();
-        expect(
-            screen.queryByRole('button', { name: 'Save volunteer access' }),
-        ).not.toBeInTheDocument();
     });
 
     it('clears a shown-once volunteer password when the selected program changes', async () => {
@@ -1993,33 +1852,6 @@ describe('AdminScreen', () => {
                 ),
             ).toBeInTheDocument();
         });
-    });
-
-    it('hides readiness confirm buttons for a viewer (read-only)', async () => {
-        // Readiness is reachable by a viewer (program nav + /admin/programs/:slug/
-        // readiness deep-link), but confirm is a write the server 403s — so a viewer
-        // must see the readiness status without any confirm buttons.
-        const api = makeApi({ me: vi.fn(async () => adminMe('viewer')) });
-
-        renderAdmin(<AdminScreen adminApi={api} />);
-        await openFirstProgram();
-        await goToSection('Readiness');
-
-        const readinessPanel = await screen.findByRole('region', {
-            name: 'Event readiness',
-        });
-        expect(readinessPanel).toHaveTextContent('Blocker');
-        expect(
-            within(readinessPanel).queryByRole('button', {
-                name: /confirm realtime smoke test/i,
-            }),
-        ).not.toBeInTheDocument();
-        expect(
-            within(readinessPanel).queryByRole('button', {
-                name: /confirm mobile field test/i,
-            }),
-        ).not.toBeInTheDocument();
-        expect(api.confirmReadiness).not.toHaveBeenCalled();
     });
 
     it('clears the previous report summary before showing a newly selected program', async () => {
@@ -3228,10 +3060,24 @@ describe('AdminScreen', () => {
         renderAdmin(<AdminScreen adminApi={api} />);
         await openFirstProgram();
 
-        const toggle = await screen.findByRole('checkbox', {
+        await screen.findByRole('checkbox', {
             name: /Require listener approval.*before they can listen/i,
         });
-        expect(toggle).not.toBeChecked();
+        // The detail form remounts (React key={program.id}) once the program
+        // detail fetch resolves, so re-query for a live node right before
+        // asserting instead of reusing the handle captured by findByRole --
+        // otherwise an in-flight remount can leave `toggle` pointing at an
+        // already-detached element.
+        await waitFor(() => {
+            expect(
+                screen.getByRole('checkbox', {
+                    name: /Require listener approval.*before they can listen/i,
+                }),
+            ).not.toBeChecked();
+        });
+        const toggle = screen.getByRole('checkbox', {
+            name: /Require listener approval.*before they can listen/i,
+        });
         expect(toggle).toHaveAccessibleDescription(
             'Listeners must be approved by a volunteer before they can listen',
         );

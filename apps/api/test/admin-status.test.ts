@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '../src/env';
 import { createApp } from '../src/index';
 import { reportAudioActivity } from '../src/presence/status';
-import { adminCookie, buildTestEnv, seedPlatformAdmin, seedProgram, testEnv } from './test-env';
+import { adminCookie, buildTestEnv, seedAdmin, seedProgram, testEnv } from './test-env';
 
 async function request(
     path: string,
@@ -144,7 +144,7 @@ async function setRelayCoords(streamId: string, relayVersion: number): Promise<v
 describe('admin program status', () => {
     beforeEach(async () => {
         await resetDb();
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
     });
 
     it('requires admin authentication', async () => {

@@ -2,16 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { ListenerAccessRepository } from '../src/db/listenerAccessRepository';
 import { createApp } from '../src/index';
-import {
-    adminCookie,
-    buildTestEnv,
-    DEFAULT_TEST_ORG_ID,
-    seedOrg,
-    seedPlatformAdmin,
-    seedProgram,
-    seedViewer,
-    testEnv,
-} from './test-env';
+import { adminCookie, buildTestEnv, seedAdmin, seedProgram, seedUser, testEnv } from './test-env';
 
 async function request(path: string, init: RequestInit = {}): Promise<Response> {
     const app = createApp(buildTestEnv());
@@ -24,15 +15,13 @@ async function resetDb(): Promise<void> {
     await testEnv.DB.exec('DELETE FROM language_streams');
     await testEnv.DB.exec('DELETE FROM programs');
     await testEnv.DB.exec('DELETE FROM users');
-    await testEnv.DB.exec('DELETE FROM orgs');
-    await seedOrg(testEnv, { id: DEFAULT_TEST_ORG_ID, name: 'Default test org' });
 }
 
 describe('admin listener access routes', () => {
     beforeEach(resetDb);
 
     it('returns pending, approved, and revoked counts for a program', async () => {
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
         const program = await seedProgram(testEnv);
         const repo = new ListenerAccessRepository(testEnv.DB);
         const pending = await repo.createClaim(program.id, 'client_pending');
@@ -58,29 +47,48 @@ describe('admin listener access routes', () => {
         });
     });
 
-    it('allows same-org viewers to read but rejects viewer revoke writes', async () => {
-        const org = await seedOrg(testEnv);
-        const viewer = await seedViewer(testEnv, { orgId: org.id });
-        const program = await seedProgram(testEnv, { orgId: org.id });
-        const viewerCookie = await adminCookie(viewer.email);
+    it('lets the owning user read and revoke, but a non-owning user gets 404 on both', async () => {
+        const ownerId = await seedUser(testEnv, 'owner_user');
+        const program = await seedProgram(testEnv, { createdBy: ownerId });
+        await seedUser(testEnv, 'other_user');
+        const ownerCookie = await adminCookie('owner_user');
+        const otherCookie = await adminCookie('other_user');
 
-        const read = await request(`/api/admin/programs/${program.id}/listener-access/summary`, {
-            method: 'GET',
-            headers: { Cookie: viewerCookie },
-        });
-        expect(read.status).toBe(200);
+        const ownerRead = await request(
+            `/api/admin/programs/${program.id}/listener-access/summary`,
+            { method: 'GET', headers: { Cookie: ownerCookie } },
+        );
+        expect(ownerRead.status).toBe(200);
 
-        const write = await request(`/api/admin/programs/${program.id}/listener-access/revoke`, {
-            method: 'POST',
-            headers: { Cookie: viewerCookie },
-            body: JSON.stringify({ clientId: 'client_1' }),
-        });
-        expect(write.status).toBe(403);
-        expect(await write.json()).toEqual({ error: 'forbidden' });
+        const ownerWrite = await request(
+            `/api/admin/programs/${program.id}/listener-access/revoke`,
+            {
+                method: 'POST',
+                headers: { Cookie: ownerCookie },
+                body: JSON.stringify({ clientId: 'client_1' }),
+            },
+        );
+        expect(ownerWrite.status).toBe(200);
+
+        const otherRead = await request(
+            `/api/admin/programs/${program.id}/listener-access/summary`,
+            { method: 'GET', headers: { Cookie: otherCookie } },
+        );
+        expect(otherRead.status).toBe(404);
+
+        const otherWrite = await request(
+            `/api/admin/programs/${program.id}/listener-access/revoke`,
+            {
+                method: 'POST',
+                headers: { Cookie: otherCookie },
+                body: JSON.stringify({ clientId: 'client_1' }),
+            },
+        );
+        expect(otherWrite.status).toBe(404);
     });
 
     it('revokes all client rows and validates the clientId payload', async () => {
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
         const program = await seedProgram(testEnv);
         const repo = new ListenerAccessRepository(testEnv.DB);
         const claim = await repo.createClaim(program.id, 'client_1');

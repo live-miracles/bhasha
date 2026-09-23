@@ -1,21 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { ApiError } from '../../api/client';
-import {
-    type AdminApi,
-    type AdminMe,
-    type AdminOrg,
-    type AdminRole,
-    type AdminUser,
-} from '../../api/admin';
+import { type AdminApi, type AdminUser } from '../../api/admin';
 import { AdminDialog } from './AdminDialog';
 
 interface UsersPanelProps {
-    adminApi: Pick<
-        AdminApi,
-        'listUsers' | 'listOrgs' | 'createUser' | 'updateUser' | 'resetUserPassword'
-    >;
-    identity: AdminMe | null;
+    adminApi: Pick<AdminApi, 'listUsers' | 'createUser' | 'updateUser' | 'resetUserPassword'>;
 }
 
 function errorText(error: unknown): string {
@@ -25,14 +15,10 @@ function errorText(error: unknown): string {
             error.body != null &&
             typeof error.body === 'object' &&
             'error' in error.body &&
-            typeof error.body.error === 'string'
+            typeof error.body.error === 'string' &&
+            error.body.error === 'username_taken'
         ) {
-            if (error.body.error === 'email_taken') {
-                return 'Email already exists.';
-            }
-            if (error.body.error === 'org_admin_exists') {
-                return 'An org admin already exists for this organization.';
-            }
+            return 'Username already exists.';
         }
         if (typeof error.body === 'object' && error.body !== null && 'message' in error.body) {
             const bodyMessage = (error.body as { message?: string }).message;
@@ -45,16 +31,12 @@ function errorText(error: unknown): string {
     return String(error);
 }
 
-export function UsersPanel({ adminApi, identity }: UsersPanelProps) {
-    const isPlatform = identity?.role === 'platform_admin';
+export function UsersPanel({ adminApi }: UsersPanelProps) {
     const [users, setUsers] = useState<AdminUser[]>([]);
-    const [orgs, setOrgs] = useState<AdminOrg[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [pending, setPending] = useState(false);
     const [form, setForm] = useState({
-        email: '',
-        role: 'viewer' as AdminRole,
-        orgId: '',
+        username: '',
         tempPassword: '',
     });
     const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
@@ -67,18 +49,11 @@ export function UsersPanel({ adminApi, identity }: UsersPanelProps) {
 
         const load = async () => {
             try {
-                // GET /api/admin/orgs is platform_admin-only (403 for org_admin), so only
-                // fetch the org list when we actually need it (the platform create form's
-                // org selector). An org_admin creates viewers in its own org — no list needed.
                 const usersResponse = await adminApi.listUsers();
-                const orgsResponse = isPlatform ? await adminApi.listOrgs() : null;
                 if (cancelled) {
                     return;
                 }
                 setUsers(usersResponse.users);
-                if (orgsResponse) {
-                    setOrgs(orgsResponse.orgs);
-                }
             } catch (loadError) {
                 if (cancelled) {
                     return;
@@ -92,46 +67,20 @@ export function UsersPanel({ adminApi, identity }: UsersPanelProps) {
         return () => {
             cancelled = true;
         };
-    }, [adminApi, isPlatform]);
-
-    function orgName(orgId: string) {
-        const fromList = orgs.find((org) => org.id === orgId)?.name;
-        if (fromList) {
-            return fromList;
-        }
-        // org_admin has no org list; fall back to its own org name for own-org rows.
-        if (identity?.orgId === orgId && identity.orgName) {
-            return identity.orgName;
-        }
-        return '—';
-    }
+    }, [adminApi]);
 
     async function submitCreate(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
         setError(null);
         setPending(true);
         try {
-            const role = isPlatform ? form.role : 'viewer';
-            // platform: platform_admin ⇒ no org; org role ⇒ chosen org. org_admin: the
-            // server forces the caller's own org, so send null and let it decide.
-            const orgId = !isPlatform
-                ? null
-                : role === 'platform_admin'
-                  ? null
-                  : form.orgId || null;
             const created = await adminApi.createUser({
-                email: form.email,
-                role,
+                username: form.username,
+                role: 'user',
                 tempPassword: form.tempPassword,
-                orgId,
             });
             setUsers((previous) => [...previous, created]);
-            setForm({
-                email: '',
-                role: isPlatform ? 'viewer' : 'viewer',
-                orgId: '',
-                tempPassword: '',
-            });
+            setForm({ username: '', tempPassword: '' });
         } catch (createError) {
             setError(errorText(createError));
         } finally {
@@ -193,64 +142,23 @@ export function UsersPanel({ adminApi, identity }: UsersPanelProps) {
     return (
         <section aria-label="Users" className="admin-section">
             <div className="admin-section-head">
-                <h2>{isPlatform ? 'Users' : 'Team'}</h2>
+                <h2>Users</h2>
             </div>
 
             <article className="admin-card">
-                <h2>{isPlatform ? 'Invite user' : 'Invite viewer'}</h2>
+                <h2>Invite user</h2>
                 <form className="admin-form" onSubmit={submitCreate}>
                     <label>
-                        User email
+                        Username
                         <input
-                            onChange={(event) => setForm({ ...form, email: event.target.value })}
+                            onChange={(event) =>
+                                setForm({ ...form, username: event.target.value })
+                            }
                             required
-                            type="email"
-                            value={form.email}
+                            type="text"
+                            value={form.username}
                         />
                     </label>
-
-                    {isPlatform ? (
-                        <label>
-                            Role
-                            <select
-                                onChange={(event) =>
-                                    setForm({
-                                        ...form,
-                                        role: event.target.value as AdminRole,
-                                        orgId:
-                                            event.target.value === 'platform_admin'
-                                                ? ''
-                                                : form.orgId,
-                                    })
-                                }
-                                value={form.role}
-                            >
-                                <option value="viewer">viewer</option>
-                                <option value="org_admin">org_admin</option>
-                                <option value="platform_admin">platform_admin</option>
-                            </select>
-                        </label>
-                    ) : null}
-
-                    {isPlatform && form.role !== 'platform_admin' ? (
-                        <label>
-                            Organization
-                            <select
-                                onChange={(event) =>
-                                    setForm({ ...form, orgId: event.target.value })
-                                }
-                                required
-                                value={form.orgId}
-                            >
-                                <option value="">Select organization</option>
-                                {orgs.map((org) => (
-                                    <option key={org.id} value={org.id}>
-                                        {org.name}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                    ) : null}
 
                     <label>
                         Temp password
@@ -265,7 +173,7 @@ export function UsersPanel({ adminApi, identity }: UsersPanelProps) {
                     </label>
 
                     <button disabled={pending} type="submit">
-                        {isPlatform ? 'Create user' : 'Create viewer'}
+                        Create user
                     </button>
                 </form>
             </article>
@@ -281,9 +189,8 @@ export function UsersPanel({ adminApi, identity }: UsersPanelProps) {
                 <table className="admin-table">
                     <thead>
                         <tr>
-                            <th>Email</th>
+                            <th>Username</th>
                             <th>Role</th>
-                            <th>Organization</th>
                             <th>Status</th>
                             <th>Actions</th>
                         </tr>
@@ -291,9 +198,8 @@ export function UsersPanel({ adminApi, identity }: UsersPanelProps) {
                     <tbody>
                         {users.map((user) => (
                             <tr key={user.id}>
-                                <td>{user.email}</td>
+                                <td>{user.username}</td>
                                 <td>{user.role}</td>
-                                <td>{user.orgId ? orgName(user.orgId) : '—'}</td>
                                 <td>{user.isDisabled ? 'Disabled' : 'Active'}</td>
                                 <td>
                                     <button
@@ -321,7 +227,8 @@ export function UsersPanel({ adminApi, identity }: UsersPanelProps) {
                 <div className="admin-card">
                     <form className="admin-form" onSubmit={submitResetPassword}>
                         <p>
-                            Set a new temporary password for <strong>{passwordUser?.email}</strong>
+                            Set a new temporary password for{' '}
+                            <strong>{passwordUser?.username}</strong>
                         </p>
                         <label>
                             New password

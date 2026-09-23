@@ -26,21 +26,12 @@ export interface AdminStream {
     updatedAt: string;
 }
 
-export type AdminRole = 'platform_admin' | 'org_admin' | 'viewer';
+export type AdminRole = 'admin' | 'user';
 
 export interface AdminMe {
     id: string;
-    email: string;
+    username: string;
     role: AdminRole;
-    orgId: string | null;
-    orgName: string | null;
-}
-
-export interface AdminOrg {
-    id: string;
-    name: string;
-    createdAt: string;
-    updatedAt: string;
 }
 
 export interface AdminTranslatorAssignment {
@@ -58,9 +49,8 @@ export interface AdminTranslator {
 
 export interface AdminUser {
     id: string;
-    email: string;
+    username: string;
     role: AdminRole;
-    orgId: string | null;
     isDisabled: boolean;
     createdAt: string;
     updatedAt: string;
@@ -319,24 +309,16 @@ export interface CreateTranslatorPayload {
 }
 
 export interface AdminApi {
-    login(email: string, password: string): Promise<{ ok: true }>;
+    login(username: string, password: string): Promise<{ ok: true }>;
     logout(): Promise<{ ok: true }>;
     me(): Promise<AdminMe>;
     listPrograms(): Promise<AdminProgramList>;
     listDeletedPrograms(): Promise<AdminProgram[]>;
-    listOrgs(): Promise<{ orgs: AdminOrg[] }>;
-    createOrg(payload: {
-        orgName: string;
-        email: string;
-        tempPassword: string;
-    }): Promise<{ org: AdminOrg; admin: AdminUser }>;
-    updateOrg(id: string, payload: { name: string }): Promise<AdminOrg>;
     listUsers(): Promise<{ users: AdminUser[] }>;
     createUser(payload: {
-        email: string;
+        username: string;
         role: AdminRole;
         tempPassword: string;
-        orgId?: string | null;
     }): Promise<AdminUser>;
     updateUser(id: string, payload: { isDisabled?: boolean; role?: AdminRole }): Promise<AdminUser>;
     resetUserPassword(id: string, payload: { newPassword: string }): Promise<{ ok: true }>;
@@ -440,9 +422,9 @@ export interface AdminHttpClient {
 
 export function createAdminApi(client: AdminHttpClient = apiClient): AdminApi {
     return {
-        login(email: string, password: string) {
+        login(username: string, password: string) {
             return client.post<{ ok: true }>('/api/admin/login', {
-                email,
+                username,
                 password,
             });
         },
@@ -460,24 +442,10 @@ export function createAdminApi(client: AdminHttpClient = apiClient): AdminApi {
                 .get<AdminProgramList>('/api/admin/programs?deleted=true')
                 .then((response) => response.programs);
         },
-        listOrgs() {
-            return client.get<{ orgs: AdminOrg[] }>('/api/admin/orgs');
-        },
-        createOrg(p: { orgName: string; email: string; tempPassword: string }) {
-            return client.post<{ org: AdminOrg; admin: AdminUser }>('/api/admin/orgs', p);
-        },
-        updateOrg(id: string, p: { name: string }) {
-            return client.patch<AdminOrg>(`/api/admin/orgs/${encodeURIComponent(id)}`, p);
-        },
         listUsers() {
             return client.get<{ users: AdminUser[] }>('/api/admin/users');
         },
-        createUser(p: {
-            email: string;
-            role: AdminRole;
-            tempPassword: string;
-            orgId?: string | null;
-        }) {
+        createUser(p: { username: string; role: AdminRole; tempPassword: string }) {
             return client.post<AdminUser>('/api/admin/users', p);
         },
         updateUser(id: string, p: { isDisabled?: boolean; role?: AdminRole }) {

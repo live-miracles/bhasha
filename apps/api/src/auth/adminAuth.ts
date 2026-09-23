@@ -1,17 +1,13 @@
 import type { Env } from '../env';
 import { json } from '../http';
-import { sha256Hex, timingSafeEqualHex } from './crypto';
-import { UsersRepository, type UserRecord, type UserRole } from '../db/usersRepository';
+import { sha256Hex } from './crypto';
+import { UsersRepository, type UserRole } from '../db/usersRepository';
 
 const SESSION_SECONDS = 86_400;
-// Break-glass bootstrap sessions are short-lived: the operator should set a real
-// password (POST /api/admin/me/password) promptly, which re-issues a full session.
-const BOOTSTRAP_SESSION_SECONDS = 3_600;
 
 export type UserAuth = {
     userId: string;
     role: UserRole;
-    orgId: string | null;
 };
 
 function cookieValue(request: Request, name: string): string | null {
@@ -105,7 +101,7 @@ function readString(body: Record<string, unknown>, key: string): string {
 }
 
 /**
- * Email + password login against the `users` table. On success, issues a
+ * Username + password login against the `users` table. On success, issues a
  * user-bound `admin_session` cookie. Disabled users and users without a
  * password set are rejected (401), with a generic error to avoid user
  * enumeration.
@@ -116,20 +112,20 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
         return body;
     }
 
-    const email = readString(body, 'email');
+    const username = readString(body, 'username');
     const password = readString(body, 'password');
 
     const invalid = json({ error: 'invalid_admin_password' }, { status: 401 });
 
-    if (!email || !password) {
+    if (!username || !password) {
         return invalid;
     }
 
     const users = new UsersRepository(env.DB);
-    const user = await users.getUserByEmail(email);
+    const user = await users.getUserByUsername(username);
     if (!user || user.isDisabled || !user.passwordHash) {
         // Burn equivalent PBKDF2 work even when there is no real password to verify,
-        // so the unknown-email / disabled / unset-password paths take comparable
+        // so the unknown-username / disabled / unset-password paths take comparable
         // time to a wrong-password attempt. Closes a user-enumeration timing oracle.
         await users.dummyVerify(password);
         return invalid;
@@ -153,7 +149,7 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
  * forcing re-login. `is_disabled = 0` is re-checked on EVERY request so a
  * disabled user loses access immediately, not just on next login.
  *
- * @returns The resolved {userId, role, orgId} or a 401 Response.
+ * @returns The resolved {userId, role} or a 401 Response.
  */
 export async function requireUserAuth(request: Request, env: Env): Promise<UserAuth | Response> {
     const token = cookieValue(request, 'admin_session');
@@ -163,136 +159,39 @@ export async function requireUserAuth(request: Request, env: Env): Promise<UserA
 
     const sessionHash = await sha256Hex(token + env.ADMIN_SESSION_SECRET);
     const row = env.DB.prepare(
-        `SELECT u.id AS id, u.role AS role, u.org_id AS org_id
+        `SELECT u.id AS id, u.role AS role
      FROM admin_sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.session_hash = ? AND s.expires_at > ? AND u.is_disabled = 0`,
-    ).get(sessionHash, new Date().toISOString()) as
-        { id: string; role: UserRole; org_id: string | null } | undefined;
+    ).get(sessionHash, new Date().toISOString()) as { id: string; role: UserRole } | undefined;
 
     if (!row) {
         return json({ error: 'admin_auth_required' }, { status: 401 });
     }
 
-    return { userId: row.id, role: row.role, orgId: row.org_id };
+    return { userId: row.id, role: row.role };
 }
 
 /**
- * Gate for platform-only endpoints. Resolves the session, then requires the
- * platform_admin role (403 otherwise).
+ * Gate for admin-only endpoints. Resolves the session, then requires the
+ * admin role (403 otherwise).
  */
 export async function requireAdminRole(request: Request, env: Env): Promise<UserAuth | Response> {
     const auth = await requireUserAuth(request, env);
     if (auth instanceof Response) {
         return auth;
     }
-    if (auth.role !== 'platform_admin') {
+    if (auth.role !== 'admin') {
         return json({ error: 'admin_role_required' }, { status: 403 });
     }
     return auth;
-}
-
-const SHA256_PREFIX = 'sha256:';
-
-/**
- * A stored break-glass hash is `sha256:<hex>`. Strip the prefix so the hex can
- * be compared in constant time; return null if the prefix is absent (treated as
- * a non-match → fail closed).
- */
-function stripSha256Prefix(value: string): string | null {
-    return value.startsWith(SHA256_PREFIX) ? value.slice(SHA256_PREFIX.length) : null;
-}
-
-/** The single break-glass identity: platform_admin with no org binding. */
-function isPlatformAdminRow(user: UserRecord): boolean {
-    return user.role === 'platform_admin' && user.orgId === null;
-}
-
-/**
- * Structured audit log for every break-glass bootstrap attempt (success AND
- * failure). Records the outcome + a coarse reason only — never the candidate
- * password or any secret material.
- */
-function logBootstrapAttempt(outcome: string, reason: string): void {
-    console.log(JSON.stringify({ msg: 'admin_bootstrap_attempt', outcome, reason }));
-    // TODO(rate-limit): per-IP throttle needs a DO/KV counter — follow-up.
-}
-
-/**
- * Break-glass bootstrap. Authenticates the env `ADMIN_PASSWORD_HASH` via a
- * constant-time hex compare and issues a short-lived platform_admin session.
- *
- * RESOLVE-ONLY, FAIL-CLOSED: the platform_admin row is identified by
- * `PLATFORM_ADMIN_EMAIL`.
- * - If a user with that email exists but is NOT (`role='platform_admin'` AND
- *   `org_id IS NULL`) → 403 `bootstrap_conflict`, NO session issued. This stops
- *   an existing org_admin/viewer whose email collides from being handed a
- *   platform_admin break-glass session (privilege escalation).
- * - If it exists AND is the platform_admin → the SAME row is resolved (no
- *   duplicate is ever minted).
- * - If no user exists → exactly one platform_admin is created (org_id NULL,
- *   password unset).
- */
-export async function handleBootstrap(request: Request, env: Env): Promise<Response> {
-    const body = await readJsonObject(request);
-    if (body instanceof Response) {
-        return body;
-    }
-
-    const password = readString(body, 'password');
-    const invalid = json({ error: 'invalid_admin_password' }, { status: 401 });
-
-    if (!env.ADMIN_PASSWORD_HASH) {
-        logBootstrapAttempt('rejected', 'password_hash_unset');
-        return invalid;
-    }
-
-    const candidateHex = await sha256Hex(password + env.ADMIN_SESSION_SECRET);
-    const expectedHex = stripSha256Prefix(env.ADMIN_PASSWORD_HASH);
-    if (!expectedHex || !(await timingSafeEqualHex(candidateHex, expectedHex))) {
-        logBootstrapAttempt('rejected', 'invalid_password');
-        return invalid;
-    }
-
-    const email = env.PLATFORM_ADMIN_EMAIL;
-    if (!email) {
-        logBootstrapAttempt('error', 'platform_admin_email_unset');
-        return json({ error: 'bootstrap_not_configured' }, { status: 500 });
-    }
-
-    const users = new UsersRepository(env.DB);
-    const existing = await users.getUserByEmail(email);
-
-    if (existing && !isPlatformAdminRow(existing)) {
-        // Fail closed: the email resolves to a non-platform_admin (or org-bound)
-        // row. Never escalate it — and never issue any session.
-        logBootstrapAttempt('rejected', 'bootstrap_conflict');
-        return json({ error: 'bootstrap_conflict' }, { status: 403 });
-    }
-
-    let user = existing;
-    if (user) {
-        logBootstrapAttempt('resolved', 'existing_platform_admin');
-    } else {
-        user = await users.createUser({
-            email,
-            role: 'platform_admin',
-            orgId: null,
-        });
-        logBootstrapAttempt('created', 'platform_admin_created');
-    }
-
-    const token = await issueSession(env, user.id, BOOTSTRAP_SESSION_SECONDS);
-    const response = json({ ok: true });
-    response.headers.set('set-cookie', sessionCookie(token, BOOTSTRAP_SESSION_SECONDS));
-    return response;
 }
 
 /**
  * Change the authenticated caller's own password.
  *
  * - If the user has no password set (NULL hash), allows a first-set WITHOUT
- *   currentPassword (the bootstrap → first-password flow).
+ *   currentPassword.
  * - Otherwise requires `currentPassword` and verifies it (401 on mismatch).
  *
  * On success, all of the user's sessions are revoked, then a fresh session is

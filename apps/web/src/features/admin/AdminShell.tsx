@@ -28,7 +28,7 @@ type SidebarProps = {
     onBack: () => void;
 };
 
-type AppNavSection = 'programs' | 'deleted' | 'organizations' | 'users' | 'team' | 'account';
+type AppNavSection = 'programs' | 'deleted' | 'users' | 'account';
 
 type SidebarAppProps = {
     activeSection: AppNavSection;
@@ -250,11 +250,8 @@ export function SidebarApp({ activeSection, onNavigate, role }: SidebarAppProps)
         { section: 'deleted', label: 'Recently deleted' },
     ];
 
-    if (role === 'platform_admin') {
-        navItems.push({ section: 'organizations', label: 'Organizations' });
+    if (role === 'admin') {
         navItems.push({ section: 'users', label: 'Users' });
-    } else if (role === 'org_admin') {
-        navItems.push({ section: 'team', label: 'Team' });
     }
 
     navItems.push({ section: 'account', label: 'Account' });

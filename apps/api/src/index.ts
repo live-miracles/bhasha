@@ -8,6 +8,7 @@ import type { Env } from './env';
 import { createFireAndForgetCtx, json, notFound, type WaitUntilCtx } from './http';
 import { openDatabase } from './db/sqlite';
 import { runMigrations } from './db/migrate';
+import { UsersRepository } from './db/usersRepository';
 import { handleAdminRoutes } from './routes/admin';
 import { handleListenerRoutes } from './routes/listeners';
 import { handlePublicRoutes } from './routes/public';
@@ -213,18 +214,19 @@ function requireEnvVar(name: string): string {
  * Builds a real `Env` from `process.env` and a freshly-opened, migrated
  * better-sqlite3 database. Used by `main()`; tests build their own `Env`
  * around a `:memory:` database instead (see test/test-env.ts).
+ *
+ * Also ensures the singleton admin account exists (username/password
+ * "admin"/"admin" the first time it's created) so the app always has a
+ * working admin login without any env var configuration.
  */
-export function buildEnvFromProcess(): Env {
+export async function buildEnvFromProcess(): Promise<Env> {
     const db = openDatabase(process.env.DATABASE_PATH);
     runMigrations(db);
+    await new UsersRepository(db).ensureDefaultAdmin();
 
     return {
         DB: db,
-        ADMIN_PASSWORD_HASH: requireEnvVar('ADMIN_PASSWORD_HASH'),
         ADMIN_SESSION_SECRET: requireEnvVar('ADMIN_SESSION_SECRET'),
-        ...(process.env.PLATFORM_ADMIN_EMAIL !== undefined
-            ? { PLATFORM_ADMIN_EMAIL: process.env.PLATFORM_ADMIN_EMAIL }
-            : {}),
         TRANSLATOR_PASSWORD_PEPPER: requireEnvVar('TRANSLATOR_PASSWORD_PEPPER'),
         TRANSLATOR_SESSION_SECRET: requireEnvVar('TRANSLATOR_SESSION_SECRET'),
         VOLUNTEER_SESSION_SECRET: process.env.VOLUNTEER_SESSION_SECRET,
@@ -292,8 +294,8 @@ async function runRetentionPass(env: Env): Promise<void> {
 // otherwise known timezone).
 const RETENTION_CRON_SCHEDULE = '17 3 * * *';
 
-function main(): void {
-    const env = buildEnvFromProcess();
+async function main(): Promise<void> {
+    const env = await buildEnvFromProcess();
     const app = createApp(env);
     const port = Number.parseInt(process.env.PORT ?? '8787', 10);
 
@@ -326,5 +328,14 @@ const isMainModule =
     process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`;
 
 if (isMainModule) {
-    main();
+    main().catch((error: unknown) => {
+        console.error(
+            JSON.stringify({
+                level: 'error',
+                message: 'server_start_failed',
+                error: error instanceof Error ? error.message : String(error),
+            }),
+        );
+        process.exit(1);
+    });
 }

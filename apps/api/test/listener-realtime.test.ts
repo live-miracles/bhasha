@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '../src/env';
 import { createApp } from '../src/index';
 import { roomNameForStream } from '../src/livekit/tokens';
-import { adminCookie, buildTestEnv, seedPlatformAdmin, testEnv } from './test-env';
+import { adminCookie, buildTestEnv, seedAdmin, testEnv } from './test-env';
 
 // NOTE ON SCOPE (Slice 3): the five SFU-shaped stub endpoints this file used
 // to exercise (`ice-servers`, `active-publisher`, `subscribe/session`,
@@ -158,7 +158,7 @@ describe('listener realtime connection request', () => {
         testEnv.DB.exec('DELETE FROM translators');
         testEnv.DB.exec('DELETE FROM language_streams');
         testEnv.DB.exec('DELETE FROM programs');
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
     });
 
     it('uses the approved listener error contract', async () => {
@@ -257,7 +257,7 @@ describe('listener realtime token', () => {
         testEnv.DB.exec('DELETE FROM translators');
         testEnv.DB.exec('DELETE FROM language_streams');
         testEnv.DB.exec('DELETE FROM programs');
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
     });
 
     async function requestConnection(

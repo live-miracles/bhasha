@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { sha256Hex } from '../src/auth/crypto';
 import { createApp } from '../src/index';
-import { adminCookie, buildTestEnv, seedPlatformAdmin, seedProgram, testEnv } from './test-env';
+import { adminCookie, buildTestEnv, seedAdmin, seedProgram, testEnv } from './test-env';
 
 async function request(path: string, init: RequestInit = {}) {
     const app = createApp(buildTestEnv());
@@ -156,7 +156,7 @@ describe('admin translator API', () => {
         testEnv.DB.exec('DELETE FROM translators');
         testEnv.DB.exec('DELETE FROM language_streams');
         testEnv.DB.exec('DELETE FROM programs');
-        await seedPlatformAdmin(buildTestEnv());
+        await seedAdmin(buildTestEnv());
     });
 
     it('creates a translator with a plaintext password, stores only a peppered hash, and allows translator login', async () => {

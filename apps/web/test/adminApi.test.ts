@@ -57,7 +57,7 @@ describe('AdminApi', () => {
         };
         const api = createAdminApi(client as unknown as AdminHttpClient);
 
-        await api.login('admin@example.com', 'admin-pass');
+        await api.login('admin', 'admin-pass');
         await api.listPrograms();
         await api.createProgram({
             slug: 'patna-event-2026',
@@ -78,7 +78,7 @@ describe('AdminApi', () => {
         expect(deletedPrograms).toEqual([deletedProgram]);
 
         expect(client.post).toHaveBeenNthCalledWith(1, '/api/admin/login', {
-            email: 'admin@example.com',
+            username: 'admin',
             password: 'admin-pass',
         });
         expect(client.get).toHaveBeenCalledWith('/api/admin/programs');
@@ -188,7 +188,7 @@ describe('AdminApi', () => {
         );
     });
 
-    it('maps identity and admin org/user endpoints', async () => {
+    it('maps identity and admin user management endpoints', async () => {
         const getMock = vi.fn();
         const postMock = vi.fn();
         const client = {
@@ -201,83 +201,50 @@ describe('AdminApi', () => {
 
         const me = {
             id: 'user_1',
-            email: 'platform@example.com',
-            role: 'platform_admin' as const,
-            orgId: null,
-            orgName: null,
-        };
-        const org = {
-            id: 'org_1',
-            name: 'Org One',
-            createdAt: '2026-06-01T10:00:00.000Z',
-            updatedAt: '2026-06-01T10:00:00.000Z',
+            username: 'admin',
+            role: 'admin' as const,
         };
         const user = {
-            id: 'user_1',
-            email: 'viewer@example.com',
-            role: 'viewer' as const,
-            orgId: 'org_1',
+            id: 'user_2',
+            username: 'plain_user',
+            role: 'user' as const,
             isDisabled: false,
             createdAt: '2026-06-01T10:00:00.000Z',
             updatedAt: '2026-06-01T10:00:00.000Z',
         };
 
-        getMock
-            .mockResolvedValueOnce(me)
-            .mockResolvedValueOnce({ orgs: [org] })
-            .mockResolvedValueOnce({ users: [user] });
+        getMock.mockResolvedValueOnce(me).mockResolvedValueOnce({ users: [user] });
         postMock
-            .mockResolvedValueOnce({
-                org,
-                admin: user,
-            })
+            .mockResolvedValueOnce(user)
             .mockResolvedValueOnce({ ok: true as const })
             .mockResolvedValueOnce({ ok: true as const });
         client.patch.mockResolvedValue({ ok: true });
 
         await api.me();
-        await api.listOrgs();
-        await api.createOrg({
-            orgName: 'Org Two',
-            email: 'orgadmin@example.com',
-            tempPassword: 'temp-pass',
-        });
-        await api.updateOrg('org_1', { name: 'Org Renamed' });
         await api.listUsers();
         await api.createUser({
-            email: 'viewer2@example.com',
-            role: 'viewer',
+            username: 'plain_user',
+            role: 'user',
             tempPassword: 'temp-pass',
-            orgId: 'org_1',
         });
-        await api.updateUser('user_1', { isDisabled: true });
-        await api.resetUserPassword('user_1', { newPassword: 'new-pass' });
+        await api.updateUser('user_2', { isDisabled: true });
+        await api.resetUserPassword('user_2', { newPassword: 'new-pass' });
         await api.changeMyPassword({
             currentPassword: 'old',
             newPassword: 'new',
         });
 
         expect(client.get).toHaveBeenNthCalledWith(1, '/api/admin/me');
-        expect(client.get).toHaveBeenNthCalledWith(2, '/api/admin/orgs');
-        expect(client.get).toHaveBeenNthCalledWith(3, '/api/admin/users');
-        expect(client.post).toHaveBeenNthCalledWith(1, '/api/admin/orgs', {
-            orgName: 'Org Two',
-            email: 'orgadmin@example.com',
-            tempPassword: 'temp-pass',
-        });
-        expect(client.patch).toHaveBeenCalledWith('/api/admin/orgs/org_1', {
-            name: 'Org Renamed',
-        });
+        expect(client.get).toHaveBeenNthCalledWith(2, '/api/admin/users');
         expect(client.post).toHaveBeenCalledWith('/api/admin/users', {
-            email: 'viewer2@example.com',
-            role: 'viewer',
+            username: 'plain_user',
+            role: 'user',
             tempPassword: 'temp-pass',
-            orgId: 'org_1',
         });
-        expect(client.patch).toHaveBeenCalledWith('/api/admin/users/user_1', {
+        expect(client.patch).toHaveBeenCalledWith('/api/admin/users/user_2', {
             isDisabled: true,
         });
-        expect(client.post).toHaveBeenCalledWith('/api/admin/users/user_1/password', {
+        expect(client.post).toHaveBeenCalledWith('/api/admin/users/user_2/password', {
             newPassword: 'new-pass',
         });
         expect(client.post).toHaveBeenCalledWith('/api/admin/me/password', {

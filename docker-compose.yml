@@ -36,9 +36,7 @@ services:
         depends_on:
             - livekit
         environment:
-            ADMIN_PASSWORD_HASH: '${ADMIN_PASSWORD_HASH:?ADMIN_PASSWORD_HASH must be set (see .env.example)}'
             ADMIN_SESSION_SECRET: '${ADMIN_SESSION_SECRET:?ADMIN_SESSION_SECRET must be set (see .env.example)}'
-            PLATFORM_ADMIN_EMAIL: '${PLATFORM_ADMIN_EMAIL:-}'
             TRANSLATOR_PASSWORD_PEPPER: '${TRANSLATOR_PASSWORD_PEPPER:?TRANSLATOR_PASSWORD_PEPPER must be set (see .env.example)}'
             TRANSLATOR_SESSION_SECRET: '${TRANSLATOR_SESSION_SECRET:?TRANSLATOR_SESSION_SECRET must be set (see .env.example)}'
             VOLUNTEER_SESSION_SECRET: '${VOLUNTEER_SESSION_SECRET:-}'

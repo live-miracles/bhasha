@@ -1,5 +1,4 @@
 import {
-    handleBootstrap,
     handleChangeOwnPassword,
     handleLogin,
     handleLogout,
@@ -28,12 +27,7 @@ import {
     StreamNotFoundError,
 } from '../db/programRepository';
 import { ListenerAccessRepository } from '../db/listenerAccessRepository';
-import {
-    UsersRepository,
-    isEmailConflict,
-    isOrgAdminConflict,
-    type UserRecord,
-} from '../db/usersRepository';
+import { UsersRepository, isUsernameConflict, type UserRecord } from '../db/usersRepository';
 import {
     TranslatorAssignmentExistsError,
     TranslatorAssignmentNotFoundError,
@@ -54,13 +48,7 @@ import {
     parseUpdateTranslatorInput,
     type UpdateProgramInput,
 } from '../domain/programs';
-import {
-    parseCreateOrgInput,
-    parseCreateUserInput,
-    parseResetPasswordInput,
-    parseUpdateOrgInput,
-    parseUpdateUserInput,
-} from '../domain/users';
+import { parseCreateUserInput, parseResetPasswordInput, parseUpdateUserInput } from '../domain/users';
 import { RealtimeStreamRepository } from '../db/realtimeStreamRepository';
 import {
     buildReadinessItems,
@@ -509,33 +497,12 @@ function repositoryErrorResponse(error: unknown): Response {
 function publicAdminUser(user: UserRecord) {
     return {
         id: user.id,
-        email: user.email,
+        username: user.username,
         role: user.role,
-        orgId: user.orgId,
         isDisabled: user.isDisabled,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
     };
-}
-
-type ManageUserScope = 'ok' | 'not_found' | 'forbidden';
-
-function canManageTarget(actor: UserAuth, target: UserRecord): ManageUserScope {
-    if (actor.role === 'platform_admin') {
-        return 'ok';
-    }
-
-    if (actor.role === 'viewer') {
-        return 'forbidden';
-    }
-
-    if (target.orgId !== actor.orgId) {
-        return 'not_found';
-    }
-    if (target.role !== 'viewer') {
-        return 'forbidden';
-    }
-    return 'ok';
 }
 
 async function parseUpdateProgramBody(request: Request): Promise<UpdateProgramInput | Response> {
@@ -699,10 +666,6 @@ export async function handleAdminRoutes(
         return handleLogin(request, env);
     }
 
-    if (request.method === 'POST' && url.pathname === '/api/admin/bootstrap') {
-        return handleBootstrap(request, env);
-    }
-
     // Logout is intentionally BEFORE the requireUserAuth guard: a user with a
     // stale/expired session must still be able to clear their cookie + session row.
     if (request.method === 'POST' && url.pathname === '/api/admin/logout') {
@@ -863,109 +826,23 @@ export async function handleAdminRoutes(
                 return json({ error: 'admin_not_found' }, { status: 401 });
             }
 
-            const org = actor.orgId ? await users.getOrg(actor.orgId) : null;
             return json({
                 id: actor.id,
-                email: actor.email,
+                username: actor.username,
                 role: actor.role,
-                orgId: actor.orgId,
-                orgName: org ? org.name : null,
             });
         } catch (error) {
             return repositoryErrorResponse(error);
         }
-    }
-
-    if (request.method === 'POST' && url.pathname === '/api/admin/orgs') {
-        if (auth!.role !== 'platform_admin') {
-            return json({ error: 'admin_role_required' }, { status: 403 });
-        }
-
-        const input = await parseBody(request, parseCreateOrgInput);
-        if (input instanceof Response) {
-            return input;
-        }
-
-        try {
-            const { org, admin } = await users.createOrgWithOrgAdmin({
-                orgName: input.orgName,
-                adminEmail: input.email,
-            });
-            await users.setPassword(admin.id, input.tempPassword);
-
-            return json(
-                {
-                    org: { id: org.id, name: org.name },
-                    admin: {
-                        id: admin.id,
-                        email: admin.email,
-                        role: admin.role,
-                        orgId: admin.orgId,
-                    },
-                },
-                { status: 201 },
-            );
-        } catch (error) {
-            if (isEmailConflict(error) || isOrgAdminConflict(error)) {
-                return json({ error: 'email_taken' }, { status: 409 });
-            }
-            return repositoryErrorResponse(error);
-        }
-    }
-
-    if (request.method === 'GET' && url.pathname === '/api/admin/orgs') {
-        if (auth!.role !== 'platform_admin') {
-            return json({ error: 'admin_role_required' }, { status: 403 });
-        }
-
-        try {
-            return json({ orgs: await users.listOrgs() });
-        } catch (error) {
-            return repositoryErrorResponse(error);
-        }
-    }
-
-    const orgMatch = url.pathname.match(/^\/api\/admin\/orgs\/([^/]+)$/);
-    if (request.method === 'PATCH' && orgMatch) {
-        if (auth!.role !== 'platform_admin') {
-            return json({ error: 'admin_role_required' }, { status: 403 });
-        }
-
-        const orgId = orgMatch[1];
-        if (!orgId) {
-            return null;
-        }
-
-        const input = await parseBody(request, parseUpdateOrgInput);
-        if (input instanceof Response) {
-            return input;
-        }
-
-        const org = await users.updateOrg(orgId, input);
-        if (!org) {
-            return json({ error: 'org_not_found' }, { status: 404 });
-        }
-
-        return json(org);
     }
 
     if (request.method === 'GET' && url.pathname === '/api/admin/users') {
-        if (auth!.role === 'viewer') {
+        if (auth!.role !== 'admin') {
             return json({ error: 'admin_role_required' }, { status: 403 });
         }
 
         try {
-            if (auth!.role !== 'platform_admin' && !auth!.orgId) {
-                return json({ error: 'admin_role_required' }, { status: 403 });
-            }
-
-            const list =
-                auth!.role === 'platform_admin'
-                    ? await users.listUsers()
-                    : await users.listUsers({
-                          orgId: auth!.orgId,
-                          role: 'viewer',
-                      });
+            const list = await users.listUsers();
             return json({ users: list.map(publicAdminUser) });
         } catch (error) {
             return repositoryErrorResponse(error);
@@ -973,7 +850,7 @@ export async function handleAdminRoutes(
     }
 
     if (request.method === 'POST' && url.pathname === '/api/admin/users') {
-        if (auth!.role === 'viewer') {
+        if (auth!.role !== 'admin') {
             return json({ error: 'admin_role_required' }, { status: 403 });
         }
 
@@ -982,49 +859,25 @@ export async function handleAdminRoutes(
             return input;
         }
 
-        if (auth!.role === 'org_admin') {
-            if (!auth!.orgId) {
-                return json({ error: 'admin_role_required' }, { status: 403 });
-            }
-            if (input.role !== 'viewer') {
-                return json({ error: 'admin_role_required' }, { status: 403 });
-            }
-            input.orgId = auth!.orgId;
-        } else if (input.role === 'platform_admin' && input.orgId !== null) {
+        // The admin account is a fixed singleton, seeded once at startup — this
+        // endpoint only ever creates 'user' accounts.
+        if (input.role !== 'user') {
             return json(
-                {
-                    error: 'validation_error',
-                    message: 'platform_admin users do not belong to orgs',
-                },
+                { error: 'validation_error', message: 'only user accounts can be created' },
                 { status: 400 },
             );
-        } else if (input.role !== 'platform_admin') {
-            if (input.orgId === null) {
-                return json(
-                    { error: 'validation_error', message: 'orgId is required' },
-                    { status: 400 },
-                );
-            }
-            const org = await users.getOrg(input.orgId);
-            if (!org) {
-                return json({ error: 'org_not_found' }, { status: 404 });
-            }
         }
 
         try {
             const newUser = await users.createUser({
-                email: input.email,
+                username: input.username,
                 role: input.role,
-                orgId: input.orgId,
             });
             await users.setPassword(newUser.id, input.tempPassword);
             return json(publicAdminUser(newUser), { status: 201 });
         } catch (error) {
-            if (isEmailConflict(error)) {
-                return json({ error: 'email_taken' }, { status: 409 });
-            }
-            if (isOrgAdminConflict(error)) {
-                return json({ error: 'org_admin_exists' }, { status: 409 });
+            if (isUsernameConflict(error)) {
+                return json({ error: 'username_taken' }, { status: 409 });
             }
             return repositoryErrorResponse(error);
         }
@@ -1032,7 +885,7 @@ export async function handleAdminRoutes(
 
     const resetPasswordMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/password$/);
     if (request.method === 'POST' && resetPasswordMatch) {
-        if (auth!.role === 'viewer') {
+        if (auth!.role !== 'admin') {
             return json({ error: 'admin_role_required' }, { status: 403 });
         }
 
@@ -1047,16 +900,8 @@ export async function handleAdminRoutes(
         }
 
         const target = await users.getUserById(userId);
-        if (!target) {
+        if (!target || target.role === 'admin') {
             return json({ error: 'user_not_found' }, { status: 404 });
-        }
-
-        const scope = canManageTarget(auth!, target);
-        if (scope === 'not_found') {
-            return json({ error: 'not_found' }, { status: 404 });
-        }
-        if (scope === 'forbidden') {
-            return json({ error: 'admin_role_required' }, { status: 403 });
         }
 
         try {
@@ -1070,7 +915,7 @@ export async function handleAdminRoutes(
 
     const userMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
     if (request.method === 'PATCH' && userMatch) {
-        if (auth!.role === 'viewer') {
+        if (auth!.role !== 'admin') {
             return json({ error: 'admin_role_required' }, { status: 403 });
         }
 
@@ -1080,16 +925,8 @@ export async function handleAdminRoutes(
         }
 
         const target = await users.getUserById(userId);
-        if (!target) {
+        if (!target || target.role === 'admin') {
             return json({ error: 'user_not_found' }, { status: 404 });
-        }
-
-        const scope = canManageTarget(auth!, target);
-        if (scope === 'not_found') {
-            return json({ error: 'not_found' }, { status: 404 });
-        }
-        if (scope === 'forbidden') {
-            return json({ error: 'admin_role_required' }, { status: 403 });
         }
 
         const input = await parseBody(request, parseUpdateUserInput);
@@ -1097,37 +934,13 @@ export async function handleAdminRoutes(
             return input;
         }
 
-        if (auth!.role === 'org_admin' && input.role !== undefined) {
-            return json({ error: 'admin_role_required' }, { status: 403 });
-        }
-
-        // Pre-validate the post-patch role/org SHAPE so a boundary-crossing role
-        // change returns a clean 400 instead of hitting the DB CHECK → 500. This
-        // endpoint can't change org_id, so the only shape-affecting field is role:
-        // platform_admin ⇒ org_id must be NULL; org_admin/viewer ⇒ org_id non-null.
-        if (input.role !== undefined) {
-            const wouldBePlatform = input.role === 'platform_admin';
-            const hasOrg = target.orgId !== null;
-            if (wouldBePlatform && hasOrg) {
-                return json(
-                    {
-                        error: 'validation_error',
-                        message:
-                            'cannot promote an org-scoped user to platform_admin (org_id cannot be changed here)',
-                    },
-                    { status: 400 },
-                );
-            }
-            if (!wouldBePlatform && !hasOrg) {
-                return json(
-                    {
-                        error: 'validation_error',
-                        message:
-                            'cannot change a platform_admin to an org role (org_id cannot be assigned here)',
-                    },
-                    { status: 400 },
-                );
-            }
+        // The admin account is a fixed singleton — no other account can be
+        // promoted into (or demoted out of) it via this endpoint.
+        if (input.role !== undefined && input.role !== 'user') {
+            return json(
+                { error: 'validation_error', message: 'role must be user' },
+                { status: 400 },
+            );
         }
 
         try {
@@ -1140,13 +953,6 @@ export async function handleAdminRoutes(
             }
             return json(publicAdminUser(updated));
         } catch (error) {
-            if (isOrgAdminConflict(error)) {
-                return json({ error: 'org_admin_exists' }, { status: 409 });
-            }
-            // Backstop: any residual role/org-shape CHECK violation → 400, not 500.
-            if (error instanceof Error && error.message.includes('CHECK constraint failed')) {
-                return json({ error: 'validation_error' }, { status: 400 });
-            }
             return repositoryErrorResponse(error);
         }
     }
@@ -1154,22 +960,11 @@ export async function handleAdminRoutes(
     if (request.method === 'GET' && url.pathname === '/api/admin/programs') {
         try {
             const deleted = url.searchParams.get('deleted') === 'true';
-            // Fail closed: a non-platform principal MUST be org-scoped. The DB CHECK
-            // guarantees org_admin/viewer carry a non-null org_id, but never let a
-            // missing org_id silently widen the listing to every org.
-            let scopedOrgId: string | undefined;
-            if (auth!.role === 'platform_admin') {
-                scopedOrgId = undefined;
-            } else {
-                if (!auth!.orgId) {
-                    return json({ error: 'forbidden' }, { status: 403 });
-                }
-                scopedOrgId = auth!.orgId;
-            }
+            // admin sees every program; a user sees only the ones it created.
             const listOptions =
-                scopedOrgId === undefined
+                auth!.role === 'admin'
                     ? { deletedOnly: deleted }
-                    : { deletedOnly: deleted, orgId: scopedOrgId };
+                    : { deletedOnly: deleted, createdBy: auth!.userId };
             return json({ programs: await programs.listPrograms(listOptions) });
         } catch (error) {
             return repositoryErrorResponse(error);
@@ -1177,30 +972,13 @@ export async function handleAdminRoutes(
     }
 
     if (request.method === 'POST' && url.pathname === '/api/admin/programs') {
-        if (auth!.role !== 'org_admin') {
-            return json(
-                {
-                    error: 'forbidden',
-                    message: 'only an org admin can create programs',
-                },
-                { status: 403 },
-            );
-        }
-
-        // Fail closed: an org_admin without a non-null org_id is a corrupt session
-        // (DB CHECK forbids it). Never bind a NULL org_id onto a new program.
-        const creatorOrgId = auth!.orgId;
-        if (!creatorOrgId) {
-            return json({ error: 'forbidden' }, { status: 403 });
-        }
-
         const input = await parseBody(request, parseCreateProgramInput);
         if (input instanceof Response) {
             return input;
         }
 
         try {
-            return json(await programs.createProgram(input, creatorOrgId), {
+            return json(await programs.createProgram(input, auth!.userId), {
                 status: 201,
             });
         } catch (error) {

@@ -40,7 +40,6 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { AdminDialog } from './AdminDialog';
 import { KickConfirmDialog } from './KickConfirmDialog';
 import { AdminLayout, KpiTile, Sidebar, SidebarApp, StatusPill, TopBar } from './AdminShell';
-import { OrgsPanel } from './OrgsPanel';
 import { UsersPanel } from './UsersPanel';
 import { AccountPanel } from './AccountPanel';
 
@@ -49,7 +48,7 @@ interface AdminScreenProps {
 }
 
 type LoadState = 'checking' | 'login' | 'ready' | 'error';
-type AppSection = 'programs' | 'deleted' | 'organizations' | 'users' | 'team' | 'account';
+type AppSection = 'programs' | 'deleted' | 'users' | 'account';
 type AdminSection =
     'status' | 'streams' | 'translators' | 'overview' | 'share' | 'readiness' | 'reports';
 type ActiveSection = AppSection | AdminSection;
@@ -442,7 +441,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     );
     const [kickPending, setKickPending] = useState(false);
     const [kickError, setKickError] = useState<string | null>(null);
-    const [loginEmail, setLoginEmail] = useState('');
+    const [loginUsername, setLoginUsername] = useState('');
     const [loginPassword, setLoginPassword] = useState('');
     const [identity, setIdentity] = useState<AdminMe | null>(null);
     const [programForm, setProgramForm] = useState({
@@ -473,7 +472,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         accessControlEnabled: false,
     });
     const [activeSection, setActiveSection] = useState<ActiveSection>('programs');
-    const isViewer = identity?.role === 'viewer';
     const reportDateRangeRef = useRef<HTMLDivElement | null>(null);
 
     const handleAuthExpired = useCallback(() => {
@@ -508,7 +506,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         setKickedStream(null);
         setKickPending(false);
         setKickError(null);
-        setLoginEmail('');
+        setLoginUsername('');
         setLoginPassword('');
     }, []);
 
@@ -762,7 +760,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     async function confirmReadiness(itemId: ConfirmableReadinessItemId) {
         // Viewers are read-only; the confirm buttons are hidden, but guard the
         // mutation here too so a stale/forced call never fires a write that 403s.
-        if (!selectedProgramId || isViewer) {
+        if (!selectedProgramId) {
             return;
         }
         setError(null);
@@ -891,7 +889,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             return status ? (
                 <StatusPanel
                     status={status}
-                    readOnly={isViewer}
+                    readOnly={false}
                     onRefresh={() => void refreshStatus()}
                     refreshing={refreshing}
                     onKickStream={(stream) => {
@@ -907,7 +905,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         if (activeSection === 'streams') {
             return (
                 <StreamsPanel
-                    readOnly={isViewer}
+                    readOnly={false}
                     form={streamForm}
                     onChange={setStreamForm}
                     onSubmit={submitStream}
@@ -922,7 +920,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             return (
                 <TranslatorsPanel
                     adminApi={adminApi}
-                    readOnly={isViewer}
+                    readOnly={false}
                     onAuthExpired={handleAuthExpired}
                     streams={detail.streams}
                     programId={detail.program.id}
@@ -952,7 +950,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                     readiness={readiness}
                     onConfirm={(itemId) => void confirmReadiness(itemId)}
                     pendingItemId={pendingReadinessItem}
-                    readOnly={isViewer}
+                    readOnly={false}
                 />
             );
         }
@@ -1090,7 +1088,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                 accessSummaryFetching={listenerAccessSummaryFetching}
                                 onRefreshAccessSummary={() => void refreshListenerAccessSummary()}
                                 onRevokeAccess={revokeListenerAccess}
-                                readOnly={isViewer}
+                                readOnly={false}
                                 rangeLabel={rangeLabel}
                                 onRangeChipClick={focusReportDateRange}
                             />
@@ -1122,7 +1120,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                 </div>
                 <ProgramDetailForm
                     form={editForm}
-                    readOnly={isViewer}
+                    readOnly={false}
                     slugLocked={detail.program.status !== 'draft' || !!detail.program.firstLiveAt}
                     onChange={setEditForm}
                     onArchive={() => void archiveSelectedProgram()}
@@ -1133,7 +1131,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                     adminApi={adminApi}
                     onAuthExpired={handleAuthExpired}
                     programId={detail.program.id}
-                    readOnly={isViewer}
+                    readOnly={false}
                 />
             </>
         );
@@ -1147,12 +1145,12 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         event.preventDefault();
         setError(null);
         try {
-            await adminApi.login(loginEmail, loginPassword);
-            setLoginEmail('');
+            await adminApi.login(loginUsername, loginPassword);
+            setLoginUsername('');
             setLoginPassword('');
             await loadPrograms();
         } catch (loginError) {
-            setError('Invalid email or password');
+            setError('Invalid username or password');
         }
     }
 
@@ -1184,7 +1182,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
 
     async function updateSelectedProgram(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
-        if (!selectedProgramId || isViewer) {
+        if (!selectedProgramId) {
             return;
         }
         setError(null);
@@ -1216,7 +1214,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     }
 
     async function archiveSelectedProgram() {
-        if (!selectedProgramId || isViewer) {
+        if (!selectedProgramId) {
             return;
         }
         setError(null);
@@ -1235,7 +1233,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     }
 
     async function deleteSelectedProgram() {
-        if (!selectedProgramId || isViewer) {
+        if (!selectedProgramId) {
             return;
         }
         const selectedProgram =
@@ -1474,7 +1472,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     }
 
     async function revokeListenerAccess(clientId: string) {
-        if (!selectedProgramId || isViewer) {
+        if (!selectedProgramId) {
             return;
         }
 
@@ -1620,13 +1618,13 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                 <form className="admin-panel admin-login" onSubmit={submitLogin}>
                     <h2>Admin login</h2>
                     <label>
-                        Admin email
+                        Username
                         <input
                             autoComplete="username"
-                            onChange={(event) => setLoginEmail(event.target.value)}
+                            onChange={(event) => setLoginUsername(event.target.value)}
                             required
-                            type="email"
-                            value={loginEmail}
+                            type="text"
+                            value={loginUsername}
                         />
                     </label>
                     <label>
@@ -1656,9 +1654,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                     activeSection={
                                         activeSection === 'programs' ||
                                         activeSection === 'deleted' ||
-                                        activeSection === 'organizations' ||
                                         activeSection === 'users' ||
-                                        activeSection === 'team' ||
                                         activeSection === 'account'
                                             ? activeSection
                                             : 'programs'
@@ -1680,27 +1676,18 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                         </div>
                                         <DeletedProgramList
                                             programs={deletedPrograms}
-                                            {...(!isViewer
-                                                ? {
-                                                      onRestore: (programId: string) => {
-                                                          void restoreProgram(programId);
-                                                      },
-                                                  }
-                                                : {})}
+                                            onRestore={(programId: string) => {
+                                                void restoreProgram(programId);
+                                            }}
                                         />
                                     </section>
-                                ) : activeSection === 'organizations' &&
-                                  identity?.role === 'platform_admin' ? (
-                                    <OrgsPanel adminApi={adminApi} />
                                 ) : activeSection === 'users' &&
-                                  identity?.role === 'platform_admin' ? (
-                                    <UsersPanel adminApi={adminApi} identity={identity} />
-                                ) : activeSection === 'team' && identity?.role === 'org_admin' ? (
-                                    <UsersPanel adminApi={adminApi} identity={identity} />
+                                  identity?.role === 'admin' ? (
+                                    <UsersPanel adminApi={adminApi} />
                                 ) : activeSection === 'account' ? (
                                     <AccountPanel
                                         adminApi={adminApi}
-                                        email={identity?.email}
+                                        username={identity?.username}
                                         onSignOut={handleSignOut}
                                     />
                                 ) : (
@@ -1708,17 +1695,12 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                         <div className="admin-section-head">
                                             <h2>Programs</h2>
                                         </div>
-                                        {/* Only an org admin can create programs (server: POST
-                        /api/admin/programs is org_admin-only). Hide the form for
-                        platform admins and viewers so they never hit a 403. */}
-                                        {identity?.role === 'org_admin' ? (
-                                            <ProgramCreateForm
-                                                form={programForm}
-                                                onChange={setProgramForm}
-                                                onSubmit={submitProgram}
-                                                readOnly={false}
-                                            />
-                                        ) : null}
+                                        <ProgramCreateForm
+                                            form={programForm}
+                                            onChange={setProgramForm}
+                                            onSubmit={submitProgram}
+                                            readOnly={false}
+                                        />
                                         <ProgramList
                                             programs={programs}
                                             onOpen={(program) =>

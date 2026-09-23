@@ -10,7 +10,7 @@ import {
 } from '../src/domain/reports';
 import { deviceLabelFromUserAgent } from '../src/domain/deviceLabel';
 import { parseListenerReportQuery } from '../src/routes/admin';
-import { adminCookie, buildTestEnv, seedPlatformAdmin, testEnv } from './test-env';
+import { adminCookie, buildTestEnv, seedAdmin, testEnv } from './test-env';
 import { ListenerRepository } from '../src/db/listenerRepository';
 
 async function request(
@@ -33,7 +33,7 @@ async function resetDb(): Promise<void> {
     await testEnv.DB.exec('DELETE FROM translators');
     await testEnv.DB.exec('DELETE FROM language_streams');
     await testEnv.DB.exec('DELETE FROM programs');
-    await seedPlatformAdmin(testEnv);
+    await seedAdmin(testEnv);
 }
 
 interface SeededReportProgram {

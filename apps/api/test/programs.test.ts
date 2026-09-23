@@ -2,19 +2,17 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '../src/env';
 import { createApp } from '../src/index';
 import { ProgramRepository } from '../src/db/programRepository';
+import { UsersRepository } from '../src/db/usersRepository';
 import { sha256Hex } from '../src/auth/crypto';
 import {
-    ORG_ADMIN_TEST_EMAIL,
-    VIEWER_TEST_EMAIL,
+    ADMIN_TEST_USERNAME,
+    USER_TEST_USERNAME,
     adminCookie,
     buildTestEnv,
-    seedOrg,
-    seedOrgAdmin,
-    seedPlatformAdmin,
+    seedAdmin,
     seedProgram,
-    seedViewer,
+    seedUser,
     testEnv,
-    DEFAULT_TEST_ORG_ID,
 } from './test-env';
 
 async function request(
@@ -139,7 +137,7 @@ async function seedProgramDetailGraph(): Promise<{
 }
 
 async function createProgram(
-    _cookie?: string,
+    cookie?: string,
     overrides: Partial<{
         slug: string;
         name: string;
@@ -149,7 +147,7 @@ async function createProgram(
         accessControlEnabled: boolean;
     }> = {},
 ): Promise<{ id: string; slug: string }> {
-    const authCookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
+    const authCookie = cookie ?? (await adminCookie());
     const response = await request('/api/admin/programs', {
         method: 'POST',
         headers: { Cookie: authCookie },
@@ -326,27 +324,23 @@ describe('program and stream admin API', () => {
         await testEnv.DB.exec('DELETE FROM translators');
         await testEnv.DB.exec('DELETE FROM language_streams');
         await testEnv.DB.exec('DELETE FROM programs');
-        await seedPlatformAdmin(testEnv);
-        await seedOrgAdmin(testEnv);
+        await testEnv.DB.exec('DELETE FROM users');
+        await seedAdmin(testEnv);
+        await seedUser(testEnv);
     });
 
-    it('scopes admin program listing by org and enforces create permissions', async () => {
+    it('lets admin see every program, including ones created by other users', async () => {
         const cookie = await adminCookie();
-        await seedOrg(testEnv, { id: 'org_other', name: 'Org Other' });
-        await seedOrgAdmin(testEnv, {
-            orgId: 'org_other',
-            email: 'other-admin@test.local',
-        });
+        const otherUserId = await seedUser(testEnv, 'other_user');
 
-        const platformProgram = await seedProgram(testEnv, {
-            slug: 'scope-platform',
-            orgId: DEFAULT_TEST_ORG_ID,
-            name: 'Platform Tenant',
+        const ownProgram = await seedProgram(testEnv, {
+            slug: 'scope-own',
+            name: 'Own Program',
         });
         const otherProgram = await seedProgram(testEnv, {
             slug: 'scope-other',
-            orgId: 'org_other',
-            name: 'Other Tenant',
+            name: 'Other Program',
+            createdBy: otherUserId,
         });
 
         const allPrograms = await request('/api/admin/programs', {
@@ -355,39 +349,36 @@ describe('program and stream admin API', () => {
 
         expect(allPrograms.status).toBe(200);
         const list = (await allPrograms.json()) as {
-            programs: { id: string; orgId: string | null }[];
+            programs: { id: string; createdBy: string | null }[];
         };
         expect(list.programs.map((program) => program.id)).toEqual(
-            expect.arrayContaining([platformProgram.id, otherProgram.id]),
+            expect.arrayContaining([ownProgram.id, otherProgram.id]),
         );
     });
 
-    it('allows org_admins to see only their own programs', async () => {
-        const orgCookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
-        await seedOrg(testEnv, { id: 'org_other', name: 'Org Other' });
-        await seedOrgAdmin(testEnv, {
-            orgId: 'org_other',
-            email: 'other-admin@test.local',
-        });
+    it("lets a 'user' see only the programs it created", async () => {
+        const ownerId = await seedUser(testEnv, USER_TEST_USERNAME);
+        const otherUserId = await seedUser(testEnv, 'other_user');
+        const ownerCookie = await adminCookie(USER_TEST_USERNAME);
 
         const ownProgram = await seedProgram(testEnv, {
-            slug: 'scope-admin-own',
-            orgId: DEFAULT_TEST_ORG_ID,
-            name: 'Own Tenant',
+            slug: 'scope-user-own',
+            name: 'Own Program',
+            createdBy: ownerId,
         });
         await seedProgram(testEnv, {
-            slug: 'scope-admin-other',
-            orgId: 'org_other',
-            name: 'Other Tenant',
+            slug: 'scope-user-other',
+            name: 'Other Program',
+            createdBy: otherUserId,
         });
 
         const response = await request('/api/admin/programs', {
-            headers: { Cookie: orgCookie },
+            headers: { Cookie: ownerCookie },
         });
 
         expect(response.status).toBe(200);
         const body = (await response.json()) as {
-            programs: { id: string; orgId: string | null }[];
+            programs: { id: string; createdBy: string | null }[];
         };
         expect(body.programs.map((program) => program.id)).toEqual(
             expect.arrayContaining([ownProgram.id]),
@@ -395,114 +386,68 @@ describe('program and stream admin API', () => {
         expect(body.programs.length).toBe(1);
     });
 
-    it('allows viewers to see only their own org programs and blocks viewer POST', async () => {
-        const viewer = await seedViewer(testEnv);
-        const viewerCookie = await adminCookie(VIEWER_TEST_EMAIL);
-        await seedOrg(testEnv, { id: 'org_other', name: 'Org Other' });
+    it('allows BOTH admin and user roles to create programs, owned by the caller', async () => {
+        const adminCookieValue = await adminCookie();
+        const userCookie = await adminCookie(USER_TEST_USERNAME);
 
-        const ownProgram = await seedProgram(testEnv, {
-            slug: 'scope-viewer-own',
-            orgId: viewer.orgId,
-            name: 'Viewer Tenant',
+        const fromAdmin = await request('/api/admin/programs', {
+            method: 'POST',
+            headers: { Cookie: adminCookieValue },
+            body: JSON.stringify({
+                slug: `admin-create-${crypto.randomUUID()}`,
+                name: 'Admin-created Program',
+                venue: 'Main Hall',
+                eventDate: '2026-08-01',
+            }),
         });
-        await seedProgram(testEnv, {
-            slug: 'scope-viewer-other',
-            orgId: 'org_other',
-            name: 'Viewer Other',
-        });
-
-        const response = await request('/api/admin/programs', {
-            headers: { Cookie: viewerCookie },
-        });
-
-        expect(response.status).toBe(200);
-        const body = (await response.json()) as {
-            programs: { id: string; orgId: string | null }[];
-        };
-        expect(body.programs.map((program) => program.id)).toEqual(
-            expect.arrayContaining([ownProgram.id]),
+        expect(fromAdmin.status).toBe(201);
+        const adminBody = (await fromAdmin.json()) as { createdBy: string | null };
+        const adminUser = await new UsersRepository(testEnv.DB).getUserByUsername(
+            ADMIN_TEST_USERNAME,
         );
-        expect(body.programs.length).toBe(1);
+        expect(adminBody.createdBy).toBe(adminUser?.id);
 
-        const blockedCreate = await request('/api/admin/programs', {
+        const fromUser = await request('/api/admin/programs', {
             method: 'POST',
-            headers: { Cookie: viewerCookie },
+            headers: { Cookie: userCookie },
             body: JSON.stringify({
-                slug: 'viewer-attempt',
-                name: 'Viewer Attempt',
+                slug: `user-create-${crypto.randomUUID()}`,
+                name: 'User-created Program',
                 venue: 'Main Hall',
                 eventDate: '2026-08-01',
             }),
         });
-
-        expect(blockedCreate.status).toBe(403);
-        expect(await blockedCreate.json()).toEqual({
-            error: 'forbidden',
-            message: 'only an org admin can create programs',
-        });
+        expect(fromUser.status).toBe(201);
+        const userBody = (await fromUser.json()) as { createdBy: string | null };
+        const plainUser = await new UsersRepository(testEnv.DB).getUserByUsername(
+            USER_TEST_USERNAME,
+        );
+        expect(userBody.createdBy).toBe(plainUser?.id);
     });
 
-    it('requires org-admin for POST /programs', async () => {
-        const platformCookie = await adminCookie();
-        const blocked = await request('/api/admin/programs', {
-            method: 'POST',
-            headers: { Cookie: platformCookie },
-            body: JSON.stringify({
-                slug: 'platform-create-forbidden',
-                name: 'Forbidden Platform Create',
-                venue: 'Main Hall',
-                eventDate: '2026-08-01',
-            }),
-        });
-
-        expect(blocked.status).toBe(403);
-        expect(await blocked.json()).toEqual({
-            error: 'forbidden',
-            message: 'only an org admin can create programs',
-        });
-    });
-
-    it('allows org_admins to create programs and persists orgId', async () => {
-        const orgAdminCookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
-        const orgAdmin = await seedOrgAdmin(testEnv);
-
-        const response = await request('/api/admin/programs', {
-            method: 'POST',
-            headers: { Cookie: orgAdminCookie },
-            body: JSON.stringify({
-                slug: `org-admin-create-${crypto.randomUUID()}`,
-                name: 'New Admin Program',
-                venue: 'Main Hall',
-                eventDate: '2026-08-01',
-            }),
-        });
-
-        expect(response.status).toBe(201);
-        const body = (await response.json()) as { orgId: string; slug: string };
-        expect(body.orgId).toBe(orgAdmin.orgId);
-    });
-
-    it('composes deleted filter with org scope', async () => {
-        const orgAdminCookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
-        await seedOrg(testEnv, { id: 'org_other', name: 'Org Other' });
-        // A DELETED program in ANOTHER org: it satisfies deletedOnly, so only the
-        // org filter can keep it out of this org_admin's deleted list. This is what
-        // proves the two filters COMPOSE (not that deletedOnly alone hides it).
+    it("composes the deleted filter with a 'user' caller's ownership scope", async () => {
+        const ownerId = await seedUser(testEnv, USER_TEST_USERNAME);
+        const otherUserId = await seedUser(testEnv, 'other_user');
+        const ownerCookie = await adminCookie(USER_TEST_USERNAME);
+        // A DELETED program owned by ANOTHER user: it satisfies deletedOnly, so
+        // only the ownership filter can keep it out of this user's deleted list.
+        // This is what proves the two filters COMPOSE (not that deletedOnly
+        // alone hides it).
         const otherDeleted = await seedProgram(testEnv, {
             slug: 'scope-deleted-other',
-            orgId: 'org_other',
-            name: 'Other Org Deleted',
+            name: 'Other User Deleted',
+            createdBy: otherUserId,
         });
 
         const ownActive = await seedProgram(testEnv, {
             slug: 'scope-deleted-own-active',
-            orgId: DEFAULT_TEST_ORG_ID,
             name: 'Own Active',
+            createdBy: ownerId,
         });
         const ownDeleted = await seedProgram(testEnv, {
             slug: 'scope-deleted-own',
-            orgId: DEFAULT_TEST_ORG_ID,
             name: 'Own Deleted',
+            createdBy: ownerId,
         });
 
         const deletedAt = new Date().toISOString();
@@ -511,25 +456,25 @@ describe('program and stream admin API', () => {
             .run();
 
         const response = await request('/api/admin/programs?deleted=true', {
-            headers: { Cookie: orgAdminCookie },
+            headers: { Cookie: ownerCookie },
         });
 
         expect(response.status).toBe(200);
         const body = (await response.json()) as {
-            programs: { id: string; orgId: string | null }[];
+            programs: { id: string; createdBy: string | null }[];
         };
         const ids = body.programs.map((program) => program.id);
         expect(ids).toEqual(expect.arrayContaining([ownDeleted.id]));
-        // org filter composes: the OTHER org's deleted program is absent...
+        // ownership filter composes: the OTHER user's deleted program is absent...
         expect(ids).not.toContain(otherDeleted.id);
         // ...and the deleted filter composes: own ACTIVE program is absent too.
         expect(ids).not.toContain(ownActive.id);
-        // every returned row belongs to this org_admin's org
-        expect(body.programs.every((program) => program.orgId === DEFAULT_TEST_ORG_ID)).toBe(true);
+        // every returned row belongs to this user
+        expect(body.programs.every((program) => program.createdBy === ownerId)).toBe(true);
     });
 
     it('creates and reads a program', async () => {
-        const cookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
+        const cookie = await adminCookie(USER_TEST_USERNAME);
         const create = await request('/api/admin/programs', {
             method: 'POST',
             headers: { Cookie: cookie },
@@ -578,7 +523,7 @@ describe('program and stream admin API', () => {
     });
 
     it('returns a conflict when a program slug already exists', async () => {
-        const cookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
+        const cookie = await adminCookie(USER_TEST_USERNAME);
         const body = JSON.stringify({
             slug: 'patna-event-2026',
             name: 'Patna Event 2026',
@@ -604,7 +549,7 @@ describe('program and stream admin API', () => {
     });
 
     it('adds a language stream to a program and returns static metadata only', async () => {
-        const cookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
+        const cookie = await adminCookie(USER_TEST_USERNAME);
         const createProgram = await request('/api/admin/programs', {
             method: 'POST',
             headers: { Cookie: cookie },
@@ -663,7 +608,7 @@ describe('program and stream admin API', () => {
     });
 
     it('returns validation errors for malformed program create JSON', async () => {
-        const cookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
+        const cookie = await adminCookie(USER_TEST_USERNAME);
         const create = await request('/api/admin/programs', {
             method: 'POST',
             headers: { Cookie: cookie },
@@ -675,7 +620,7 @@ describe('program and stream admin API', () => {
     });
 
     it('returns validation errors for invalid stream input', async () => {
-        const cookie = await adminCookie(ORG_ADMIN_TEST_EMAIL);
+        const cookie = await adminCookie(USER_TEST_USERNAME);
         const createProgram = await request('/api/admin/programs', {
             method: 'POST',
             headers: { Cookie: cookie },
@@ -1222,7 +1167,7 @@ describe('program and stream admin API', () => {
                 status: 'draft',
                 accessControlEnabled: false,
                 adminNotes: 'admin setup notes',
-                orgId: null,
+                createdBy: null,
                 createdAt: expect.any(String),
                 updatedAt: expect.any(String),
                 firstLiveAt: null,

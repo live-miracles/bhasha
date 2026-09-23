@@ -1,18 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/index';
-import {
-    DEFAULT_TEST_ORG_ID,
-    ORG_ADMIN_TEST_EMAIL,
-    VIEWER_TEST_EMAIL,
-    adminCookie,
-    buildTestEnv,
-    seedOrg,
-    seedOrgAdmin,
-    seedPlatformAdmin,
-    seedProgram,
-    seedViewer,
-    testEnv,
-} from './test-env';
+import { adminCookie, buildTestEnv, seedProgram, seedUser, testEnv } from './test-env';
 
 type ProgramIsolationIds = {
     programId: string;
@@ -238,10 +226,9 @@ async function request(path: string, init: RequestInitBody = {}): Promise<Respon
     return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
-describe('program admin endpoint multi-tenant isolation', () => {
-    let cookieA = '';
-    let cookieV = '';
-    let cookieB = '';
+describe('program admin endpoint ownership isolation', () => {
+    let cookieOwner = '';
+    let cookieOther = '';
     let programId = '';
 
     beforeEach(async () => {
@@ -255,33 +242,27 @@ describe('program admin endpoint multi-tenant isolation', () => {
         await testEnv.DB.exec('DELETE FROM translators');
         await testEnv.DB.exec('DELETE FROM language_streams');
         await testEnv.DB.exec('DELETE FROM programs');
+        await testEnv.DB.exec('DELETE FROM users');
 
-        await seedPlatformAdmin(testEnv);
-        await seedOrgAdmin(testEnv);
-        await seedViewer(testEnv);
-        await seedOrg(testEnv, { id: 'org_other', name: 'Other Org' });
-        await seedOrgAdmin(testEnv, {
-            orgId: 'org_other',
-            email: 'orgadmin-other@test.local',
-        });
+        const ownerId = await seedUser(testEnv, 'iso_owner');
+        await seedUser(testEnv, 'iso_other');
 
         const own = await seedProgram(testEnv, {
-            orgId: DEFAULT_TEST_ORG_ID,
+            createdBy: ownerId,
             slug: 'iso-own',
         });
 
-        cookieA = await adminCookie(ORG_ADMIN_TEST_EMAIL);
-        cookieV = await adminCookie(VIEWER_TEST_EMAIL);
-        cookieB = await adminCookie('orgadmin-other@test.local');
+        cookieOwner = await adminCookie('iso_owner');
+        cookieOther = await adminCookie('iso_other');
         programId = own.id;
     });
 
     for (const endpoint of ENDPOINT_CASES) {
-        it(`cross-org request blocked for ${endpoint.name}`, async () => {
+        it(`non-owning user request blocked for ${endpoint.name}`, async () => {
             const ids = { ...pathIds(), programId };
             const init: RequestInitBody = {
                 method: endpoint.method,
-                headers: { Cookie: cookieB },
+                headers: { Cookie: cookieOther },
             };
 
             if (endpoint.method === 'POST' || endpoint.method === 'PATCH') {
@@ -293,28 +274,10 @@ describe('program admin endpoint multi-tenant isolation', () => {
             // Body MUST be the program-gate 404, not a sub-resource 404
             // (translator_not_found / stream_not_found). A misordered or missing gate
             // on a nested route would 404 on the dummy sub-id and wrongly pass a
-            // status-only check — asserting the body proves the org gate fired first.
+            // status-only check — asserting the body proves the ownership gate fired
+            // first.
             expect(await response.json()).toEqual({ error: 'program_not_found' });
         });
-
-        if (endpoint.write) {
-            it(`viewer write blocked for ${endpoint.name}`, async () => {
-                const ids = { ...pathIds(), programId };
-                const init: RequestInitBody = {
-                    method: endpoint.method,
-                    headers: { Cookie: cookieV },
-                };
-
-                if (endpoint.method === 'POST' || endpoint.method === 'PATCH') {
-                    init.body = '{}';
-                }
-
-                const response = await request(endpoint.path(ids), init);
-                expect(response.status).toBe(403);
-                // Body MUST be the gate's viewer-write 403, before any body parse.
-                expect(await response.json()).toEqual({ error: 'forbidden' });
-            });
-        }
     }
 
     const positive = ENDPOINT_CASES.filter(
@@ -330,24 +293,40 @@ describe('program admin endpoint multi-tenant isolation', () => {
     );
 
     for (const endpoint of positive) {
-        it(`allows same-org admin for ${endpoint.name}`, async () => {
+        it(`allows the owning user for ${endpoint.name}`, async () => {
             const ids = { ...pathIds(), programId };
             const response = await request(endpoint.path(ids), {
                 method: endpoint.method,
-                headers: { Cookie: cookieA },
+                headers: { Cookie: cookieOwner },
             });
 
             expect(response.status).not.toBe(404);
             expect(response.status).not.toBe(403);
         });
+    }
 
-        it(`allows same-org viewer for ${endpoint.name}`, async () => {
+    const writeCases = ENDPOINT_CASES.filter(
+        (endpoint) =>
+            endpoint.write &&
+            [
+                '/api/admin/programs/:id/listener-access/revoke',
+                '/api/admin/programs/:id/streams',
+            ].includes(endpoint.name),
+    );
+
+    for (const endpoint of writeCases) {
+        it(`allows the owning user to write for ${endpoint.name} (no separate read-only role)`, async () => {
             const ids = { ...pathIds(), programId };
-            const response = await request(endpoint.path(ids), {
+            const init: RequestInitBody = {
                 method: endpoint.method,
-                headers: { Cookie: cookieV },
-            });
+                headers: { Cookie: cookieOwner },
+                body: '{}',
+            };
+            const response = await request(endpoint.path(ids), init);
 
+            // The owning user is never blocked by role/access — only by
+            // payload validation (400) if the empty body doesn't satisfy the
+            // endpoint's own schema.
             expect(response.status).not.toBe(404);
             expect(response.status).not.toBe(403);
         });

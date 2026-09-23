@@ -3,10 +3,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { ProgramRepository } from '../src/db/programRepository';
 import type { UserAuth } from '../src/auth/adminAuth';
 import { requireProgramAccess } from '../src/auth/programAccess';
-import { DEFAULT_TEST_ORG_ID, seedOrg, seedProgram, testEnv } from './test-env';
+import { seedProgram, seedUser, testEnv } from './test-env';
 
 async function clearData(): Promise<void> {
     await testEnv.DB.exec('DELETE FROM programs');
+    await testEnv.DB.exec('DELETE FROM users');
 }
 
 function isResponse(value: Response | { id: string }): value is Response {
@@ -18,24 +19,23 @@ describe('requireProgramAccess', () => {
         await clearData();
     });
 
-    it('returns programs for platform_admin readers and handles missing programs', async () => {
+    it('returns programs for admin readers and handles missing programs', async () => {
         const repo = new ProgramRepository(testEnv.DB);
         const program = await seedProgram(testEnv, {
-            slug: `platform-${crypto.randomUUID()}`,
+            slug: `admin-${crypto.randomUUID()}`,
         });
 
-        const platformAuth: UserAuth = {
-            userId: 'platform',
-            role: 'platform_admin',
-            orgId: null,
+        const adminAuth: UserAuth = {
+            userId: 'admin-1',
+            role: 'admin',
         };
 
-        const loaded = await requireProgramAccess(repo, program.id, platformAuth);
+        const loaded = await requireProgramAccess(repo, program.id, adminAuth);
         expect(loaded).toBeTypeOf('object');
         expect(loaded).not.toBeInstanceOf(Response);
         expect((loaded as { id: string }).id).toBe(program.id);
 
-        const missing = await requireProgramAccess(repo, 'program_missing', platformAuth);
+        const missing = await requireProgramAccess(repo, 'program_missing', adminAuth);
         if (!isResponse(missing)) {
             throw new Error('expected Response for missing program');
         }
@@ -43,105 +43,72 @@ describe('requireProgramAccess', () => {
         expect(await missing.json()).toEqual({ error: 'program_not_found' });
     });
 
-    it("enforces org scope, allowing reads only inside the caller's org", async () => {
-        await seedOrg(testEnv, { id: 'org_other', name: 'Other Org' });
-        const homeOrgProgram = await seedProgram(testEnv, {
-            slug: `scope-home-${crypto.randomUUID()}`,
-            orgId: DEFAULT_TEST_ORG_ID,
+    it("enforces ownership, allowing a 'user' full read/write only on programs it created", async () => {
+        const ownerId = await seedUser(testEnv, 'owner_user');
+        const otherId = await seedUser(testEnv, 'other_user');
+        const ownProgram = await seedProgram(testEnv, {
+            slug: `own-${crypto.randomUUID()}`,
+            createdBy: ownerId,
         });
-        const otherOrgProgram = await seedProgram(testEnv, {
-            slug: `scope-other-${crypto.randomUUID()}`,
-            orgId: 'org_other',
+        const otherProgram = await seedProgram(testEnv, {
+            slug: `other-${crypto.randomUUID()}`,
+            createdBy: otherId,
         });
 
-        const adminAuth: UserAuth = {
-            userId: 'org-admin-home',
-            role: 'org_admin',
-            orgId: DEFAULT_TEST_ORG_ID,
-        };
-        const viewerAuth: UserAuth = {
-            userId: 'viewer-home',
-            role: 'viewer',
-            orgId: DEFAULT_TEST_ORG_ID,
-        };
+        const ownerAuth: UserAuth = { userId: ownerId, role: 'user' };
+        const adminAuth: UserAuth = { userId: 'admin-1', role: 'admin' };
 
-        const orgRepo = new ProgramRepository(testEnv.DB);
-        const adminReadOwn = await requireProgramAccess(orgRepo, homeOrgProgram.id, adminAuth);
-        expect(adminReadOwn).not.toBeInstanceOf(Response);
-        expect((adminReadOwn as { id: string }).id).toBe(homeOrgProgram.id);
+        const repo = new ProgramRepository(testEnv.DB);
 
-        const adminWriteOwn = await requireProgramAccess(orgRepo, homeOrgProgram.id, adminAuth, {
+        // The owner has full read AND write access to its own program (the
+        // `write` opt is a no-op — access is all-or-nothing).
+        const ownerReadOwn = await requireProgramAccess(repo, ownProgram.id, ownerAuth);
+        expect(ownerReadOwn).not.toBeInstanceOf(Response);
+        expect((ownerReadOwn as { id: string }).id).toBe(ownProgram.id);
+
+        const ownerWriteOwn = await requireProgramAccess(repo, ownProgram.id, ownerAuth, {
             write: true,
         });
-        expect(adminWriteOwn).not.toBeInstanceOf(Response);
-        expect((adminWriteOwn as { id: string }).id).toBe(homeOrgProgram.id);
+        expect(ownerWriteOwn).not.toBeInstanceOf(Response);
+        expect((ownerWriteOwn as { id: string }).id).toBe(ownProgram.id);
 
-        const viewerReadOwn = await requireProgramAccess(orgRepo, homeOrgProgram.id, viewerAuth);
-        expect(viewerReadOwn).not.toBeInstanceOf(Response);
-        expect((viewerReadOwn as { id: string }).id).toBe(homeOrgProgram.id);
+        // A non-owning 'user' gets a uniform 404 for both read and write on
+        // someone else's program.
+        const ownerReadOther = await requireProgramAccess(repo, otherProgram.id, ownerAuth);
+        if (!isResponse(ownerReadOther)) {
+            throw new Error('expected Response for non-owner read');
+        }
+        expect(ownerReadOther.status).toBe(404);
+        expect(await ownerReadOther.json()).toEqual({ error: 'program_not_found' });
 
-        const viewerWriteOwn = await requireProgramAccess(orgRepo, homeOrgProgram.id, viewerAuth, {
+        const ownerWriteOther = await requireProgramAccess(repo, otherProgram.id, ownerAuth, {
             write: true,
         });
-        if (!isResponse(viewerWriteOwn)) {
-            throw new Error('expected Response for viewer write');
+        if (!isResponse(ownerWriteOther)) {
+            throw new Error('expected Response for non-owner write');
         }
-        expect(viewerWriteOwn.status).toBe(403);
-        expect(await viewerWriteOwn.json()).toEqual({ error: 'forbidden' });
+        expect(ownerWriteOther.status).toBe(404);
+        expect(await ownerWriteOther.json()).toEqual({ error: 'program_not_found' });
 
-        const viewerWriteOther = await requireProgramAccess(
-            orgRepo,
-            otherOrgProgram.id,
-            viewerAuth,
-            { write: true },
-        );
-        if (!isResponse(viewerWriteOther)) {
-            throw new Error('expected Response for viewer cross-org write');
-        }
-        expect(viewerWriteOther.status).toBe(404);
-        expect(await viewerWriteOther.json()).toEqual({
-            error: 'program_not_found',
-        });
+        // admin sees and can write to every program, regardless of who created it.
+        const adminReadOther = await requireProgramAccess(repo, otherProgram.id, adminAuth);
+        expect(adminReadOther).not.toBeInstanceOf(Response);
+        expect((adminReadOther as { id: string }).id).toBe(otherProgram.id);
 
-        const adminReadOther = await requireProgramAccess(orgRepo, otherOrgProgram.id, adminAuth);
-        if (!isResponse(adminReadOther)) {
-            throw new Error('expected Response for admin cross-org read');
-        }
-        expect(adminReadOther.status).toBe(404);
-        expect(await adminReadOther.json()).toEqual({ error: 'program_not_found' });
-
-        const adminWriteOther = await requireProgramAccess(orgRepo, otherOrgProgram.id, adminAuth, {
+        const adminWriteOther = await requireProgramAccess(repo, otherProgram.id, adminAuth, {
             write: true,
         });
-        if (!isResponse(adminWriteOther)) {
-            throw new Error('expected Response for admin cross-org write');
-        }
-        expect(adminWriteOther.status).toBe(404);
-        expect(await adminWriteOther.json()).toEqual({
-            error: 'program_not_found',
-        });
-
-        const viewerReadOther = await requireProgramAccess(orgRepo, otherOrgProgram.id, viewerAuth);
-        if (!isResponse(viewerReadOther)) {
-            throw new Error('expected Response for viewer cross-org read');
-        }
-        expect(viewerReadOther.status).toBe(404);
-        expect(await viewerReadOther.json()).toEqual({
-            error: 'program_not_found',
-        });
+        expect(adminWriteOther).not.toBeInstanceOf(Response);
+        expect((adminWriteOther as { id: string }).id).toBe(otherProgram.id);
     });
 
     it('allows includeDeleted callers to read deleted programs when requested', async () => {
-        await seedOrg(testEnv, { id: 'org_other', name: 'Other Org' });
+        const ownerId = await seedUser(testEnv, 'owner_user');
         const program = await seedProgram(testEnv, {
             slug: `include-deleted-${crypto.randomUUID()}`,
-            orgId: DEFAULT_TEST_ORG_ID,
+            createdBy: ownerId,
         });
-        const adminAuth: UserAuth = {
-            userId: 'org-admin-home',
-            role: 'org_admin',
-            orgId: DEFAULT_TEST_ORG_ID,
-        };
+        const ownerAuth: UserAuth = { userId: ownerId, role: 'user' };
 
         testEnv.DB.prepare('UPDATE programs SET deleted_at = ? WHERE id = ?').run(
             new Date().toISOString(),
@@ -151,7 +118,7 @@ describe('requireProgramAccess', () => {
         const deletedAccess = await requireProgramAccess(
             new ProgramRepository(testEnv.DB),
             program.id,
-            adminAuth,
+            ownerAuth,
             { includeDeleted: true },
         );
         expect(deletedAccess).not.toBeInstanceOf(Response);

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { handleAdminRoutes } from '../src/routes/admin';
 import type { WaitUntilCtx } from '../src/http';
-import { adminCookie, buildTestEnv, seedPlatformAdmin, seedProgram, testEnv } from './test-env';
+import { adminCookie, buildTestEnv, seedAdmin, seedProgram, testEnv } from './test-env';
 
 type SeedProgramFixture = {
     cookie: string;
@@ -158,7 +158,7 @@ async function createPublishReservation(params: {
 describe('admin translator sessions', () => {
     beforeEach(async () => {
         await resetDb();
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
     });
 
     it('returns all sessions for a translator with deviceLabel and isPublishing', async () => {

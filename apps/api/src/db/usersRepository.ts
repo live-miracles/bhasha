@@ -1,57 +1,36 @@
 import { timingSafeEqualHex } from '../auth/crypto';
 import type { Database } from './sqlite';
 
-export type UserRole = 'platform_admin' | 'org_admin' | 'viewer';
-
-export type OrgRecord = {
-    id: string;
-    name: string;
-    createdAt: string;
-    updatedAt: string;
-};
+export type UserRole = 'admin' | 'user';
 
 export type UserRecord = {
     id: string;
-    email: string;
+    username: string;
     passwordHash: string | null;
     passwordSalt: string | null;
     passwordIterations: number | null;
     role: UserRole;
-    orgId: string | null;
     isDisabled: boolean;
     createdAt: string;
     updatedAt: string;
 };
 
-export type UpdateOrgInput = {
-    name: string;
-};
-
 export type CreateUserInput = {
-    email: string;
+    username: string;
     role: UserRole;
-    orgId?: string | null;
     id?: string;
 };
 
 export type UpdateUserInput = {
-    email?: string;
     role?: UserRole;
-    orgId?: string | null;
     isDisabled?: boolean;
 };
 
-export type CreateOrgWithOrgAdminInput = {
-    orgName: string;
-    adminEmail: string;
-    id?: string;
-    adminId?: string;
-};
-
-export type ListUsersScope = {
-    orgId?: string | null;
-    role?: UserRole;
-};
+// The fixed singleton admin account's identity, seeded automatically at
+// startup (see ensureDefaultAdmin) with password "admin" so the app always
+// has a working admin login without any env var configuration.
+export const DEFAULT_ADMIN_USERNAME = 'admin';
+export const DEFAULT_ADMIN_PASSWORD = 'admin';
 
 // PBKDF2-HMAC-SHA-256 password parameters. Iterations is stored per-user
 // (password_iterations) so the work factor can be raised without invalidating
@@ -73,26 +52,18 @@ const DERIVED_KEY_BYTES = 32;
 
 // Fixed 16-byte (32 hex char) salt used ONLY to burn an equivalent amount of
 // PBKDF2 work on login failure paths where there is no real user/password to
-// verify (unknown email, disabled user, unset password). Running this keeps the
-// failure-path latency comparable to the real-verify path, closing a
+// verify (unknown username, disabled user, unset password). Running this keeps
+// the failure-path latency comparable to the real-verify path, closing a
 // user-enumeration timing oracle. The derived key is discarded.
 const DUMMY_VERIFY_SALT_HEX = '00000000000000000000000000000000';
 
-type OrgRow = {
-    id: string;
-    name: string;
-    created_at: string;
-    updated_at: string;
-};
-
 type UserRow = {
     id: string;
-    email: string;
+    username: string;
     password_hash: string | null;
     password_salt: string | null;
     password_iterations: number | null;
     role: UserRole;
-    org_id: string | null;
     is_disabled: number;
     created_at: string;
     updated_at: string;
@@ -102,8 +73,8 @@ function toHex(bytes: Uint8Array): string {
     return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function normalizeEmail(email: string): string {
-    return email.trim().toLowerCase();
+function normalizeUsername(username: string): string {
+    return username.trim().toLowerCase();
 }
 
 /**
@@ -143,24 +114,14 @@ async function deriveKeyHex(
     return toHex(new Uint8Array(derivedBits));
 }
 
-function mapOrg(row: OrgRow): OrgRecord {
-    return {
-        id: row.id,
-        name: row.name,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-    };
-}
-
 function mapUser(row: UserRow): UserRecord {
     return {
         id: row.id,
-        email: row.email,
+        username: row.username,
         passwordHash: row.password_hash,
         passwordSalt: row.password_salt,
         passwordIterations: row.password_iterations,
         role: row.role,
-        orgId: row.org_id,
         isDisabled: row.is_disabled === 1,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -171,147 +132,53 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
-export function isEmailConflict(error: unknown): boolean {
+export function isUsernameConflict(error: unknown): boolean {
     const message = errorMessage(error);
-    return message.includes('UNIQUE constraint failed') && message.includes('users.email');
-}
-
-export function isOrgAdminConflict(error: unknown): boolean {
-    const message = errorMessage(error);
-    return (
-        message.includes('UNIQUE constraint failed') &&
-        (message.includes('idx_one_active_org_admin') || message.includes('users.org_id'))
-    );
+    return message.includes('UNIQUE constraint failed') && message.includes('users.username');
 }
 
 /**
- * Data access for orgs + users + their password material.
+ * Data access for users + their password material.
  *
- * Email is normalized to lower-case on write and read so the NOCASE unique
+ * Username is normalized to lower-case on write and read so the NOCASE unique
  * index and lookups stay consistent. Password verification reuses the existing
  * constant-time hex compare (auth/crypto.ts) to avoid timing leaks.
  */
 export class UsersRepository {
     constructor(private readonly db: Database) {}
 
-    // ----- orgs -----
-
-    async createOrg(input: { name: string; id?: string }): Promise<OrgRecord> {
-        const now = new Date().toISOString();
-        const id = input.id ?? `org_${crypto.randomUUID()}`;
-        this.db
-            .prepare(`INSERT INTO orgs (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`)
-            .run(id, input.name, now, now);
-
-        return { id, name: input.name, createdAt: now, updatedAt: now };
-    }
-
-    async createOrgWithOrgAdmin(
-        input: CreateOrgWithOrgAdminInput,
-    ): Promise<{ org: OrgRecord; admin: UserRecord }> {
-        const now = new Date().toISOString();
-        const id = input.id ?? `org_${crypto.randomUUID()}`;
-        const adminId = input.adminId ?? `user_${crypto.randomUUID()}`;
-        const adminEmail = normalizeEmail(input.adminEmail);
-
-        const org: OrgRecord = {
-            id,
-            name: input.orgName,
-            createdAt: now,
-            updatedAt: now,
-        };
-        const admin: UserRecord = {
-            id: adminId,
-            email: adminEmail,
-            passwordHash: null,
-            passwordSalt: null,
-            passwordIterations: null,
-            role: 'org_admin',
-            orgId: id,
-            isDisabled: false,
-            createdAt: now,
-            updatedAt: now,
-        };
-
-        // A transaction is atomic — a unique conflict (email / one-active-org_admin)
-        // rolls back BOTH inserts, so no orphan org is left behind. Errors propagate
-        // to the route handler, which maps isEmailConflict/isOrgAdminConflict → 409.
-        const insertOrgAndAdmin = this.db.transaction(() => {
-            this.db
-                .prepare(`INSERT INTO orgs (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`)
-                .run(org.id, org.name, org.createdAt, org.updatedAt);
-
-            this.db
-                .prepare(
-                    `INSERT INTO users
-            (id, email, password_hash, password_salt, password_iterations,
-             role, org_id, is_disabled, created_at, updated_at)
-           VALUES (?, ?, NULL, NULL, NULL, ?, ?, 0, ?, ?)`,
-                )
-                .run(
-                    admin.id,
-                    admin.email,
-                    admin.role,
-                    admin.orgId,
-                    admin.createdAt,
-                    admin.updatedAt,
-                );
-        });
-        insertOrgAndAdmin();
-
-        return { org, admin };
-    }
-
-    async getOrg(id: string): Promise<OrgRecord | null> {
-        const row =
-            (this.db.prepare(`SELECT * FROM orgs WHERE id = ?`).get(id) as OrgRow | undefined) ??
-            null;
-        return row ? mapOrg(row) : null;
-    }
-
-    async listOrgs(): Promise<OrgRecord[]> {
-        const results = this.db
-            .prepare(`SELECT * FROM orgs ORDER BY created_at ASC`)
-            .all() as OrgRow[];
-        return results.map(mapOrg);
-    }
-
-    // ----- users -----
-
     async createUser(input: CreateUserInput): Promise<UserRecord> {
         const now = new Date().toISOString();
         const id = input.id ?? `user_${crypto.randomUUID()}`;
-        const email = normalizeEmail(input.email);
-        const orgId = input.orgId ?? null;
+        const username = normalizeUsername(input.username);
 
         this.db
             .prepare(
                 `INSERT INTO users
-          (id, email, password_hash, password_salt, password_iterations,
-           role, org_id, is_disabled, created_at, updated_at)
-         VALUES (?, ?, NULL, NULL, NULL, ?, ?, 0, ?, ?)`,
+          (id, username, password_hash, password_salt, password_iterations,
+           role, is_disabled, created_at, updated_at)
+         VALUES (?, ?, NULL, NULL, NULL, ?, 0, ?, ?)`,
             )
-            .run(id, email, input.role, orgId, now, now);
+            .run(id, username, input.role, now, now);
 
         return {
             id,
-            email,
+            username,
             passwordHash: null,
             passwordSalt: null,
             passwordIterations: null,
             role: input.role,
-            orgId,
             isDisabled: false,
             createdAt: now,
             updatedAt: now,
         };
     }
 
-    async getUserByEmail(email: string): Promise<UserRecord | null> {
+    async getUserByUsername(username: string): Promise<UserRecord | null> {
         const row =
             (this.db
-                .prepare(`SELECT * FROM users WHERE email = ? COLLATE NOCASE`)
-                .get(normalizeEmail(email)) as UserRow | undefined) ?? null;
+                .prepare(`SELECT * FROM users WHERE username = ? COLLATE NOCASE`)
+                .get(normalizeUsername(username)) as UserRow | undefined) ?? null;
         return row ? mapUser(row) : null;
     }
 
@@ -322,18 +189,10 @@ export class UsersRepository {
         return row ? mapUser(row) : null;
     }
 
-    async listUsers(scope: ListUsersScope = {}): Promise<UserRecord[]> {
+    async listUsers(scope: { role?: UserRole } = {}): Promise<UserRecord[]> {
         const clauses: string[] = [];
         const params: unknown[] = [];
 
-        if (scope.orgId !== undefined) {
-            if (scope.orgId === null) {
-                clauses.push('org_id IS NULL');
-            } else {
-                clauses.push('org_id = ?');
-                params.push(scope.orgId);
-            }
-        }
         if (scope.role !== undefined) {
             clauses.push('role = ?');
             params.push(scope.role);
@@ -350,17 +209,9 @@ export class UsersRepository {
         const sets: string[] = [];
         const params: unknown[] = [];
 
-        if (fields.email !== undefined) {
-            sets.push('email = ?');
-            params.push(normalizeEmail(fields.email));
-        }
         if (fields.role !== undefined) {
             sets.push('role = ?');
             params.push(fields.role);
-        }
-        if (fields.orgId !== undefined) {
-            sets.push('org_id = ?');
-            params.push(fields.orgId);
         }
         if (fields.isDisabled !== undefined) {
             sets.push('is_disabled = ?');
@@ -380,21 +231,27 @@ export class UsersRepository {
         return this.getUserById(userId);
     }
 
-    async updateOrg(orgId: string, input: UpdateOrgInput): Promise<OrgRecord | null> {
-        const updatedAt = new Date().toISOString();
-        const result = this.db
-            .prepare(`UPDATE orgs SET name = ?, updated_at = ? WHERE id = ?`)
-            .run(input.name, updatedAt, orgId);
-
-        if (result.changes === 0) {
-            return null;
-        }
-
-        return this.getOrg(orgId);
-    }
-
     async disableUser(userId: string): Promise<UserRecord | null> {
         return this.updateUser(userId, { isDisabled: true });
+    }
+
+    /**
+     * Ensure exactly one admin account exists, seeded as username "admin" /
+     * password "admin". Called once at startup (see index.ts). Idempotent and
+     * safe to call on every boot — it only creates the row the first time; an
+     * admin who has since changed the password is never reset.
+     */
+    async ensureDefaultAdmin(): Promise<void> {
+        const existing = await this.listUsers({ role: 'admin' });
+        if (existing.length > 0) {
+            return;
+        }
+
+        const admin = await this.createUser({
+            username: DEFAULT_ADMIN_USERNAME,
+            role: 'admin',
+        });
+        await this.setPassword(admin.id, DEFAULT_ADMIN_PASSWORD);
     }
 
     // ----- passwords -----
@@ -435,7 +292,7 @@ export class UsersRepository {
      * (fixed salt + PBKDF2_ITERATIONS) and discard the result.
      *
      * Call this on login failure paths that have no real password to verify
-     * (unknown email, disabled user, unset password) so those paths spend
+     * (unknown username, disabled user, unset password) so those paths spend
      * comparable CPU time to a genuine verify, preventing a user-enumeration
      * timing oracle. Always returns false.
      */

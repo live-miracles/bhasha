@@ -2,10 +2,7 @@ import type { Database } from './db/sqlite';
 
 export type WorkerEnv = {
     DB: Database;
-    ADMIN_PASSWORD_HASH: string;
     ADMIN_SESSION_SECRET: string;
-    // Email of the single platform_admin resolved/created by the bootstrap route.
-    PLATFORM_ADMIN_EMAIL?: string;
     TRANSLATOR_PASSWORD_PEPPER: string;
     TRANSLATOR_SESSION_SECRET: string;
     VOLUNTEER_SESSION_SECRET?: string | undefined;

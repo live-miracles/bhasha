@@ -4,7 +4,7 @@ import type { Env } from '../src/env';
 import { createApp } from '../src/index';
 import type { PresenceStatusSnapshot } from '../src/presence/status';
 import * as presenceStatus from '../src/presence/status';
-import { adminCookie, buildTestEnv, seedPlatformAdmin, seedProgram, testEnv } from './test-env';
+import { adminCookie, buildTestEnv, seedAdmin, seedProgram, testEnv } from './test-env';
 
 /**
  * Presence is now an in-process module (src/presence/status.ts) instead of a
@@ -38,7 +38,7 @@ async function resetDb(): Promise<void> {
     testEnv.DB.exec('DELETE FROM translators');
     testEnv.DB.exec('DELETE FROM language_streams');
     testEnv.DB.exec('DELETE FROM programs');
-    await seedPlatformAdmin(buildTestEnv());
+    await seedAdmin(buildTestEnv());
 }
 
 async function seedProgramWithStreams(): Promise<{

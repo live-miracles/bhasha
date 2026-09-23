@@ -1,24 +1,17 @@
 import type { UserRole } from '../db/usersRepository';
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const EMAIL_MAX_LENGTH = 254;
+// Letters, digits, underscore, hyphen and dot — no whitespace, no '@'. Kept
+// deliberately permissive; the DB's case-insensitive unique index is the real
+// duplicate guard.
+const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
+const USERNAME_MIN_LENGTH = 3;
+const USERNAME_MAX_LENGTH = 64;
 const MIN_PASSWORD_LENGTH = 8;
 
-export interface CreateOrgInput {
-    orgName: string;
-    email: string;
-    tempPassword: string;
-}
-
-export interface UpdateOrgInput {
-    name: string;
-}
-
 export interface CreateUserInput {
-    email: string;
+    username: string;
     role: UserRole;
     tempPassword: string;
-    orgId: string | null;
 }
 
 export interface UpdateUserInput {
@@ -61,58 +54,33 @@ function parsePassword(value: unknown, field: string): string {
     return value;
 }
 
-function parseEmail(value: unknown): string {
-    const email = requireString(value, 'email').toLowerCase();
-    if (email.length > EMAIL_MAX_LENGTH || !EMAIL_PATTERN.test(email)) {
-        throw new Error('email must be a valid email address');
+export function parseUsername(value: unknown): string {
+    const username = requireString(value, 'username').toLowerCase();
+    if (
+        username.length < USERNAME_MIN_LENGTH ||
+        username.length > USERNAME_MAX_LENGTH ||
+        !USERNAME_PATTERN.test(username)
+    ) {
+        throw new Error(
+            `username must be ${USERNAME_MIN_LENGTH}-${USERNAME_MAX_LENGTH} characters and contain only letters, digits, '.', '_' or '-'`,
+        );
     }
-    return email;
+    return username;
 }
 
 function parseUserRole(value: unknown): UserRole {
-    if (value === 'platform_admin' || value === 'org_admin' || value === 'viewer') {
+    if (value === 'admin' || value === 'user') {
         return value;
     }
-    throw new Error('role must be platform_admin, org_admin, or viewer');
-}
-
-function parseOrgName(value: unknown): string {
-    return requireString(value, 'orgName');
-}
-
-export function parseCreateOrgInput(input: unknown): CreateOrgInput {
-    const data = requireRecord(input, 'create org');
-    return {
-        orgName: parseOrgName(data.orgName),
-        email: parseEmail(data.email),
-        tempPassword: parsePassword(data.tempPassword, 'tempPassword'),
-    };
-}
-
-export function parseUpdateOrgInput(input: unknown): UpdateOrgInput {
-    const data = requireRecord(input, 'update org');
-    return { name: requireString(data.name, 'name') };
+    throw new Error('role must be admin or user');
 }
 
 export function parseCreateUserInput(input: unknown): CreateUserInput {
     const data = requireRecord(input, 'create user');
-    // orgId may be omitted (undefined) or explicitly null → treated as "no org".
-    // A PRESENT non-null value MUST be a non-empty string; reject anything else
-    // (e.g. a number) rather than silently coercing it to null.
-    const orgIdInput = data.orgId;
-    let orgId: string | null = null;
-    if (orgIdInput !== undefined && orgIdInput !== null) {
-        if (typeof orgIdInput !== 'string' || orgIdInput.trim() === '') {
-            throw new Error('orgId must be a non-empty string or null');
-        }
-        orgId = orgIdInput.trim();
-    }
-
     return {
-        email: parseEmail(data.email),
+        username: parseUsername(data.username),
         role: parseUserRole(data.role),
         tempPassword: parsePassword(data.tempPassword, 'tempPassword'),
-        orgId,
     };
 }
 

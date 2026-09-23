@@ -442,7 +442,6 @@ secret source; `env.ts`'s `Env`/`WorkerEnv` type is the code-level contract.
 
 Important env vars (see `.env.example` for full descriptions of each):
 
-- `ADMIN_PASSWORD_HASH`
 - `ADMIN_SESSION_SECRET`
 - `TRANSLATOR_PASSWORD_PEPPER`
 - `TRANSLATOR_SESSION_SECRET`

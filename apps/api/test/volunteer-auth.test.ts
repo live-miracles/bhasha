@@ -5,7 +5,7 @@ import { createApp } from '../src/index';
 import { sha256Hex } from '../src/auth/crypto';
 import { VolunteerRepository } from '../src/db/volunteerRepository';
 import { ListenerAccessRepository } from '../src/db/listenerAccessRepository';
-import { buildTestEnv, adminCookie, seedPlatformAdmin, seedProgram, testEnv } from './test-env';
+import { buildTestEnv, adminCookie, seedAdmin, seedProgram, testEnv } from './test-env';
 
 async function request(
     path: string,
@@ -108,7 +108,7 @@ async function createClaim(
 describe('volunteer auth and admin volunteer access', () => {
     beforeEach(async () => {
         resetDb();
-        await seedPlatformAdmin(buildTestEnv());
+        await seedAdmin(buildTestEnv());
     });
 
     it('logs in with a configured volunteer account, sets a cookie, and returns bootstrap session data', async () => {

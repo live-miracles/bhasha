@@ -22,7 +22,7 @@ export interface ProgramRecord {
     venue: string;
     eventDate: string;
     status: 'draft' | 'live' | 'archived';
-    orgId: string | null;
+    createdBy: string | null;
     adminNotes: string;
     accessControlEnabled: boolean;
     createdAt: string;
@@ -57,7 +57,7 @@ export interface LanguageStreamRecord {
 type ProgramLookupOptions = {
     includeDeleted?: boolean;
     deletedOnly?: boolean;
-    orgId?: string;
+    createdBy?: string;
 };
 
 export interface AdminProgramStreamRecord {
@@ -168,7 +168,7 @@ function isForeignKeyConstraint(error: unknown): boolean {
 export class ProgramRepository {
     constructor(private readonly db: Database) {}
 
-    async createProgram(input: CreateProgramInput, orgId: string): Promise<ProgramRecord> {
+    async createProgram(input: CreateProgramInput, createdBy: string): Promise<ProgramRecord> {
         if (await this.programSlugExists(input.slug)) {
             throw new ProgramSlugExistsError();
         }
@@ -181,7 +181,7 @@ export class ProgramRepository {
             venue: input.venue,
             eventDate: input.eventDate,
             status: 'draft',
-            orgId,
+            createdBy,
             adminNotes: input.adminNotes,
             accessControlEnabled: input.accessControlEnabled ?? false,
             createdAt: timestamp,
@@ -197,7 +197,7 @@ export class ProgramRepository {
                 .prepare(
                     `INSERT INTO programs
           (id, slug, name, venue, event_date, status, admin_notes,
-           access_control_enabled, created_at, updated_at, org_id)
+           access_control_enabled, created_at, updated_at, created_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 )
                 .run(
@@ -211,7 +211,7 @@ export class ProgramRepository {
                     Number(program.accessControlEnabled),
                     program.createdAt,
                     program.updatedAt,
-                    orgId,
+                    createdBy,
                 );
         } catch (error) {
             if (isProgramSlugConflict(error)) {
@@ -224,7 +224,7 @@ export class ProgramRepository {
     }
 
     async listPrograms(options: ProgramLookupOptions = {}): Promise<ProgramRecord[]> {
-        const { includeDeleted = false, deletedOnly = false, orgId } = options;
+        const { includeDeleted = false, deletedOnly = false, createdBy } = options;
         const conditions: string[] = [];
         const binds: unknown[] = [];
 
@@ -234,9 +234,9 @@ export class ProgramRepository {
             conditions.push('deleted_at IS NULL');
         }
 
-        if (orgId !== undefined) {
-            conditions.push('org_id = ?');
-            binds.push(orgId);
+        if (createdBy !== undefined) {
+            conditions.push('created_by = ?');
+            binds.push(createdBy);
         }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -249,7 +249,7 @@ export class ProgramRepository {
         first_live_at as firstLiveAt,
         archived_at as archivedAt, retention_processed_at as retentionProcessedAt,
         aggregate_summary_json as aggregateSummaryJson,
-        org_id as orgId
+        created_by as createdBy
         FROM programs
         ${whereClause}
         ORDER BY event_date DESC, created_at DESC`,
@@ -981,7 +981,7 @@ const PROGRAM_SELECT = `SELECT id, slug, name, venue,
   status,
   admin_notes as adminNotes,
   access_control_enabled as accessControlEnabled,
-  org_id as orgId,
+  created_by as createdBy,
   created_at as createdAt,
   updated_at as updatedAt,
   first_live_at as firstLiveAt,

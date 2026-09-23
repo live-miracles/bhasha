@@ -5,7 +5,7 @@ import { type AdminApi } from '../../api/admin';
 
 interface AccountPanelProps {
     adminApi: Pick<AdminApi, 'changeMyPassword'>;
-    email?: string | undefined;
+    username?: string | undefined;
     onSignOut: () => void | Promise<void>;
 }
 
@@ -22,7 +22,7 @@ function errorText(error: unknown): string {
     return String(error);
 }
 
-export function AccountPanel({ adminApi, email, onSignOut }: AccountPanelProps) {
+export function AccountPanel({ adminApi, username, onSignOut }: AccountPanelProps) {
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -111,7 +111,7 @@ export function AccountPanel({ adminApi, email, onSignOut }: AccountPanelProps) 
 
             <article className="admin-card">
                 <h2>Session</h2>
-                {email ? <p className="admin-prog-label">Signed in as {email}</p> : null}
+                {username ? <p className="admin-prog-label">Signed in as {username}</p> : null}
                 <button
                     className="admin-secondary"
                     disabled={signingOut}

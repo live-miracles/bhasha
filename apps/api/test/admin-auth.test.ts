@@ -4,13 +4,7 @@ import { createApp } from '../src/index';
 import { requireAdminRole, requireUserAuth } from '../src/auth/adminAuth';
 import { sha256Hex } from '../src/auth/crypto';
 import { UsersRepository } from '../src/db/usersRepository';
-import {
-    ADMIN_TEST_EMAIL,
-    adminCookie,
-    buildTestEnv,
-    seedPlatformAdmin,
-    testEnv,
-} from './test-env';
+import { ADMIN_TEST_USERNAME, adminCookie, buildTestEnv, seedAdmin, testEnv } from './test-env';
 
 async function request(
     path: string,
@@ -25,12 +19,11 @@ function cookieHeader(cookie: string): Record<string, string> {
     return { cookie };
 }
 
-describe('admin auth (multi-tenant users)', () => {
+describe('admin auth (username + password, single-tier user model)', () => {
     beforeEach(async () => {
-        // Self-contained isolation: clear sessions, then users, then orgs (FK order).
+        // Self-contained isolation: clear sessions, then users (FK order).
         await testEnv.DB.exec('DELETE FROM admin_sessions');
         await testEnv.DB.exec('DELETE FROM users');
-        await testEnv.DB.exec('DELETE FROM orgs');
     });
 
     // Representative shapes across the admin surface: collection, item, nested
@@ -56,36 +49,49 @@ describe('admin auth (multi-tenant users)', () => {
         },
     );
 
-    // The auth surface (login + bootstrap) must remain reachable WITHOUT a
-    // session — the gate runs after these, so it must NOT swallow them.
-    const UNGATED_AUTH_ROUTES: ReadonlyArray<{ path: string }> = [
-        { path: '/api/admin/login' },
-        { path: '/api/admin/bootstrap' },
-    ];
+    // The login surface must remain reachable WITHOUT a session — the gate
+    // runs after this route, so it must NOT swallow it.
+    it('does not gate POST /api/admin/login (reachable unauthenticated)', async () => {
+        const response = await request('/api/admin/login', {
+            method: 'POST',
+            body: JSON.stringify({}),
+        });
 
-    it.each(UNGATED_AUTH_ROUTES)(
-        'does not gate POST $path (reachable unauthenticated)',
-        async ({ path }) => {
-            const response = await request(path, {
-                method: 'POST',
-                body: JSON.stringify({}),
-            });
+        // Reaches the handler (returns its own validation/auth error), not the
+        // generic admin gate.
+        const payload = (await response.json()) as { error?: string };
+        expect(payload.error).not.toBe('admin_auth_required');
+    });
 
-            // Reaches the handler (returns its own validation/auth error), not the
-            // generic admin gate.
-            const payload = (await response.json()) as { error?: string };
-            expect(payload.error).not.toBe('admin_auth_required');
-        },
-    );
+    it('POST /api/admin/bootstrap no longer exists', async () => {
+        // Unauthenticated: masked by the generic admin_auth_required gate,
+        // same as any other unknown /api/admin/* path.
+        const unauthed = await request('/api/admin/bootstrap', {
+            method: 'POST',
+            body: JSON.stringify({}),
+        });
+        expect(unauthed.status).toBe(401);
+        expect(await unauthed.json()).toEqual({ error: 'admin_auth_required' });
 
-    it('logs in with email + password and returns a secure session cookie', async () => {
-        await seedPlatformAdmin(testEnv);
+        // Authenticated: the route itself is gone, so it 404s past the gate.
+        await seedAdmin(testEnv);
+        const cookie = await adminCookie();
+        const authed = await request('/api/admin/bootstrap', {
+            method: 'POST',
+            headers: cookieHeader(cookie),
+            body: JSON.stringify({}),
+        });
+        expect(authed.status).toBe(404);
+    });
+
+    it('logs in with username + password and returns a secure session cookie', async () => {
+        await seedAdmin(testEnv);
 
         const login = await request('/api/admin/login', {
             method: 'POST',
             body: JSON.stringify({
-                email: ADMIN_TEST_EMAIL,
-                password: testEnv.ADMIN_TEST_PASSWORD,
+                username: ADMIN_TEST_USERNAME,
+                password: testEnv.TEST_PASSWORD,
             }),
         });
 
@@ -98,7 +104,7 @@ describe('admin auth (multi-tenant users)', () => {
     });
 
     it('logout deletes the session, clears the cookie, and invalidates it', async () => {
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
         const cookie = await adminCookie();
 
         // Cookie authenticates before logout.
@@ -130,12 +136,12 @@ describe('admin auth (multi-tenant users)', () => {
     });
 
     it('rejects login with a wrong password', async () => {
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
 
         const login = await request('/api/admin/login', {
             method: 'POST',
             body: JSON.stringify({
-                email: ADMIN_TEST_EMAIL,
+                username: ADMIN_TEST_USERNAME,
                 password: 'definitely-not-the-password',
             }),
         });
@@ -145,14 +151,14 @@ describe('admin auth (multi-tenant users)', () => {
     });
 
     it('rejects login for a disabled user', async () => {
-        const userId = await seedPlatformAdmin(testEnv);
+        const userId = await seedAdmin(testEnv);
         await new UsersRepository(testEnv.DB).disableUser(userId);
 
         const login = await request('/api/admin/login', {
             method: 'POST',
             body: JSON.stringify({
-                email: ADMIN_TEST_EMAIL,
-                password: testEnv.ADMIN_TEST_PASSWORD,
+                username: ADMIN_TEST_USERNAME,
+                password: testEnv.TEST_PASSWORD,
             }),
         });
 
@@ -169,141 +175,25 @@ describe('admin auth (multi-tenant users)', () => {
         expect(await login.json()).toEqual({ error: 'invalid_json' });
     });
 
-    it('bootstraps a platform_admin session from the env break-glass', async () => {
-        const env = buildTestEnv({ PLATFORM_ADMIN_EMAIL: ADMIN_TEST_EMAIL });
-
-        const bootstrap = await request(
-            '/api/admin/bootstrap',
-            {
-                method: 'POST',
-                body: JSON.stringify({ password: testEnv.ADMIN_TEST_PASSWORD }),
-            },
-            env,
-        );
-
-        expect(bootstrap.status).toBe(200);
-        const cookie = bootstrap.headers.get('set-cookie');
-        expect(cookie).toContain('admin_session=');
-
-        // The break-glass created exactly one platform_admin row (password unset).
-        const user = await new UsersRepository(testEnv.DB).getUserByEmail(ADMIN_TEST_EMAIL);
-        expect(user?.role).toBe('platform_admin');
-        expect(user?.orgId).toBeNull();
-        expect(user?.passwordHash).toBeNull();
-
-        // The issued session authorizes a gated route.
-        const authed = await request(
-            '/api/admin/programs',
-            { headers: cookieHeader(cookie!.split(';')[0]!) },
-            env,
-        );
-        expect(authed.status).toBe(200);
-    });
-
-    it('rejects bootstrap with the wrong break-glass password', async () => {
-        const env = buildTestEnv({ PLATFORM_ADMIN_EMAIL: ADMIN_TEST_EMAIL });
-
-        const bootstrap = await request(
-            '/api/admin/bootstrap',
-            { method: 'POST', body: JSON.stringify({ password: 'wrong' }) },
-            env,
-        );
-
-        expect(bootstrap.status).toBe(401);
-    });
-
-    it('fails closed (403, no session) when PLATFORM_ADMIN_EMAIL resolves to a non-platform_admin', async () => {
-        const env = buildTestEnv({ PLATFORM_ADMIN_EMAIL: ADMIN_TEST_EMAIL });
-        const users = new UsersRepository(testEnv.DB);
-        const org = await users.createOrg({ name: 'Acme' });
-        // An org-bound viewer whose email collides with the break-glass identity.
-        await users.createUser({
-            email: ADMIN_TEST_EMAIL,
-            role: 'viewer',
-            orgId: org.id,
-        });
-
-        const bootstrap = await request(
-            '/api/admin/bootstrap',
-            {
-                method: 'POST',
-                body: JSON.stringify({ password: testEnv.ADMIN_TEST_PASSWORD }),
-            },
-            env,
-        );
-
-        expect(bootstrap.status).toBe(403);
-        expect(await bootstrap.json()).toEqual({ error: 'bootstrap_conflict' });
-        // No break-glass session is issued for the colliding identity.
-        expect(bootstrap.headers.get('set-cookie')).toBeNull();
-
-        // The colliding row is left untouched — never escalated to platform_admin.
-        const after = await users.getUserByEmail(ADMIN_TEST_EMAIL);
-        expect(after?.role).toBe('viewer');
-        expect(after?.orgId).toBe(org.id);
-    });
-
-    it('resolves an existing platform_admin to the same row without creating a duplicate', async () => {
-        const env = buildTestEnv({ PLATFORM_ADMIN_EMAIL: ADMIN_TEST_EMAIL });
-        const existingId = await seedPlatformAdmin(testEnv);
-
-        const bootstrap = await request(
-            '/api/admin/bootstrap',
-            {
-                method: 'POST',
-                body: JSON.stringify({ password: testEnv.ADMIN_TEST_PASSWORD }),
-            },
-            env,
-        );
-
-        expect(bootstrap.status).toBe(200);
-
-        const users = new UsersRepository(testEnv.DB);
-        const platformAdmins = await users.listUsers({ role: 'platform_admin' });
-        expect(platformAdmins).toHaveLength(1);
-        expect(platformAdmins[0]?.id).toBe(existingId);
-    });
-
-    it('creates exactly one platform_admin when no user exists for the email', async () => {
-        const env = buildTestEnv({ PLATFORM_ADMIN_EMAIL: ADMIN_TEST_EMAIL });
-
-        const bootstrap = await request(
-            '/api/admin/bootstrap',
-            {
-                method: 'POST',
-                body: JSON.stringify({ password: testEnv.ADMIN_TEST_PASSWORD }),
-            },
-            env,
-        );
-
-        expect(bootstrap.status).toBe(200);
-
-        const users = new UsersRepository(testEnv.DB);
-        const all = await users.listUsers();
-        expect(all).toHaveLength(1);
-        expect(all[0]?.role).toBe('platform_admin');
-        expect(all[0]?.orgId).toBeNull();
-    });
-
-    it('returns an identical generic 401 for unknown email, disabled user, and wrong password', async () => {
-        const userId = await seedPlatformAdmin(testEnv);
+    it('returns an identical generic 401 for unknown username, disabled user, and wrong password', async () => {
+        const userId = await seedAdmin(testEnv);
 
         const wrongPassword = await request('/api/admin/login', {
             method: 'POST',
-            body: JSON.stringify({ email: ADMIN_TEST_EMAIL, password: 'nope' }),
+            body: JSON.stringify({ username: ADMIN_TEST_USERNAME, password: 'nope' }),
         });
 
-        const unknownEmail = await request('/api/admin/login', {
+        const unknownUsername = await request('/api/admin/login', {
             method: 'POST',
-            body: JSON.stringify({ email: 'nobody@test.local', password: 'nope' }),
+            body: JSON.stringify({ username: 'nobody_test', password: 'nope' }),
         });
 
         await new UsersRepository(testEnv.DB).disableUser(userId);
         const disabledUser = await request('/api/admin/login', {
             method: 'POST',
             body: JSON.stringify({
-                email: ADMIN_TEST_EMAIL,
-                password: testEnv.ADMIN_TEST_PASSWORD,
+                username: ADMIN_TEST_USERNAME,
+                password: testEnv.TEST_PASSWORD,
             }),
         });
 
@@ -311,10 +201,10 @@ describe('admin auth (multi-tenant users)', () => {
         // body); the dummy PBKDF2 verify equalizes their timing too.
         const expected = { error: 'invalid_admin_password' };
         expect(wrongPassword.status).toBe(401);
-        expect(unknownEmail.status).toBe(401);
+        expect(unknownUsername.status).toBe(401);
         expect(disabledUser.status).toBe(401);
         expect(await wrongPassword.json()).toEqual(expected);
-        expect(await unknownEmail.json()).toEqual(expected);
+        expect(await unknownUsername.json()).toEqual(expected);
         expect(await disabledUser.json()).toEqual(expected);
     });
 
@@ -343,45 +233,46 @@ describe('admin auth (multi-tenant users)', () => {
     });
 
     it('allows first password set (NULL hash) without a current password, then login works', async () => {
-        const env = buildTestEnv({ PLATFORM_ADMIN_EMAIL: ADMIN_TEST_EMAIL });
+        const users = new UsersRepository(testEnv.DB);
+        const admin = await users.createUser({ username: ADMIN_TEST_USERNAME, role: 'admin' });
+        // No setPassword() call: passwordHash stays NULL, matching a freshly
+        // seeded default admin before it has ever set a password.
+        const token = crypto.randomUUID();
+        const sessionHash = await sha256Hex(token + testEnv.ADMIN_SESSION_SECRET);
+        const now = new Date();
+        await testEnv.DB.prepare(
+            `INSERT INTO admin_sessions (id, user_id, session_hash, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+        )
+            .bind(
+                `admin_session_${crypto.randomUUID()}`,
+                admin.id,
+                sessionHash,
+                new Date(now.getTime() + 86_400_000).toISOString(),
+                now.toISOString(),
+            )
+            .run();
+        const cookie = `admin_session=${token}`;
 
-        const bootstrap = await request(
-            '/api/admin/bootstrap',
-            {
-                method: 'POST',
-                body: JSON.stringify({ password: testEnv.ADMIN_TEST_PASSWORD }),
-            },
-            env,
-        );
-        const bootstrapCookie = bootstrap.headers.get('set-cookie')!.split(';')[0]!;
-
-        const setPassword = await request(
-            '/api/admin/me/password',
-            {
-                method: 'POST',
-                headers: cookieHeader(bootstrapCookie),
-                body: JSON.stringify({ newPassword: 'brand-new-password' }),
-            },
-            env,
-        );
+        const setPassword = await request('/api/admin/me/password', {
+            method: 'POST',
+            headers: cookieHeader(cookie),
+            body: JSON.stringify({ newPassword: 'brand-new-password' }),
+        });
         expect(setPassword.status).toBe(200);
 
-        const login = await request(
-            '/api/admin/login',
-            {
-                method: 'POST',
-                body: JSON.stringify({
-                    email: ADMIN_TEST_EMAIL,
-                    password: 'brand-new-password',
-                }),
-            },
-            env,
-        );
+        const login = await request('/api/admin/login', {
+            method: 'POST',
+            body: JSON.stringify({
+                username: ADMIN_TEST_USERNAME,
+                password: 'brand-new-password',
+            }),
+        });
         expect(login.status).toBe(200);
     });
 
     it('rejects own-password change with a wrong current password', async () => {
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
         const cookie = await adminCookie();
 
         const response = await request('/api/admin/me/password', {
@@ -400,7 +291,7 @@ describe('admin auth (multi-tenant users)', () => {
     });
 
     it('invalidates an active session when the user is disabled mid-session', async () => {
-        const userId = await seedPlatformAdmin(testEnv);
+        const userId = await seedAdmin(testEnv);
         const cookie = await adminCookie();
 
         const before = await request('/api/admin/programs', {
@@ -416,16 +307,11 @@ describe('admin auth (multi-tenant users)', () => {
         expect(after.status).toBe(401);
     });
 
-    it('requireAdminRole rejects a non-platform_admin with 403', async () => {
+    it('requireAdminRole rejects a non-admin (user role) with 403', async () => {
         const users = new UsersRepository(testEnv.DB);
-        const org = await users.createOrg({ name: 'Acme' });
-        const viewer = await users.createUser({
-            email: 'viewer@test.local',
-            role: 'viewer',
-            orgId: org.id,
-        });
-        await users.setPassword(viewer.id, 'viewer-password');
-        const cookie = await adminCookie('viewer@test.local', 'viewer-password');
+        const user = await users.createUser({ username: 'plain_user', role: 'user' });
+        await users.setPassword(user.id, 'user-password');
+        const cookie = await adminCookie('plain_user', 'user-password');
 
         const req = new Request('https://bhasha.test/api/admin/x', {
             headers: cookieHeader(cookie),
@@ -436,16 +322,11 @@ describe('admin auth (multi-tenant users)', () => {
         expect((result as Response).status).toBe(403);
     });
 
-    it('requireUserAuth resolves role + orgId for a valid session', async () => {
+    it('requireUserAuth resolves userId + role for a valid session', async () => {
         const users = new UsersRepository(testEnv.DB);
-        const org = await users.createOrg({ name: 'Beta' });
-        const viewer = await users.createUser({
-            email: 'viewer2@test.local',
-            role: 'viewer',
-            orgId: org.id,
-        });
-        await users.setPassword(viewer.id, 'viewer-password');
-        const cookie = await adminCookie('viewer2@test.local', 'viewer-password');
+        const user = await users.createUser({ username: 'plain_user2', role: 'user' });
+        await users.setPassword(user.id, 'user-password');
+        const cookie = await adminCookie('plain_user2', 'user-password');
 
         const req = new Request('https://bhasha.test/api/admin/x', {
             headers: cookieHeader(cookie),
@@ -453,6 +334,6 @@ describe('admin auth (multi-tenant users)', () => {
         const result = await requireUserAuth(req, testEnv);
 
         expect(result).not.toBeInstanceOf(Response);
-        expect(result).toMatchObject({ role: 'viewer', orgId: org.id });
+        expect(result).toMatchObject({ role: 'user', userId: user.id });
     });
 });

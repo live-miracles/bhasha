@@ -4,7 +4,7 @@ import type { Env } from '../src/env';
 import { createApp } from '../src/index';
 import type { Database } from '../src/db/sqlite';
 import * as presenceStatus from '../src/presence/status';
-import { adminCookie, buildTestEnv, seedPlatformAdmin, seedProgram, testEnv } from './test-env';
+import { adminCookie, buildTestEnv, seedAdmin, seedProgram, testEnv } from './test-env';
 
 async function request(
     path: string,
@@ -168,7 +168,7 @@ describe('listener lifecycle', () => {
         testEnv.DB.exec('DELETE FROM translators');
         testEnv.DB.exec('DELETE FROM language_streams');
         testEnv.DB.exec('DELETE FROM programs');
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
     });
 
     it('requests, connects, reports, and disconnects a listener', async () => {

@@ -2,17 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { VolunteerRepository } from '../src/db/volunteerRepository';
 import { createApp } from '../src/index';
-import {
-    adminCookie,
-    buildTestEnv,
-    DEFAULT_TEST_ORG_ID,
-    seedOrg,
-    seedOrgAdmin,
-    seedPlatformAdmin,
-    seedProgram,
-    seedViewer,
-    testEnv,
-} from './test-env';
+import { adminCookie, buildTestEnv, seedAdmin, seedProgram, seedUser, testEnv } from './test-env';
 
 async function request(path: string, init: RequestInit = {}): Promise<Response> {
     const app = createApp(buildTestEnv());
@@ -27,15 +17,10 @@ describe('admin volunteer credential management', () => {
         await testEnv.DB.exec('DELETE FROM admin_sessions');
         await testEnv.DB.exec('DELETE FROM programs');
         await testEnv.DB.exec('DELETE FROM users');
-        await testEnv.DB.exec('DELETE FROM orgs');
-        await seedOrg(testEnv, {
-            id: DEFAULT_TEST_ORG_ID,
-            name: 'Default test org',
-        });
     });
 
     it('returns a password-free unconfigured payload', async () => {
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
         const program = await seedProgram(testEnv);
         const cookie = await adminCookie();
 
@@ -56,7 +41,7 @@ describe('admin volunteer credential management', () => {
     });
 
     it('generates a password once, normalizes the login id, and the generated password works', async () => {
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
         const program = await seedProgram(testEnv);
         const cookie = await adminCookie();
 
@@ -97,7 +82,7 @@ describe('admin volunteer credential management', () => {
     });
 
     it('accepts a custom password without echoing it and rejects passwords shorter than eight', async () => {
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
         const program = await seedProgram(testEnv);
         const cookie = await adminCookie();
 
@@ -121,7 +106,7 @@ describe('admin volunteer credential management', () => {
     });
 
     it('reports active sessions and password reset invalidates every old cookie', async () => {
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
         const program = await seedProgram(testEnv);
         const cookie = await adminCookie();
         const volunteers = new VolunteerRepository(testEnv.DB, testEnv.TRANSLATOR_PASSWORD_PEPPER);
@@ -158,25 +143,37 @@ describe('admin volunteer credential management', () => {
         expect(await volunteers.authenticate(program.id, 'gate', 'new-password')).toBe(true);
     });
 
-    it('allows a same-org viewer to read but rejects viewer updates', async () => {
-        const org = await seedOrg(testEnv);
-        await seedOrgAdmin(testEnv, { orgId: org.id });
-        const viewer = await seedViewer(testEnv, { orgId: org.id });
-        const program = await seedProgram(testEnv, { orgId: org.id });
-        const viewerCookie = await adminCookie(viewer.email);
+    it('lets the owning user read and update, but a non-owning user gets 404 on both', async () => {
+        const ownerId = await seedUser(testEnv, 'owner_user');
+        const program = await seedProgram(testEnv, { createdBy: ownerId });
+        await seedUser(testEnv, 'other_user');
+        const ownerCookie = await adminCookie('owner_user');
+        const otherCookie = await adminCookie('other_user');
 
-        const read = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const ownerRead = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
             method: 'GET',
-            headers: { Cookie: viewerCookie },
+            headers: { Cookie: ownerCookie },
         });
-        expect(read.status).toBe(200);
+        expect(ownerRead.status).toBe(200);
 
-        const write = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const ownerWrite = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
             method: 'PUT',
-            headers: { Cookie: viewerCookie },
+            headers: { Cookie: ownerCookie },
             body: JSON.stringify({ loginId: 'gate' }),
         });
-        expect(write.status).toBe(403);
-        expect(await write.json()).toEqual({ error: 'forbidden' });
+        expect(ownerWrite.status).toBe(200);
+
+        const otherRead = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+            method: 'GET',
+            headers: { Cookie: otherCookie },
+        });
+        expect(otherRead.status).toBe(404);
+
+        const otherWrite = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+            method: 'PUT',
+            headers: { Cookie: otherCookie },
+            body: JSON.stringify({ loginId: 'gate' }),
+        });
+        expect(otherWrite.status).toBe(404);
     });
 });

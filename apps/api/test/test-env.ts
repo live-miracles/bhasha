@@ -1,24 +1,17 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { Env } from '../src/env';
 import type { Database } from '../src/db/sqlite';
 import { createApp } from '../src/index';
 import { ProgramRepository, type ProgramRecord } from '../src/db/programRepository';
-import { type OrgRecord, type UserRecord, UsersRepository } from '../src/db/usersRepository';
+import { UsersRepository, type UserRecord } from '../src/db/usersRepository';
 
-function sha256HexSync(value: string): string {
-    return createHash('sha256').update(value).digest('hex');
-}
-
-// Default email for the seeded platform_admin used across admin/program tests.
-export const ADMIN_TEST_EMAIL = 'platform@test.local';
-export const ORG_ADMIN_TEST_EMAIL = 'orgadmin@test.local';
-export const VIEWER_TEST_EMAIL = 'viewer@test.local';
-export const DEFAULT_TEST_ORG_ID = 'org_default';
+// Default credentials for the seeded admin/user accounts used across
+// admin/program tests.
+export const ADMIN_TEST_USERNAME = 'admin_test';
+export const USER_TEST_USERNAME = 'user_test';
 
 const adminSessionSecret = `test-admin-session-secret-${randomUUID()}`;
-const adminTestPassword = `test-admin-password-${randomUUID()}`;
-// Matches what handleBootstrap expects: sha256(password + ADMIN_SESSION_SECRET).
-const adminPasswordHash = `sha256:${sha256HexSync(adminTestPassword + adminSessionSecret)}`;
+const testPassword = `test-password-${randomUUID()}`;
 const translatorPasswordPepper = `test-translator-password-pepper-${randomUUID()}`;
 const translatorSessionSecret = `test-translator-session-secret-${randomUUID()}`;
 const volunteerSessionSecret = `test-volunteer-session-secret-${randomUUID()}`;
@@ -43,9 +36,8 @@ class TestEnvHandle {
         return this._db;
     }
 
-    readonly ADMIN_PASSWORD_HASH = adminPasswordHash;
     readonly ADMIN_SESSION_SECRET = adminSessionSecret;
-    readonly ADMIN_TEST_PASSWORD = adminTestPassword;
+    readonly TEST_PASSWORD = testPassword;
     readonly TRANSLATOR_PASSWORD_PEPPER = translatorPasswordPepper;
     readonly TRANSLATOR_SESSION_SECRET = translatorSessionSecret;
     readonly VOLUNTEER_SESSION_SECRET = volunteerSessionSecret;
@@ -95,7 +87,6 @@ type TestEnvOverrides = Omit<
 export function buildTestEnv(overrides: TestEnvOverrides = {}): Env {
     const baseEnv: Env = {
         DB: testEnv.DB,
-        ADMIN_PASSWORD_HASH: testEnv.ADMIN_PASSWORD_HASH,
         ADMIN_SESSION_SECRET: testEnv.ADMIN_SESSION_SECRET,
         TRANSLATOR_PASSWORD_PEPPER: testEnv.TRANSLATOR_PASSWORD_PEPPER,
         TRANSLATOR_SESSION_SECRET: testEnv.TRANSLATOR_SESSION_SECRET,
@@ -115,102 +106,39 @@ export function buildTestEnv(overrides: TestEnvOverrides = {}): Env {
 }
 
 /**
- * Seed (or repair) a platform_admin user with a known password. Idempotent:
- * if the user already exists it just (re)sets the password. Returns the user id.
+ * Seed (or repair) an admin user with a known password. Idempotent: if the
+ * user already exists it just (re)sets the role + password. Returns the user id.
  */
-export async function seedPlatformAdmin(
+export async function seedAdmin(
     env: Env,
-    email: string = ADMIN_TEST_EMAIL,
-    password: string = testEnv.ADMIN_TEST_PASSWORD,
+    username: string = ADMIN_TEST_USERNAME,
+    password: string = testEnv.TEST_PASSWORD,
 ): Promise<string> {
     const users = new UsersRepository(env.DB);
-    const existing = await users.getUserByEmail(email);
-    const user =
-        existing ?? (await users.createUser({ email, role: 'platform_admin', orgId: null }));
+    const existing = await users.getUserByUsername(username);
+    const user = existing
+        ? ((await users.updateUser(existing.id, { role: 'admin' })) ?? existing)
+        : await users.createUser({ username, role: 'admin' });
     await users.setPassword(user.id, password);
     return user.id;
 }
 
-export async function seedOrg(
+/**
+ * Seed (or repair) a 'user'-role account with a known password. Idempotent.
+ * Returns the user id.
+ */
+export async function seedUser(
     env: Env,
-    { id, name }: { id?: string; name?: string } = {},
-): Promise<OrgRecord> {
+    username: string = USER_TEST_USERNAME,
+    password: string = testEnv.TEST_PASSWORD,
+): Promise<string> {
     const users = new UsersRepository(env.DB);
-    const orgId = id ?? `org_${crypto.randomUUID()}`;
-    const existing = await users.getOrg(orgId);
-    if (existing) {
-        return existing;
-    }
-
-    return users.createOrg({
-        id: orgId,
-        name: name ?? `Org ${orgId}`,
-    });
-}
-
-async function repairRoleAndOrg(
-    users: UsersRepository,
-    user: UserRecord,
-    role: 'platform_admin' | 'org_admin' | 'viewer',
-    orgId: string | null,
-): Promise<UserRecord> {
-    if (user.role !== role || user.orgId !== orgId) {
-        const updated = await users.updateUser(user.id, {
-            role,
-            orgId,
-        });
-        return updated ?? user;
-    }
-
-    return user;
-}
-
-export async function seedOrgAdmin(
-    env: Env,
-    {
-        orgId = DEFAULT_TEST_ORG_ID,
-        email = ORG_ADMIN_TEST_EMAIL,
-        password = testEnv.ADMIN_TEST_PASSWORD,
-    }: { orgId?: string; email?: string; password?: string } = {},
-): Promise<{ userId: string; orgId: string; email: string }> {
-    const users = new UsersRepository(env.DB);
-    const org = await seedOrg(env, { id: orgId, name: `${orgId} org` });
-
-    const existing = await users.getUserByEmail(email);
-    const user = existing
-        ? await repairRoleAndOrg(users, existing, 'org_admin', org.id)
-        : await users.createUser({
-              email,
-              role: 'org_admin',
-              orgId: org.id,
-          });
-
+    const existing = await users.getUserByUsername(username);
+    const user: UserRecord = existing
+        ? ((await users.updateUser(existing.id, { role: 'user' })) ?? existing)
+        : await users.createUser({ username, role: 'user' });
     await users.setPassword(user.id, password);
-    return { userId: user.id, orgId: org.id, email: user.email };
-}
-
-export async function seedViewer(
-    env: Env,
-    {
-        orgId = DEFAULT_TEST_ORG_ID,
-        email = VIEWER_TEST_EMAIL,
-        password = testEnv.ADMIN_TEST_PASSWORD,
-    }: { orgId?: string; email?: string; password?: string } = {},
-): Promise<{ userId: string; orgId: string; email: string }> {
-    const users = new UsersRepository(env.DB);
-    const org = await seedOrg(env, { id: orgId, name: `${orgId} org` });
-
-    const existing = await users.getUserByEmail(email);
-    const user = existing
-        ? await repairRoleAndOrg(users, existing, 'viewer', org.id)
-        : await users.createUser({
-              email,
-              role: 'viewer',
-              orgId: org.id,
-          });
-
-    await users.setPassword(user.id, password);
-    return { userId: user.id, orgId: org.id, email: user.email };
+    return user.id;
 }
 
 export async function seedProgram(
@@ -221,10 +149,11 @@ export async function seedProgram(
         venue: string;
         eventDate: string;
         adminNotes: string;
-        orgId: string;
+        createdBy: string;
     }> = {},
 ): Promise<ProgramRecord> {
     const repo = new ProgramRepository(env.DB);
+    const createdBy = overrides.createdBy ?? (await seedUser(env));
     return repo.createProgram(
         {
             slug: overrides.slug ?? `program-${crypto.randomUUID()}`,
@@ -233,7 +162,7 @@ export async function seedProgram(
             eventDate: overrides.eventDate ?? '2026-08-01',
             adminNotes: overrides.adminNotes ?? '',
         },
-        overrides.orgId ?? DEFAULT_TEST_ORG_ID,
+        createdBy,
     );
 }
 
@@ -242,15 +171,15 @@ export async function seedProgram(
  * cookie fragment suitable for a `cookie` request header.
  */
 export async function adminCookie(
-    email: string = ADMIN_TEST_EMAIL,
-    password: string = testEnv.ADMIN_TEST_PASSWORD,
+    username: string = ADMIN_TEST_USERNAME,
+    password: string = testEnv.TEST_PASSWORD,
     env: Env = buildTestEnv(),
 ): Promise<string> {
     const app = createApp(env);
     const response = await app.fetch(
         new Request('https://bhasha.test/api/admin/login', {
             method: 'POST',
-            body: JSON.stringify({ email, password }),
+            body: JSON.stringify({ username, password }),
         }),
     );
 

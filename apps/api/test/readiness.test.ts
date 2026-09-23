@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { Env } from '../src/env';
 import { createApp } from '../src/index';
-import { adminCookie, buildTestEnv, seedPlatformAdmin, seedProgram, testEnv } from './test-env';
+import { adminCookie, buildTestEnv, seedAdmin, seedProgram, testEnv } from './test-env';
 
 type ReadinessItem = {
     id: string;
@@ -117,7 +117,7 @@ describe('admin program readiness', () => {
         await testEnv.DB.exec('DELETE FROM translators');
         await testEnv.DB.exec('DELETE FROM language_streams');
         await testEnv.DB.exec('DELETE FROM programs');
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
     });
 
     it('requires an admin session', async () => {

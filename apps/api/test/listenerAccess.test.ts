@@ -6,7 +6,7 @@ import { sha256Hex } from '../src/auth/crypto';
 import { ListenerAccessRepository } from '../src/db/listenerAccessRepository';
 import type { Database } from '../src/db/sqlite';
 import { countingDb, targetsTable } from './helpers/countingDb';
-import { adminCookie, buildTestEnv, seedPlatformAdmin, testEnv } from './test-env';
+import { adminCookie, buildTestEnv, seedAdmin, testEnv } from './test-env';
 
 interface ProgramGraph {
     programId: string;
@@ -818,7 +818,7 @@ describe('listener approval gate', () => {
             accessControlEnabled: true,
             published: true,
         });
-        await seedPlatformAdmin(testEnv);
+        await seedAdmin(testEnv);
         const cookie = await adminCookie();
         const clientId = 'client_full_lifecycle';
         const access = await mintAccess(graph, clientId);
