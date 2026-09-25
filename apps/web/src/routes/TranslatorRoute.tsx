@@ -6,6 +6,16 @@ import {
     useRef,
     useState,
 } from 'react';
+import {
+    Alert,
+    Button,
+    MantineProvider,
+    NativeSelect,
+    Paper,
+    Stack,
+    TextInput,
+    Title,
+} from '@mantine/core';
 
 import { ApiError } from '../api/client';
 import { createPublicApi, type PublicApi } from '../api/public';
@@ -24,6 +34,7 @@ import {
 } from '../realtime/translatorClient';
 import { loadTranslatorPrefs, saveTranslatorPrefs } from '../lib/translatorPrefs';
 import { getMeterZone, levelToFilledSegments, METER_SEGMENTS } from '../lib/micMeter';
+import { bhashaTheme } from '../app/theme';
 
 export interface TranslatorAudioMeter {
     getLevel(): number;
@@ -1249,100 +1260,104 @@ export function TranslatorRoute({
     }, []);
 
     return (
-        <main aria-label="Translator shell" className="shell shell-translator">
-            <section className="translator-screen">
-                {auth.status === 'checking' ? (
-                    <p className="translator-checking">Checking translator access...</p>
-                ) : null}
+        <MantineProvider theme={bhashaTheme} defaultColorScheme="light">
+            <main aria-label="Translator shell" className="shell shell-translator">
+                <section className="translator-screen">
+                    {auth.status === 'checking' ? (
+                        <p className="translator-checking">Checking translator access...</p>
+                    ) : null}
 
-                {auth.status === 'programMissing' ? (
-                    <p className="lp-info" role="status">
-                        This program does not exist.
-                    </p>
-                ) : null}
+                    {auth.status === 'programMissing' ? (
+                        <p className="lp-info" role="status">
+                            This program does not exist.
+                        </p>
+                    ) : null}
 
-                {auth.status === 'loggedOut' ? (
-                    <>
-                        {endedMessage ? (
-                            <p className="translator-ended-message" role="status">
-                                {endedMessage}
-                            </p>
-                        ) : null}
-                        <div className="translator-login-head">
-                            {/* Program eyebrow: we only have the slug pre-session. .eyebrow CSS
-                  uppercases it for display; the textContent stays the raw slug. */}
-                            <p className="eyebrow">{programSlug}</p>
-                            <h1>Live translation</h1>
-                        </div>
-                        <form className="translator-login" onSubmit={submitLogin}>
-                            <h2>Translator login</h2>
-                            {loginError ? (
-                                <p className="translator-alert" role="alert">
-                                    {loginError}
+                    {auth.status === 'loggedOut' ? (
+                        <>
+                            {endedMessage ? (
+                                <p className="translator-ended-message" role="status">
+                                    {endedMessage}
                                 </p>
                             ) : null}
-                            <label>
-                                Email
-                                <input
-                                    autoComplete="username"
-                                    onChange={(event) => setLoginEmail(event.target.value)}
-                                    required
-                                    type="email"
-                                    value={loginEmail}
-                                />
-                            </label>
-                            <label>
-                                Password
-                                <input
-                                    autoComplete="current-password"
-                                    onChange={(event) => setLoginPassword(event.target.value)}
-                                    type="password"
-                                    value={loginPassword}
-                                />
-                            </label>
-                            <button className="lp-btn" type="submit">
-                                Log in
-                            </button>
-                        </form>
-                    </>
-                ) : null}
+                            <Stack className="translator-login-head">
+                                {/* Program eyebrow: we only have the slug pre-session. .eyebrow CSS
+                  uppercases it for display; the textContent stays the raw slug. */}
+                                <p className="eyebrow">{programSlug}</p>
+                                <Title order={1}>Live translation</Title>
+                            </Stack>
+                            <Paper className="translator-login" p="lg" radius="md" withBorder>
+                                <form onSubmit={submitLogin}>
+                                    <Title order={2}>Translator login</Title>
+                                    {loginError ? (
+                                        <Alert color="red" mt="md" role="alert">
+                                            {loginError}
+                                        </Alert>
+                                    ) : null}
+                                    <Stack mt="md">
+                                        <TextInput
+                                            aria-label="Email"
+                                            label="Email"
+                                            autoComplete="username"
+                                            onChange={(event) => setLoginEmail(event.target.value)}
+                                            required
+                                            type="email"
+                                            value={loginEmail}
+                                        />
+                                        <TextInput
+                                            aria-label="Password"
+                                            label="Password"
+                                            autoComplete="current-password"
+                                            onChange={(event) =>
+                                                setLoginPassword(event.target.value)
+                                            }
+                                            type="password"
+                                            value={loginPassword}
+                                        />
+                                        <Button type="submit">Log in</Button>
+                                    </Stack>
+                                </form>
+                            </Paper>
+                        </>
+                    ) : null}
 
-                {auth.status === 'loggedIn' ? (
-                    <PublishPanel
-                        assignedStreams={auth.assignedStreams}
-                        muted={muted}
-                        onGoLive={() => void handleGoLive()}
-                        onMute={handleMute}
-                        onReconnect={() => void handleReconnect()}
-                        onSelectStream={setSelectedStreamId}
-                        onSignOut={() => void handleSignOut()}
-                        onStop={() => void handleStop()}
-                        programSlug={programSlug}
-                        publish={publish}
-                        selectedStreamId={selectedStreamId}
-                        silent={silent}
-                        stale={stale}
-                        recoveryExhausted={recoveryExhausted}
-                        justRecovered={justRecovered}
-                        meterLevel={meterLevel}
-                        elapsedMs={elapsedMs}
-                        elapsedLabel={elapsedLabel}
-                        translator={auth.translator}
-                        endedMessage={endedMessage}
-                        audioSheetOpen={audioSheetOpen}
-                        onOpenAudioSheet={openAudioSheet}
-                        onCloseAudioSheet={closeAudioSheet}
-                        audioInputs={audioInputs}
-                        selectedMicId={selectedMicId}
-                        onSelectMic={handleSelectMic}
-                        gainValue={gainValue}
-                        onGainChange={handleGainChange}
-                        audioToggles={audioToggles}
-                        onToggleAudio={handleToggleAudio}
-                    />
-                ) : null}
-            </section>
-        </main>
+                    {auth.status === 'loggedIn' ? (
+                        <PublishPanel
+                            assignedStreams={auth.assignedStreams}
+                            muted={muted}
+                            onGoLive={() => void handleGoLive()}
+                            onMute={handleMute}
+                            onReconnect={() => void handleReconnect()}
+                            onSelectStream={setSelectedStreamId}
+                            onSignOut={() => void handleSignOut()}
+                            onStop={() => void handleStop()}
+                            programSlug={programSlug}
+                            publish={publish}
+                            selectedStreamId={selectedStreamId}
+                            silent={silent}
+                            stale={stale}
+                            recoveryExhausted={recoveryExhausted}
+                            justRecovered={justRecovered}
+                            meterLevel={meterLevel}
+                            elapsedMs={elapsedMs}
+                            elapsedLabel={elapsedLabel}
+                            translator={auth.translator}
+                            endedMessage={endedMessage}
+                            audioSheetOpen={audioSheetOpen}
+                            onOpenAudioSheet={openAudioSheet}
+                            onCloseAudioSheet={closeAudioSheet}
+                            audioInputs={audioInputs}
+                            selectedMicId={selectedMicId}
+                            onSelectMic={handleSelectMic}
+                            gainValue={gainValue}
+                            onGainChange={handleGainChange}
+                            audioToggles={audioToggles}
+                            onToggleAudio={handleToggleAudio}
+                        />
+                    ) : null}
+                </section>
+            </main>
+        </MantineProvider>
     );
 }
 
@@ -1422,9 +1437,9 @@ function PublishPanel({
                     <p className="translator-name">{translator.name}</p>
                     <p className="translator-slug">{programSlug}</p>
                 </div>
-                <button type="button" className="console-signout" onClick={onSignOut}>
+                <Button type="button" variant="default" onClick={onSignOut}>
                     Sign out
-                </button>
+                </Button>
             </header>
 
             {assignedStreams.length === 0 ? (
@@ -1438,7 +1453,9 @@ function PublishPanel({
                         <div className="assigned-card-select">
                             <label>
                                 Language stream
-                                <select
+                                <NativeSelect
+                                    aria-label="Language stream"
+                                    label="Language stream"
                                     value={selectedStreamId}
                                     disabled={isBusy(publish)}
                                     onChange={(event) => onSelectStream(event.target.value)}
@@ -1448,7 +1465,7 @@ function PublishPanel({
                                             {s.nativeName} — {s.languageName}
                                         </option>
                                     ))}
-                                </select>
+                                </NativeSelect>
                             </label>
                         </div>
                     ) : null}

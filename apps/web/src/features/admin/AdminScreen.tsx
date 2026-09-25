@@ -1,5 +1,7 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+    Alert,
+    Badge,
     Button,
     Checkbox,
     Group,
@@ -1010,14 +1012,15 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                         />
                     </div>
                     <div className="admin-report-meta">
-                        <button
-                            className="admin-btn-secondary"
+                        <Button
                             disabled={refreshing}
+                            loading={refreshing}
                             onClick={() => void refreshStatus()}
                             type="button"
+                            variant="default"
                         >
-                            {refreshing ? 'Refreshing…' : 'Refresh events'}
-                        </button>
+                            Refresh events
+                        </Button>
                     </div>
                     <ReportSummaryPanel
                         summary={summary}
@@ -1641,156 +1644,167 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     }
 
     return (
-        <main aria-label="Management workspace" className="shell shell-admin admin-screen">
-            {error ? (
-                <p className="admin-alert" role="alert">
-                    {error}
-                </p>
-            ) : null}
+        <AdminUiProvider>
+            <main aria-label="Management workspace" className="shell shell-admin admin-screen">
+                {error ? (
+                    <Alert color="red" role="alert">
+                        {error}
+                    </Alert>
+                ) : null}
 
-            {loadState === 'checking' ? <p>Checking management access...</p> : null}
-            {loadState === 'login' ? (
-                <form className="admin-panel admin-login" onSubmit={submitLogin}>
-                    <h2>Management login</h2>
-                    <label>
-                        Username
-                        <input
-                            autoComplete="username"
-                            onChange={(event) => setLoginUsername(event.target.value)}
-                            required
-                            type="text"
-                            value={loginUsername}
-                        />
-                    </label>
-                    <label>
-                        Management password
-                        <input
-                            autoComplete="current-password"
-                            required
-                            onChange={(event) => setLoginPassword(event.target.value)}
-                            type="password"
-                            value={loginPassword}
-                        />
-                    </label>
-                    <button type="submit">Log in</button>
-                </form>
-            ) : null}
-            {loadState === 'error' ? (
-                <button onClick={() => void loadPrograms()} type="button">
-                    Retry
-                </button>
-            ) : null}
-            {loadState === 'ready' ? (
-                <>
-                    {detail === null ? (
-                        <AdminLayout
-                            sidebar={
-                                <SidebarApp
-                                    activeSection={
-                                        activeSection === 'programs' ||
-                                        activeSection === 'deleted' ||
-                                        activeSection === 'users' ||
-                                        activeSection === 'account'
-                                            ? activeSection
-                                            : 'programs'
-                                    }
-                                    onNavigate={setActiveSection}
-                                    {...(identity ? { role: identity.role } : {})}
-                                />
-                            }
-                        >
-                            <TopBar crumbs={['Programs']} action={null} />
-                            <div className="admin-content">
-                                {activeSection === 'deleted' ? (
-                                    <section
-                                        aria-label="Recently deleted"
-                                        className="admin-section"
-                                    >
-                                        <div className="admin-section-head">
-                                            <h2>Recently deleted</h2>
-                                        </div>
-                                        <DeletedProgramList
-                                            programs={deletedPrograms}
-                                            onRestore={(programId: string) => {
-                                                void restoreProgram(programId);
-                                            }}
-                                        />
-                                    </section>
-                                ) : activeSection === 'users' && identity?.role === 'admin' ? (
-                                    <UsersPanel adminApi={adminApi} />
-                                ) : activeSection === 'account' ? (
-                                    <AccountPanel
-                                        adminApi={adminApi}
-                                        username={identity?.username}
-                                        onSignOut={handleSignOut}
-                                    />
-                                ) : (
-                                    <section aria-label="Programs" className="admin-section">
-                                        <div className="admin-section-head">
-                                            <h2>Programs</h2>
-                                        </div>
-                                        <ProgramCreateForm
-                                            form={programForm}
-                                            onChange={setProgramForm}
-                                            onSubmit={submitProgram}
-                                            readOnly={false}
-                                        />
-                                        <ProgramList
-                                            programs={programs}
-                                            onOpen={(program) =>
-                                                navigate(adminProgramPath(program.slug))
-                                            }
-                                        />
-                                    </section>
-                                )}
-                            </div>
-                        </AdminLayout>
-                    ) : (
-                        <AdminLayout
-                            sidebar={
-                                <Sidebar
-                                    programName={detail.program.name}
-                                    activeSection={activeSection}
-                                    onNavigate={(nextSection) => {
-                                        suppressRouteLoad.current = true;
-                                        setActiveSection(nextSection);
-                                        navigate(
-                                            adminProgramPath(detail.program.slug, nextSection),
-                                        );
-                                    }}
-                                    onBack={backToPrograms}
-                                />
-                            }
-                        >
-                            <TopBar
-                                crumbs={[
-                                    'Programs',
-                                    detail.program.name,
-                                    sectionLabel(activeSection),
-                                ]}
-                                action={null}
+                {loadState === 'checking' ? <p>Checking management access...</p> : null}
+                {loadState === 'login' ? (
+                    <Paper
+                        className="admin-login"
+                        component="form"
+                        onSubmit={submitLogin}
+                        p="lg"
+                        radius="md"
+                        withBorder
+                    >
+                        <Stack>
+                            <Title order={2}>Management login</Title>
+                            <TextInput
+                                aria-label="Username"
+                                label="Username"
+                                autoComplete="username"
+                                onChange={(event) => setLoginUsername(event.target.value)}
+                                required
+                                type="text"
+                                value={loginUsername}
                             />
-                            <div className="admin-content">{renderSection()}</div>
-                        </AdminLayout>
-                    )}
-                    <KickConfirmDialog
-                        open={kickedStream !== null}
-                        onClose={closeKickDialog}
-                        onConfirm={handleKickPublisher}
-                        title={
-                            kickedStream ? `End the ${kickedStream.languageName} broadcast?` : ''
-                        }
-                        listenerImpactLine={
-                            kickedStream
-                                ? `${kickedStream.languageName} has ${kickedStream.activeListeners} active listener${kickedStream.activeListeners === 1 ? '' : 's'}. They'll keep hearing silence — the stream stays connected.`
-                                : ''
-                        }
-                        pending={kickPending}
-                        error={kickError}
-                    />
-                </>
-            ) : null}
-        </main>
+                            <TextInput
+                                aria-label="Management password"
+                                label="Management password"
+                                autoComplete="current-password"
+                                required
+                                onChange={(event) => setLoginPassword(event.target.value)}
+                                type="password"
+                                value={loginPassword}
+                            />
+                            <Button type="submit">Log in</Button>
+                        </Stack>
+                    </Paper>
+                ) : null}
+                {loadState === 'error' ? (
+                    <Button onClick={() => void loadPrograms()} type="button">
+                        Retry
+                    </Button>
+                ) : null}
+                {loadState === 'ready' ? (
+                    <>
+                        {detail === null ? (
+                            <AdminLayout
+                                sidebar={
+                                    <SidebarApp
+                                        activeSection={
+                                            activeSection === 'programs' ||
+                                            activeSection === 'deleted' ||
+                                            activeSection === 'users' ||
+                                            activeSection === 'account'
+                                                ? activeSection
+                                                : 'programs'
+                                        }
+                                        onNavigate={setActiveSection}
+                                        {...(identity ? { role: identity.role } : {})}
+                                    />
+                                }
+                            >
+                                <TopBar crumbs={['Programs']} action={null} />
+                                <div className="admin-content">
+                                    {activeSection === 'deleted' ? (
+                                        <section
+                                            aria-label="Recently deleted"
+                                            className="admin-section"
+                                        >
+                                            <div className="admin-section-head">
+                                                <h2>Recently deleted</h2>
+                                            </div>
+                                            <DeletedProgramList
+                                                programs={deletedPrograms}
+                                                onRestore={(programId: string) => {
+                                                    void restoreProgram(programId);
+                                                }}
+                                            />
+                                        </section>
+                                    ) : activeSection === 'users' && identity?.role === 'admin' ? (
+                                        <UsersPanel adminApi={adminApi} />
+                                    ) : activeSection === 'account' ? (
+                                        <AccountPanel
+                                            adminApi={adminApi}
+                                            username={identity?.username}
+                                            onSignOut={handleSignOut}
+                                        />
+                                    ) : (
+                                        <section aria-label="Programs" className="admin-section">
+                                            <div className="admin-section-head">
+                                                <h2>Programs</h2>
+                                            </div>
+                                            <ProgramCreateForm
+                                                form={programForm}
+                                                onChange={setProgramForm}
+                                                onSubmit={submitProgram}
+                                                readOnly={false}
+                                            />
+                                            <ProgramList
+                                                programs={programs}
+                                                onOpen={(program) =>
+                                                    navigate(adminProgramPath(program.slug))
+                                                }
+                                            />
+                                        </section>
+                                    )}
+                                </div>
+                            </AdminLayout>
+                        ) : (
+                            <AdminLayout
+                                sidebar={
+                                    <Sidebar
+                                        programName={detail.program.name}
+                                        activeSection={activeSection}
+                                        onNavigate={(nextSection) => {
+                                            suppressRouteLoad.current = true;
+                                            setActiveSection(nextSection);
+                                            navigate(
+                                                adminProgramPath(detail.program.slug, nextSection),
+                                            );
+                                        }}
+                                        onBack={backToPrograms}
+                                    />
+                                }
+                            >
+                                <TopBar
+                                    crumbs={[
+                                        'Programs',
+                                        detail.program.name,
+                                        sectionLabel(activeSection),
+                                    ]}
+                                    action={null}
+                                />
+                                <div className="admin-content">{renderSection()}</div>
+                            </AdminLayout>
+                        )}
+                        <KickConfirmDialog
+                            open={kickedStream !== null}
+                            onClose={closeKickDialog}
+                            onConfirm={handleKickPublisher}
+                            title={
+                                kickedStream
+                                    ? `End the ${kickedStream.languageName} broadcast?`
+                                    : ''
+                            }
+                            listenerImpactLine={
+                                kickedStream
+                                    ? `${kickedStream.languageName} has ${kickedStream.activeListeners} active listener${kickedStream.activeListeners === 1 ? '' : 's'}. They'll keep hearing silence — the stream stays connected.`
+                                    : ''
+                            }
+                            pending={kickPending}
+                            error={kickError}
+                        />
+                    </>
+                ) : null}
+            </main>
+        </AdminUiProvider>
     );
 }
 
@@ -2210,37 +2224,35 @@ function VolunteerAccessPanel({
 
     return (
         <section aria-label="Volunteer access" className="admin-subsection">
-            <div className="admin-subsection-head">
-                <div>
-                    <h2>Volunteer access</h2>
-                    <p className="admin-hint">
-                        Shared credentials for event volunteers who approve listener access.
-                    </p>
-                </div>
-            </div>
+            <Stack gap="xs">
+                <Title order={2}>Volunteer access</Title>
+                <Text c="dimmed" size="sm">
+                    Shared credentials for event volunteers who approve listener access.
+                </Text>
+            </Stack>
             {access ? (
-                <form className="admin-card admin-form" onSubmit={save}>
-                    <div className="admin-kpi" aria-label="Active volunteer sessions">
-                        <span className="admin-kpi-value">
-                            {access.activeSessionCount} active sessions
-                        </span>
-                        <span className="admin-kpi-label">Volunteer sessions</span>
-                    </div>
-                    <label>
-                        Volunteer login ID
-                        <input
+                <Paper component="form" mt="md" onSubmit={save} p="md" radius="md" withBorder>
+                    <Stack gap="md">
+                        <Paper aria-label="Active volunteer sessions" p="sm" radius="md" withBorder>
+                            <Text fw={700}>{access.activeSessionCount} active sessions</Text>
+                            <Text c="dimmed" size="sm">
+                                Volunteer sessions
+                            </Text>
+                        </Paper>
+                        <TextInput
+                            aria-label="Volunteer login ID"
                             autoComplete="username"
                             disabled={readOnly || pending}
+                            label="Volunteer login ID"
                             onChange={(event) => setLoginId(event.target.value)}
                             required
                             value={loginId}
                         />
-                    </label>
-                    <label>
-                        Volunteer password
-                        <input
+                        <TextInput
+                            aria-label="Volunteer password"
                             autoComplete="new-password"
                             disabled={readOnly || pending}
+                            label="Volunteer password"
                             minLength={8}
                             onChange={(event) => setPassword(event.target.value)}
                             placeholder={
@@ -2251,34 +2263,37 @@ function VolunteerAccessPanel({
                             type="password"
                             value={password}
                         />
-                    </label>
-                    {access.passwordUpdatedAt ? (
-                        <p className="admin-hint">
-                            Password last updated {formatISTDateTime(access.passwordUpdatedAt)}
-                        </p>
-                    ) : null}
-                    <p className="admin-alert">Saving changes resets all volunteer sessions.</p>
-                    {panelError ? <p className="admin-alert">{panelError}</p> : null}
-                    {readOnly ? null : (
-                        <div className="admin-actions">
-                            <button
-                                className="admin-btn-secondary"
-                                disabled={pending}
-                                onClick={() => setPassword(generatedVolunteerPassword())}
-                                type="button"
-                            >
-                                Generate
-                            </button>
-                            <button disabled={pending || loginId.trim().length === 0} type="submit">
-                                {pending ? 'Saving…' : 'Save volunteer access'}
-                            </button>
-                        </div>
-                    )}
-                </form>
+
+                        {access.passwordUpdatedAt ? (
+                            <Text c="dimmed" size="sm">
+                                Password last updated {formatISTDateTime(access.passwordUpdatedAt)}
+                            </Text>
+                        ) : null}
+                        <Alert color="yellow">Saving changes resets all volunteer sessions.</Alert>
+                        {panelError ? <Alert color="red">{panelError}</Alert> : null}
+                        {readOnly ? null : (
+                            <Group>
+                                <Button
+                                    disabled={pending}
+                                    onClick={() => setPassword(generatedVolunteerPassword())}
+                                    type="button"
+                                    variant="default"
+                                >
+                                    Generate
+                                </Button>
+                                <Button disabled={pending} loading={pending} type="submit">
+                                    Save volunteer access
+                                </Button>
+                            </Group>
+                        )}
+                    </Stack>
+                </Paper>
             ) : panelError ? (
-                <p className="admin-alert">{panelError}</p>
+                <Alert color="red" mt="md">
+                    {panelError}
+                </Alert>
             ) : (
-                <p>Loading volunteer access…</p>
+                <Text mt="md">Loading volunteer access…</Text>
             )}
             <VolunteerPasswordOnceDialog
                 onClose={() => setShownPassword(null)}
@@ -2311,21 +2326,23 @@ function VolunteerPasswordOnceDialog({
 
     return (
         <AdminDialog onClose={onClose} open title="Volunteer password">
-            <div className="admin-card">
-                <p>You won't be able to see it again.</p>
-                <code>{visiblePassword}</code>
-                <div className="admin-actions">
-                    <button onClick={() => void copyPassword()} type="button">
+            <Stack gap="md">
+                <Text>You won't be able to see it again.</Text>
+                <Paper component="code" p="sm" withBorder>
+                    {visiblePassword}
+                </Paper>
+                <Group>
+                    <Button onClick={() => void copyPassword()} type="button">
                         Copy password
-                    </button>
-                    <button onClick={onClose} type="button">
+                    </Button>
+                    <Button onClick={onClose} type="button" variant="default">
                         Done
-                    </button>
-                </div>
+                    </Button>
+                </Group>
                 <span aria-live="polite" role="status">
                     {copied ? 'Copied' : ''}
                 </span>
-            </div>
+            </Stack>
         </AdminDialog>
     );
 }
@@ -2364,34 +2381,37 @@ function QrCard({ title, value, filename }: { title: string; value: string; file
     }
 
     return (
-        <div className="admin-card" ref={qrRef}>
-            <h3>{title}</h3>
-            <QRCodeSVG
-                aria-label={title}
-                className="admin-qr"
-                marginSize={4}
-                size={192}
-                title={value}
-                value={value}
-            />
-            <p className="admin-card-url">{value}</p>
-            <div className="admin-actions">
-                <button className="admin-btn-secondary" onClick={downloadQr} type="button">
-                    Download QR SVG
-                </button>
-                <button className="admin-btn-secondary" onClick={printQr} type="button">
-                    Print QR
-                </button>
-            </div>
-        </div>
+        <Paper ref={qrRef} p="md" radius="md" withBorder>
+            <Stack align="center" gap="md">
+                <Title order={3}>{title}</Title>
+                <QRCodeSVG
+                    aria-label={title}
+                    marginSize={4}
+                    size={192}
+                    title={value}
+                    value={value}
+                />
+                <Text c="dimmed" size="xs" ta="center" style={{ wordBreak: 'break-all' }}>
+                    {value}
+                </Text>
+                <Group>
+                    <Button onClick={downloadQr} type="button" variant="default">
+                        Download QR SVG
+                    </Button>
+                    <Button onClick={printQr} type="button" variant="default">
+                        Print QR
+                    </Button>
+                </Group>
+            </Stack>
+        </Paper>
     );
 }
 
 function QrPanel({ detail }: { detail: AdminProgramDetail }) {
     return (
         <section aria-label="Share QR" className="admin-subsection">
-            <h2>Share / QR</h2>
-            <div className="admin-card-grid">
+            <Title order={2}>Share / QR</Title>
+            <SimpleGrid cols={{ base: 1, sm: 3 }} mt="md">
                 <QrCard
                     filename={svgFilename(detail.suggestedQrFilename)}
                     title="Listener QR"
@@ -2407,7 +2427,7 @@ function QrPanel({ detail }: { detail: AdminProgramDetail }) {
                     title="Volunteer QR"
                     value={detail.urls.volunteerUrl}
                 />
-            </div>
+            </SimpleGrid>
         </section>
     );
 }
@@ -2437,17 +2457,12 @@ function StatusPanel({
 }) {
     return (
         <section aria-label="Listener counts" className="admin-subsection">
-            <div className="admin-subsection-head">
-                <h2>Listener counts</h2>
-                <button
-                    className="admin-btn-secondary"
-                    disabled={refreshing}
-                    onClick={onRefresh}
-                    type="button"
-                >
+            <Group justify="space-between" mb="md">
+                <Title order={2}>Listener counts</Title>
+                <Button disabled={refreshing} onClick={onRefresh} type="button" variant="default">
                     {refreshing ? 'Refreshing…' : 'Refresh'}
-                </button>
-            </div>
+                </Button>
+            </Group>
             <div className="admin-kpi-strip">
                 <KpiTile label="Total" value={status.totalActiveListeners.toString()} />
                 <KpiTile label="Freshness" value={status.stale ? 'Stale' : 'Fresh'} />
@@ -2480,13 +2495,15 @@ function StatusPanel({
                             {readOnly ? null : (
                                 <td>
                                     {stream.state === 'live' ? (
-                                        <button
-                                            className="admin-link-danger"
+                                        <Button
+                                            color="red"
                                             onClick={() => onKickStream(stream)}
+                                            size="compact-sm"
                                             type="button"
+                                            variant="subtle"
                                         >
                                             Kick publisher
-                                        </button>
+                                        </Button>
                                     ) : (
                                         '—'
                                     )}
@@ -2519,81 +2536,84 @@ function StreamsPanel({
 }) {
     return (
         <section className="admin-subsection">
-            <h2>Streams</h2>
+            <Title order={2}>Streams</Title>
             {readOnly ? null : (
-                <section className="admin-card">
-                    <form className="admin-form admin-inline-form" onSubmit={onSubmit}>
-                        <label>
-                            Stream language
-                            <select
-                                aria-label="Stream language"
-                                onChange={(event) => {
-                                    const languageCode = event.target.value;
-                                    onChange({
-                                        ...form,
-                                        languageCode,
-                                        languageName: getLanguageName(languageCode) ?? '',
-                                    });
-                                }}
-                                required
-                                value={form.languageCode}
-                            >
-                                <option disabled value="">
-                                    Select language
-                                </option>
-                                <optgroup label="Indian">
-                                    {SUPPORTED_LANGUAGES.filter(
-                                        (language) => language.region === 'Indian',
-                                    ).map((language) => (
-                                        <option key={language.code} value={language.code}>
-                                            {language.name} ({language.code})
-                                        </option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="European">
-                                    {SUPPORTED_LANGUAGES.filter(
-                                        (language) => language.region === 'European',
-                                    ).map((language) => (
-                                        <option key={language.code} value={language.code}>
-                                            {language.name} ({language.code})
-                                        </option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="East Asian">
-                                    {SUPPORTED_LANGUAGES.filter(
-                                        (language) => language.region === 'East Asian',
-                                    ).map((language) => (
-                                        <option key={language.code} value={language.code}>
-                                            {language.name} ({language.code})
-                                        </option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="Southeast Asian">
-                                    {SUPPORTED_LANGUAGES.filter(
-                                        (language) => language.region === 'Southeast Asian',
-                                    ).map((language) => (
-                                        <option key={language.code} value={language.code}>
-                                            {language.name} ({language.code})
-                                        </option>
-                                    ))}
-                                </optgroup>
-                            </select>
-                        </label>
-                        <label>
-                            Stream display order
-                            <input
-                                onChange={(event) =>
-                                    onChange({ ...form, displayOrder: event.target.value })
-                                }
-                                type="number"
-                                value={form.displayOrder}
-                            />
-                        </label>
-                        <button disabled={!form.languageCode} type="submit">
-                            Create stream
-                        </button>
+                <Paper p="md" radius="md" withBorder>
+                    <form onSubmit={onSubmit}>
+                        <Stack gap="md">
+                            <SimpleGrid cols={{ base: 1, sm: 3 }}>
+                                <NativeSelect
+                                    aria-label="Stream language"
+                                    label="Stream language"
+                                    onChange={(event) => {
+                                        const languageCode = event.target.value;
+                                        onChange({
+                                            ...form,
+                                            languageCode,
+                                            languageName: getLanguageName(languageCode) ?? '',
+                                        });
+                                    }}
+                                    required
+                                    value={form.languageCode}
+                                >
+                                    <option disabled value="">
+                                        Select language
+                                    </option>
+                                    <optgroup label="Indian">
+                                        {SUPPORTED_LANGUAGES.filter(
+                                            (language) => language.region === 'Indian',
+                                        ).map((language) => (
+                                            <option key={language.code} value={language.code}>
+                                                {language.name} ({language.code})
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                    <optgroup label="European">
+                                        {SUPPORTED_LANGUAGES.filter(
+                                            (language) => language.region === 'European',
+                                        ).map((language) => (
+                                            <option key={language.code} value={language.code}>
+                                                {language.name} ({language.code})
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                    <optgroup label="East Asian">
+                                        {SUPPORTED_LANGUAGES.filter(
+                                            (language) => language.region === 'East Asian',
+                                        ).map((language) => (
+                                            <option key={language.code} value={language.code}>
+                                                {language.name} ({language.code})
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                    <optgroup label="Southeast Asian">
+                                        {SUPPORTED_LANGUAGES.filter(
+                                            (language) => language.region === 'Southeast Asian',
+                                        ).map((language) => (
+                                            <option key={language.code} value={language.code}>
+                                                {language.name} ({language.code})
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                </NativeSelect>
+                                <TextInput
+                                    aria-label="Stream display order"
+                                    label="Stream display order"
+                                    onChange={(event) =>
+                                        onChange({ ...form, displayOrder: event.target.value })
+                                    }
+                                    type="number"
+                                    value={form.displayOrder}
+                                />
+                                <Group align="end">
+                                    <Button disabled={!form.languageCode} type="submit">
+                                        Create stream
+                                    </Button>
+                                </Group>
+                            </SimpleGrid>
+                        </Stack>
                     </form>
-                </section>
+                </Paper>
             )}
             <table className="admin-table">
                 <thead>
@@ -2613,25 +2633,28 @@ function StreamsPanel({
                             <td>{stream.displayOrder ?? ''}</td>
                             {readOnly ? null : (
                                 <td>
-                                    <button
-                                        className="admin-toggle-btn"
+                                    <Button
                                         onClick={() => onToggle(stream)}
+                                        size="compact-sm"
+                                        variant="light"
                                         type="button"
                                     >
                                         {stream.isActive ? 'Deactivate' : 'Activate'}{' '}
                                         {stream.languageName}
-                                    </button>
+                                    </Button>
                                 </td>
                             )}
                             {readOnly ? null : (
                                 <td>
-                                    <button
-                                        className="admin-link-danger"
+                                    <Button
+                                        color="red"
                                         onClick={() => onDelete(stream)}
+                                        size="compact-sm"
                                         type="button"
+                                        variant="subtle"
                                     >
                                         Delete {stream.languageName} stream
-                                    </button>
+                                    </Button>
                                 </td>
                             )}
                         </tr>
@@ -2949,26 +2972,29 @@ function TranslatorsPanel({
 
     return (
         <section className="admin-subsection">
-            <div className="admin-subsection-head">
-                <h2>Translators</h2>
-                <div className="admin-copy-line">
-                    <span className="admin-card-url">{translatorUrl}</span>
-                    <button
-                        className="admin-btn-secondary"
+            <Group justify="space-between" mb="md">
+                <Title order={2}>Translators</Title>
+                <Group gap="xs">
+                    <Text c="dimmed" size="xs" style={{ wordBreak: 'break-all' }}>
+                        {translatorUrl}
+                    </Text>
+                    <Button
                         onClick={() => void navigator.clipboard.writeText(translatorUrl)}
                         type="button"
+                        variant="default"
                     >
                         Copy
-                    </button>
-                </div>
-            </div>
+                    </Button>
+                </Group>
+            </Group>
             {readOnly ? null : (
-                <div className="admin-card">
-                    <form className="admin-form admin-inline-form" onSubmit={onSubmit}>
-                        <label>
-                            Translator email
-                            <input
+                <Paper p="md" radius="md" withBorder>
+                    <form onSubmit={onSubmit}>
+                        <SimpleGrid cols={{ base: 1, sm: 4 }}>
+                            <TextInput
+                                aria-label="Translator email"
                                 autoComplete="off"
+                                label="Translator email"
                                 onChange={(event) =>
                                     onChange({ ...form, email: event.target.value })
                                 }
@@ -2977,35 +3003,36 @@ function TranslatorsPanel({
                                 type="email"
                                 value={form.email}
                             />
-                        </label>
-                        <label>
-                            Translator name
-                            <input
+                            <TextInput
+                                aria-label="Translator name"
+                                label="Translator name"
                                 onChange={(event) =>
                                     onChange({ ...form, name: event.target.value })
                                 }
                                 value={form.name}
                             />
-                        </label>
-                        <label>
-                            Translator password
-                            <input
+                            <TextInput
+                                aria-label="Translator password"
                                 autoComplete="new-password"
+                                label="Translator password"
                                 onChange={(event) =>
                                     onChange({ ...form, password: event.target.value })
                                 }
                                 type="password"
                                 value={form.password}
                             />
-                        </label>
-                        <button type="submit">Create translator</button>
+                            <Group align="end">
+                                <Button type="submit">Create translator</Button>
+                            </Group>
+                        </SimpleGrid>
                     </form>
-                </div>
+                </Paper>
             )}
             <div className="admin-list">
                 {translators.map((translator) => (
-                    <article
-                        className={`admin-card admin-translator-card ${
+                    <Paper
+                        component="article"
+                        className={`admin-translator-card ${
                             sessionStateByTranslator[translator.id]?.sessions.some(
                                 (session) => session.isPublishing,
                             )
@@ -3020,39 +3047,48 @@ function TranslatorsPanel({
                                 : undefined
                         }
                         key={translator.id}
+                        p="md"
+                        radius="md"
+                        withBorder
                     >
-                        <h3>{translator.name}</h3>
+                        <Title order={3}>{translator.name}</Title>
                         {sessionStateByTranslator[translator.id]?.sessions.some(
                             (session) => session.isPublishing,
                         ) ? (
                             <span className="admin-sr-only">Currently publishing</span>
                         ) : null}
-                        <p className="admin-translator-email">{translator.email}</p>
+                        <Text c="dimmed" size="sm">
+                            {translator.email}
+                        </Text>
                         {translator.assignments.length === 0 ? (
-                            <p>No assignments</p>
+                            <Text>No assignments</Text>
                         ) : (
-                            <div className="admin-chip-row">
+                            <Group gap="xs">
                                 {translator.assignments.map((assignment) => (
-                                    <span className="admin-chip" key={assignment.streamId}>
+                                    <Badge
+                                        key={assignment.streamId}
+                                        rightSection={
+                                            readOnly ? null : (
+                                                <button
+                                                    aria-label={`Remove ${assignment.languageName} from ${translator.name}`}
+                                                    onClick={() =>
+                                                        onRemoveAssignment(
+                                                            translator,
+                                                            assignment.streamId,
+                                                        )
+                                                    }
+                                                    type="button"
+                                                >
+                                                    ×
+                                                </button>
+                                            )
+                                        }
+                                        variant="light"
+                                    >
                                         {assignment.languageName}
-                                        {readOnly ? null : (
-                                            <button
-                                                aria-label={`Remove ${assignment.languageName} from ${translator.name}`}
-                                                className="admin-chip-remove"
-                                                onClick={() =>
-                                                    onRemoveAssignment(
-                                                        translator,
-                                                        assignment.streamId,
-                                                    )
-                                                }
-                                                type="button"
-                                            >
-                                                ×
-                                            </button>
-                                        )}
-                                    </span>
+                                    </Badge>
                                 ))}
-                            </div>
+                            </Group>
                         )}
                         <details
                             className="admin-translator-sessions"
@@ -3163,18 +3199,20 @@ function TranslatorsPanel({
                                                             </td>
                                                             {readOnly ? null : (
                                                                 <td>
-                                                                    <button
-                                                                        className="admin-link-danger"
+                                                                    <Button
+                                                                        color="red"
                                                                         onClick={() =>
                                                                             void handleEndSession(
                                                                                 translator,
                                                                                 session,
                                                                             )
                                                                         }
+                                                                        size="compact-sm"
                                                                         type="button"
+                                                                        variant="subtle"
                                                                     >
                                                                         End session
-                                                                    </button>
+                                                                    </Button>
                                                                 </td>
                                                             )}
                                                         </tr>
@@ -3191,15 +3229,17 @@ function TranslatorsPanel({
                                                 )}
                                             </p>
                                             {readOnly ? null : (
-                                                <button
-                                                    className="admin-link-danger"
+                                                <Button
+                                                    color="red"
                                                     onClick={() =>
                                                         void handleEndAllSessions(translator)
                                                     }
+                                                    size="compact-sm"
                                                     type="button"
+                                                    variant="subtle"
                                                 >
                                                     End all sessions
-                                                </button>
+                                                </Button>
                                             )}
                                         </div>
                                     </>
@@ -3208,27 +3248,28 @@ function TranslatorsPanel({
                         </details>
                         {readOnly ? null : (
                             <div className="admin-actions">
-                                <button
-                                    className="admin-btn-secondary"
+                                <Button
                                     onClick={() => onRename(translator)}
                                     type="button"
+                                    variant="default"
                                 >
                                     Rename {translator.name}
-                                </button>
-                                <button
-                                    className="admin-btn-secondary"
+                                </Button>
+                                <Button
                                     onClick={() => onResetPassword(translator)}
                                     type="button"
+                                    variant="default"
                                 >
                                     Reset password
-                                </button>
-                                <button
-                                    className="admin-link-danger"
+                                </Button>
+                                <Button
+                                    color="red"
                                     onClick={() => onDelete(translator)}
                                     type="button"
+                                    variant="subtle"
                                 >
                                     Delete {translator.name}
-                                </button>
+                                </Button>
                                 {streams
                                     .filter(
                                         (stream) =>
@@ -3237,18 +3278,18 @@ function TranslatorsPanel({
                                             ),
                                     )
                                     .map((stream) => (
-                                        <button
-                                            className="admin-btn-secondary"
+                                        <Button
                                             key={stream.id}
                                             onClick={() => onAddAssignment(translator, stream)}
                                             type="button"
+                                            variant="default"
                                         >
                                             Assign {stream.languageName} to {translator.name}
-                                        </button>
+                                        </Button>
                                     ))}
                             </div>
                         )}
-                    </article>
+                    </Paper>
                 ))}
             </div>
             <ConfirmDialog
@@ -3350,30 +3391,32 @@ export function ListenerReportPanel({
     return (
         <AdminUiProvider>
             <section className="admin-subsection">
-                <div className="admin-panel-heading">
-                    <h2>Listener report</h2>
+                <Group justify="space-between" mb="md">
+                    <Title order={2}>Listener report</Title>
                     {rangeLabel ? (
-                        <button
-                            className="admin-pill admin-range-chip"
+                        <Button
+                            size="compact-sm"
                             type="button"
                             onClick={onRangeChipClick}
+                            variant="light"
                         >
                             {rangeLabel}
-                        </button>
+                        </Button>
                     ) : null}
-                </div>
-                <div className="admin-subsection-head">
-                    <h3>Listener access</h3>
-                    <button
+                </Group>
+                <Group justify="space-between" mb="md">
+                    <Title order={3}>Listener access</Title>
+                    <Button
                         aria-label="Refresh access counts"
-                        className="admin-btn-secondary"
                         disabled={accessSummaryFetching}
+                        loading={accessSummaryFetching}
                         onClick={onRefreshAccessSummary}
                         type="button"
+                        variant="default"
                     >
-                        {accessSummaryFetching ? 'Refreshing…' : 'Refresh'}
-                    </button>
-                </div>
+                        Refresh
+                    </Button>
+                </Group>
                 <div className="admin-kpi-strip">
                     <KpiTile
                         label="Pending"
@@ -3388,90 +3431,90 @@ export function ListenerReportPanel({
                         value={accessSummary ? String(accessSummary.revoked) : '—'}
                     />
                 </div>
-                <div className="admin-card">
+                <Paper p="md" radius="md" withBorder>
                     {reportOpen && !report ? <p>Loading listener report...</p> : null}
                     {reportOpen && report ? (
                         <>
                             <div className="admin-filter-bar">
                                 <div className="admin-filter-row">
-                                    <fieldset className="admin-filter-states">
+                                    <Stack
+                                        component="fieldset"
+                                        className="admin-filter-states"
+                                        gap="xs"
+                                    >
                                         <legend>State</legend>
                                         {LISTENER_STATE_OPTIONS.map((s) => (
-                                            <label key={s} className="admin-filter-check">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={filters.states.includes(s)}
-                                                    onChange={(e) =>
-                                                        toggleState(s, e.target.checked)
-                                                    }
-                                                />
-                                                {s}
-                                            </label>
+                                            <Checkbox
+                                                key={s}
+                                                label={s}
+                                                checked={filters.states.includes(s)}
+                                                onChange={(e) =>
+                                                    toggleState(s, e.currentTarget.checked)
+                                                }
+                                            />
                                         ))}
-                                    </fieldset>
-                                    <fieldset className="admin-filter-states">
+                                    </Stack>
+                                    <Stack
+                                        component="fieldset"
+                                        className="admin-filter-states"
+                                        gap="xs"
+                                    >
                                         <legend>Approval status</legend>
                                         {LISTENER_APPROVAL_STATUS_OPTIONS.map((status) => (
-                                            <label key={status} className="admin-filter-check">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={filters.approvalStatuses.includes(
+                                            <Checkbox
+                                                key={status}
+                                                label={status}
+                                                checked={filters.approvalStatuses.includes(status)}
+                                                onChange={(event) =>
+                                                    toggleApprovalStatus(
                                                         status,
-                                                    )}
-                                                    onChange={(event) =>
-                                                        toggleApprovalStatus(
-                                                            status,
-                                                            event.target.checked,
-                                                        )
-                                                    }
-                                                />
-                                                {status}
-                                            </label>
+                                                        event.currentTarget.checked,
+                                                    )
+                                                }
+                                            />
                                         ))}
-                                    </fieldset>
+                                    </Stack>
                                     {filtersActive ? (
-                                        <button
-                                            className="admin-btn-secondary"
+                                        <Button
                                             type="button"
                                             onClick={onClearFilters}
+                                            variant="default"
                                         >
                                             Clear all filters
-                                        </button>
+                                        </Button>
                                     ) : null}
                                 </div>
                                 <div className="admin-filter-row">
-                                    <label className="admin-filter-field">
-                                        <span className="admin-filter-field-label">Language</span>
-                                        <select
-                                            value={filters.streamId}
-                                            onChange={(e) =>
-                                                onFilterChange({ streamId: e.target.value })
-                                            }
-                                        >
-                                            <option value="">All languages</option>
-                                            {detail.streams.map((stream) => (
-                                                <option key={stream.id} value={stream.id}>
-                                                    {stream.languageName}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </label>
-                                    <label className="admin-filter-field">
-                                        <span className="admin-filter-field-label">Device</span>
-                                        <select
-                                            value={filters.deviceLabel}
-                                            onChange={(e) =>
-                                                onFilterChange({ deviceLabel: e.target.value })
-                                            }
-                                        >
-                                            <option value="">All devices</option>
-                                            {LISTENER_DEVICE_LABELS.map((d) => (
-                                                <option key={d} value={d}>
-                                                    {d}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </label>
+                                    <NativeSelect
+                                        aria-label="Language"
+                                        label="Language"
+                                        value={filters.streamId}
+                                        onChange={(e) =>
+                                            onFilterChange({ streamId: e.target.value })
+                                        }
+                                        data={[
+                                            { label: 'All languages', value: '' },
+                                            ...detail.streams.map((stream) => ({
+                                                label: stream.languageName,
+                                                value: stream.id,
+                                            })),
+                                        ]}
+                                    />
+                                    <NativeSelect
+                                        aria-label="Device"
+                                        label="Device"
+                                        value={filters.deviceLabel}
+                                        onChange={(e) =>
+                                            onFilterChange({ deviceLabel: e.target.value })
+                                        }
+                                        data={[
+                                            { label: 'All devices', value: '' },
+                                            ...LISTENER_DEVICE_LABELS.map((d) => ({
+                                                label: d,
+                                                value: d,
+                                            })),
+                                        ]}
+                                    />
                                 </div>
                             </div>
 
@@ -3479,13 +3522,9 @@ export function ListenerReportPanel({
                                 <p role="status" aria-live="polite">
                                     {countText}
                                 </p>
-                                <button
-                                    className="admin-btn-secondary"
-                                    type="button"
-                                    onClick={onDownloadCsv}
-                                >
+                                <Button type="button" onClick={onDownloadCsv} variant="default">
                                     Download CSV
-                                </button>
+                                </Button>
                             </div>
 
                             {isFetching ? (
@@ -3556,16 +3595,18 @@ export function ListenerReportPanel({
                                                             {connection.approvalStatus &&
                                                             connection.approvalStatus !==
                                                                 'revoked' ? (
-                                                                <button
-                                                                    className="admin-link-danger"
+                                                                <Button
+                                                                    color="red"
                                                                     onClick={() => {
                                                                         setRevokeError(null);
                                                                         setRevokeTarget(connection);
                                                                     }}
+                                                                    size="compact-sm"
                                                                     type="button"
+                                                                    variant="subtle"
                                                                 >
                                                                     Revoke
-                                                                </button>
+                                                                </Button>
                                                             ) : (
                                                                 '—'
                                                             )}
@@ -3579,29 +3620,27 @@ export function ListenerReportPanel({
                             </div>
 
                             <div className="admin-pagination">
-                                <button
-                                    className="admin-btn-secondary"
+                                <Button
                                     type="button"
                                     onClick={() => onPageChange(page - 1)}
                                     disabled={page <= 1}
                                 >
                                     &larr; Prev
-                                </button>
-                                <span className="admin-pagination-info">
+                                </Button>
+                                <Text className="admin-pagination-info">
                                     Page {page} of {totalPages}
-                                </span>
-                                <button
-                                    className="admin-btn-secondary"
+                                </Text>
+                                <Button
                                     type="button"
                                     onClick={() => onPageChange(page + 1)}
                                     disabled={page >= totalPages}
                                 >
                                     Next &rarr;
-                                </button>
+                                </Button>
                             </div>
                         </>
                     ) : null}
-                </div>
+                </Paper>
                 <ConfirmDialog
                     open={revokeTarget !== null}
                     onClose={() => {

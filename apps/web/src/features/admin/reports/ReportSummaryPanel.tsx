@@ -20,9 +20,9 @@ function RangeChip({
         return null;
     }
     return (
-        <button className="admin-pill admin-range-chip" type="button" onClick={onClick}>
+        <Button size="compact-sm" type="button" onClick={onClick} variant="light">
             {label}
-        </button>
+        </Button>
     );
 }
 
@@ -37,10 +37,10 @@ export function ReportSummaryPanel({
         return (
             <AdminUiProvider>
                 <section aria-label="Report summary" className="admin-subsection">
-                    <div className="admin-panel-heading">
-                        <h2>Report summary</h2>
+                    <Group justify="space-between" mb="md">
+                        <Title order={2}>Report summary</Title>
                         <RangeChip label={rangeLabel} onClick={onRangeChipClick} />
-                    </div>
+                    </Group>
                     <p>Loading report summary...</p>
                 </section>
             </AdminUiProvider>
@@ -50,10 +50,10 @@ export function ReportSummaryPanel({
     return (
         <AdminUiProvider>
             <section aria-label="Report summary" className="admin-subsection">
-                <div className="admin-panel-heading">
-                    <h2>Report summary</h2>
+                <Group justify="space-between" mb="md">
+                    <Title order={2}>Report summary</Title>
                     <RangeChip label={rangeLabel} onClick={onRangeChipClick} />
-                </div>
+                </Group>
                 <div
                     className="admin-refetch-dim"
                     data-testid="report-summary-body"
@@ -74,43 +74,50 @@ export function ReportSummaryPanel({
                         <KpiTile label="Dropouts" value={summary.totals.dropouts.toString()} />
                         <KpiTile label="Reconnects" value={summary.totals.reconnects.toString()} />
                         <div className="admin-kpi admin-kpi-live">
-                            <span className="admin-kpi-value admin-kpi-value-live">
+                            <Text component="div" fw={700} size="xl">
                                 {summary.totals.activeListeners}
-                                <span className="admin-pill admin-pill-live">LIVE</span>
-                            </span>
-                            <span className="admin-kpi-label">Active now</span>
+                                <Badge color="green" ml="xs">
+                                    LIVE
+                                </Badge>
+                            </Text>
+                            <Text c="dimmed" size="sm">
+                                Active now
+                            </Text>
                             {rangeActive ? (
-                                <span className="admin-hint">(not windowed)</span>
+                                <Text c="dimmed" size="xs">
+                                    (not windowed)
+                                </Text>
                             ) : null}
                         </div>
                     </div>
-                    <table className="admin-table">
-                        <thead>
-                            <tr>
-                                <th>Language</th>
-                                <th>Active (now)</th>
-                                <th>Connections</th>
-                                <th>Dropouts</th>
-                                <th>Reconnects</th>
-                            </tr>
-                        </thead>
-                        <tbody>
+                    <Table striped withTableBorder>
+                        <Table.Thead>
+                            <Table.Tr>
+                                <Table.Th>Language</Table.Th>
+                                <Table.Th>Active (now)</Table.Th>
+                                <Table.Th>Connections</Table.Th>
+                                <Table.Th>Dropouts</Table.Th>
+                                <Table.Th>Reconnects</Table.Th>
+                            </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
                             {summary.streams.map((stream) => (
-                                <tr key={stream.streamId}>
-                                    <td>{stream.languageName}</td>
-                                    <td>{stream.activeListeners}</td>
-                                    <td>{stream.totalConnections}</td>
-                                    <td>{stream.dropouts}</td>
-                                    <td>{stream.reconnects}</td>
-                                </tr>
+                                <Table.Tr key={stream.streamId}>
+                                    <Table.Td>{stream.languageName}</Table.Td>
+                                    <Table.Td>{stream.activeListeners}</Table.Td>
+                                    <Table.Td>{stream.totalConnections}</Table.Td>
+                                    <Table.Td>{stream.dropouts}</Table.Td>
+                                    <Table.Td>{stream.reconnects}</Table.Td>
+                                </Table.Tr>
                             ))}
-                        </tbody>
-                    </table>
-                    <p className="admin-hint">
+                        </Table.Tbody>
+                    </Table>
+                    <Text c="dimmed" size="sm">
                         Active column shows current listeners, not the selected window.
-                    </p>
+                    </Text>
                 </div>
             </section>
         </AdminUiProvider>
     );
 }
+import { Badge, Button, Group, Table, Text, Title } from '@mantine/core';

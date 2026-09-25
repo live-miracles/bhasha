@@ -80,9 +80,9 @@ function RangeChip({
         return null;
     }
     return (
-        <button className="admin-pill admin-range-chip" type="button" onClick={onClick}>
+        <Button size="compact-sm" type="button" onClick={onClick} variant="light">
             {label}
-        </button>
+        </Button>
     );
 }
 
@@ -121,13 +121,13 @@ export function EventFeedPanel({
 
     return (
         <section aria-label="Recent events" className="admin-subsection">
-            <div className="admin-panel-heading">
-                <h2>Recent events</h2>
+            <Group justify="space-between" mb="md">
+                <Title order={2}>Recent events</Title>
                 <RangeChip label={rangeLabel} onClick={onRangeChipClick} />
-            </div>
-            <div className="admin-filter-bar">
-                <div className="admin-filter-row">
-                    <div className="admin-filter-field">
+            </Group>
+            <Stack className="admin-filter-bar" gap="md">
+                <Group align="flex-start">
+                    <Stack className="admin-filter-field" gap="xs">
                         <details className="admin-multiselect">
                             <summary className="admin-multiselect-summary">
                                 Event type
@@ -137,44 +137,37 @@ export function EventFeedPanel({
                             </summary>
                             <div className="admin-multiselect-menu">
                                 {EVENT_TYPE_OPTIONS.map(([value, label]) => (
-                                    <label key={value} className="admin-checkbox-row">
-                                        <input
-                                            type="checkbox"
-                                            value={value}
-                                            checked={filters.eventTypes.includes(value)}
-                                            onChange={() => toggleEventType(value)}
-                                        />
-                                        <span>{label}</span>
-                                    </label>
+                                    <Checkbox
+                                        key={value}
+                                        label={label}
+                                        value={value}
+                                        checked={filters.eventTypes.includes(value)}
+                                        onChange={() => toggleEventType(value)}
+                                    />
                                 ))}
                             </div>
                         </details>
-                    </div>
-                    <label className="admin-filter-field">
-                        <span className="admin-filter-field-label">Translator</span>
-                        <select
-                            value={filters.translatorId}
-                            onChange={(e) => applyFilter({ translatorId: e.target.value })}
-                        >
-                            <option value="">All translators</option>
-                            {detail.translators.map((translator) => (
-                                <option key={translator.id} value={translator.id}>
-                                    {translator.name}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
+                    </Stack>
+                    <NativeSelect
+                        aria-label="Translator"
+                        label="Translator"
+                        value={filters.translatorId}
+                        onChange={(e) => applyFilter({ translatorId: e.target.value })}
+                        data={[
+                            { label: 'All translators', value: '' },
+                            ...detail.translators.map((translator) => ({
+                                label: translator.name,
+                                value: translator.id,
+                            })),
+                        ]}
+                    />
                     {filtersActive ? (
-                        <button
-                            className="admin-btn-secondary"
-                            type="button"
-                            onClick={clearFilters}
-                        >
+                        <Button type="button" onClick={clearFilters} variant="default">
                             Clear all filters
-                        </button>
+                        </Button>
                     ) : null}
-                </div>
-            </div>
+                </Group>
+            </Stack>
             {feed !== null ? (
                 <div className="admin-report-meta">
                     <p role="status" aria-live="polite">
@@ -219,27 +212,26 @@ export function EventFeedPanel({
             </div>
             {feed !== null ? (
                 <div className="admin-pagination">
-                    <button
-                        className="admin-btn-secondary"
+                    <Button
                         type="button"
                         disabled={page <= 1}
                         onClick={() => onPageChange(Math.max(1, page - 1))}
                     >
                         ← Prev
-                    </button>
-                    <span className="admin-pagination-info">
+                    </Button>
+                    <Text className="admin-pagination-info">
                         Page {page} of {totalPages}
-                    </span>
-                    <button
-                        className="admin-btn-secondary"
+                    </Text>
+                    <Button
                         type="button"
                         disabled={page >= totalPages}
                         onClick={() => onPageChange(page + 1)}
                     >
                         Next →
-                    </button>
+                    </Button>
                 </div>
             ) : null}
         </section>
     );
 }
+import { Button, Checkbox, Group, NativeSelect, Stack, Text, Title } from '@mantine/core';

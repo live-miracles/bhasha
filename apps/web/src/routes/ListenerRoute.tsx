@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, MantineProvider } from '@mantine/core';
 
 import { ApiError } from '../api/client';
 import {
@@ -19,6 +20,7 @@ import {
 } from '../realtime/listenerClient';
 import { detectInAppBrowser } from './inAppBrowser';
 import { ListenerAccessGate } from './ListenerAccessGate';
+import { bhashaTheme } from '../app/theme';
 
 type ListenerState =
     | { status: 'loading' }
@@ -1420,68 +1422,70 @@ export function ListenerRoute({
     }
 
     return (
-        <main aria-label="Listener shell" className="shell shell-listener">
-            {state.status === 'loading' ? <p className="lp-info">Loading program...</p> : null}
-            {state.status === 'error' ? (
-                <p className="lp-info">This program does not exist.</p>
-            ) : null}
-            {state.status === 'success' &&
-            (accessState.status === 'checking' ||
-                accessState.status === 'error' ||
-                accessState.status === 'waiting' ||
-                accessState.status === 'entering') ? (
-                <ListenerAccessGate
-                    metadata={state.metadata}
-                    {...(accessState.status === 'error'
-                        ? {
-                              error: accessState.message,
-                              retrying: accessState.retrying,
-                          }
-                        : {})}
-                    {...(accessState.status === 'waiting'
-                        ? {
-                              claim: accessState.claim,
-                              checking: accessState.checking,
-                              ...(accessState.message ? { message: accessState.message } : {}),
-                          }
-                        : {})}
-                    entered={accessState.status === 'entering'}
-                    storageDegraded={accessState.storageDegraded}
-                    inAppBrowserBanner={
-                        accessState.status === 'waiting' && inAppBrowser.isInApp ? (
-                            <InAppBrowserBanner app={inAppBrowser.app} />
-                        ) : undefined
-                    }
-                    onAccess={() =>
-                        accessState.status === 'error'
-                            ? void handleAccessRetry()
-                            : void handleAccessCheck()
-                    }
-                />
-            ) : null}
-            {state.status === 'success' &&
-            (accessState.status === 'disabled' || accessState.status === 'approved') ? (
-                <ListenerMetadata
-                    metadata={state.metadata}
-                    playback={playback}
-                    snapshot={state.snapshot}
-                    statusDegraded={state.statusDegraded}
-                    inAppBrowser={inAppBrowser}
-                    volume={volume}
-                    onEnableSound={handleEnableSound}
-                    onLeave={handleLeave}
-                    onListen={handleListen}
-                    onReconnect={handleReconnect}
-                    onSwitch={handleSwitch}
-                    onVolumeDown={() => adjustVolume(-VOLUME_STEP)}
-                    onVolumeUp={() => adjustVolume(VOLUME_STEP)}
-                />
-            ) : null}
-            {/* Receive-only audio sink: driven imperatively via srcObject/play(). Native
+        <MantineProvider theme={bhashaTheme} defaultColorScheme="light">
+            <main aria-label="Listener shell" className="shell shell-listener">
+                {state.status === 'loading' ? <p className="lp-info">Loading program...</p> : null}
+                {state.status === 'error' ? (
+                    <p className="lp-info">This program does not exist.</p>
+                ) : null}
+                {state.status === 'success' &&
+                (accessState.status === 'checking' ||
+                    accessState.status === 'error' ||
+                    accessState.status === 'waiting' ||
+                    accessState.status === 'entering') ? (
+                    <ListenerAccessGate
+                        metadata={state.metadata}
+                        {...(accessState.status === 'error'
+                            ? {
+                                  error: accessState.message,
+                                  retrying: accessState.retrying,
+                              }
+                            : {})}
+                        {...(accessState.status === 'waiting'
+                            ? {
+                                  claim: accessState.claim,
+                                  checking: accessState.checking,
+                                  ...(accessState.message ? { message: accessState.message } : {}),
+                              }
+                            : {})}
+                        entered={accessState.status === 'entering'}
+                        storageDegraded={accessState.storageDegraded}
+                        inAppBrowserBanner={
+                            accessState.status === 'waiting' && inAppBrowser.isInApp ? (
+                                <InAppBrowserBanner app={inAppBrowser.app} />
+                            ) : undefined
+                        }
+                        onAccess={() =>
+                            accessState.status === 'error'
+                                ? void handleAccessRetry()
+                                : void handleAccessCheck()
+                        }
+                    />
+                ) : null}
+                {state.status === 'success' &&
+                (accessState.status === 'disabled' || accessState.status === 'approved') ? (
+                    <ListenerMetadata
+                        metadata={state.metadata}
+                        playback={playback}
+                        snapshot={state.snapshot}
+                        statusDegraded={state.statusDegraded}
+                        inAppBrowser={inAppBrowser}
+                        volume={volume}
+                        onEnableSound={handleEnableSound}
+                        onLeave={handleLeave}
+                        onListen={handleListen}
+                        onReconnect={handleReconnect}
+                        onSwitch={handleSwitch}
+                        onVolumeDown={() => adjustVolume(-VOLUME_STEP)}
+                        onVolumeUp={() => adjustVolume(VOLUME_STEP)}
+                    />
+                ) : null}
+                {/* Receive-only audio sink: driven imperatively via srcObject/play(). Native
           controls are hidden in favour of the custom tap-to-play + volume UI, but
           the element must stay mounted and ref-attached. */}
-            <audio ref={audioRef} className="lp-audio-sink" playsInline aria-hidden="true" />
-        </main>
+                <audio ref={audioRef} className="lp-audio-sink" playsInline aria-hidden="true" />
+            </main>
+        </MantineProvider>
     );
 }
 
@@ -1675,14 +1679,14 @@ function VolumeControl({
     const filled = Math.round(volume * VOLUME_SEGMENTS);
     return (
         <div className="lp-volume">
-            <button
+            <Button
                 type="button"
                 className="lp-vol-btn"
                 aria-label="Decrease volume"
                 onClick={onVolumeDown}
             >
                 <span aria-hidden="true">−</span>
-            </button>
+            </Button>
             <div
                 className="lp-vol-level"
                 role="img"
@@ -1695,14 +1699,14 @@ function VolumeControl({
                     />
                 ))}
             </div>
-            <button
+            <Button
                 type="button"
                 className="lp-vol-btn"
                 aria-label="Increase volume"
                 onClick={onVolumeUp}
             >
                 <span aria-hidden="true">+</span>
-            </button>
+            </Button>
         </div>
     );
 }
@@ -1735,14 +1739,14 @@ function StreamAction({
         // attached but paused. Offer a one-tap unlock instead of the Stop control.
         if (playback.needsGesture) {
             return (
-                <button
+                <Button
                     type="button"
                     className="lp-btn lp-btn--enable-sound"
                     aria-label="Tap to enable sound"
                     onClick={onEnableSound}
                 >
                     Enable sound
-                </button>
+                </Button>
             );
         }
         // The active card's button stops playback. Its accessible name stays
@@ -1753,27 +1757,27 @@ function StreamAction({
         // "<verb> <language>" name the tests and screen readers rely on (the
         // language itself is the tile heading, so sighted users lose nothing).
         return (
-            <button
+            <Button
                 type="button"
                 className="lp-btn lp-btn--stop"
                 aria-label="Leave stream"
                 onClick={onLeave}
             >
                 Stop
-            </button>
+            </Button>
         );
     }
 
     if (isCurrent && (playback.status === 'disconnected' || playback.status === 'reconnecting')) {
         return (
-            <button
+            <Button
                 type="button"
                 className="lp-btn lp-btn--reconnect"
                 aria-label={`Reconnect ${stream.languageName}`}
                 onClick={() => onReconnect(stream, { viaGesture: true })}
             >
                 Reconnect
-            </button>
+            </Button>
         );
     }
 
@@ -1805,7 +1809,7 @@ function StreamAction({
                 playback.status === 'reconnecting'));
 
     return (
-        <button
+        <Button
             type="button"
             className="lp-btn lp-btn--play"
             aria-label={`Listen to ${stream.languageName}`}
@@ -1813,7 +1817,7 @@ function StreamAction({
             onClick={() => onListen(stream)}
         >
             Listen
-        </button>
+        </Button>
     );
 }
 

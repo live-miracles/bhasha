@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Alert, Button, Group } from '@mantine/core';
 
 interface CsvDownloadButtonProps {
     onDownload: () => Promise<void>;
@@ -20,18 +21,26 @@ export function CsvDownloadButton({ onDownload }: CsvDownloadButtonProps) {
     }
 
     return (
-        <div className="admin-csv-download">
-            <button
-                className="admin-btn-secondary"
+        <Group>
+            <Button
                 disabled={state === 'downloading'}
+                loading={state === 'downloading'}
                 onClick={() => void handleClick()}
                 type="button"
+                variant="default"
             >
                 Download CSV
-            </button>
-            {state === 'downloading' ? <span>Preparing download...</span> : null}
-            {state === 'ready' ? <span role="status">Download ready</span> : null}
-            {state === 'failed' ? <span role="alert">Download failed</span> : null}
-        </div>
+            </Button>
+            {state === 'ready' ? (
+                <Alert color="green" role="status">
+                    Download ready
+                </Alert>
+            ) : null}
+            {state === 'failed' ? (
+                <Alert color="red" role="alert">
+                    Download failed
+                </Alert>
+            ) : null}
+        </Group>
     );
 }

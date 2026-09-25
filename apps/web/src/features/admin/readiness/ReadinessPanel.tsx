@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { Badge, Button, Text, Title } from '@mantine/core';
 
 import type {
     AdminReadiness,
@@ -20,12 +21,6 @@ const STATUS_LABEL: Record<ReadinessStatus, string> = {
     green: 'Ready',
     warning: 'Warning',
     blocker: 'Blocker',
-};
-
-const STATUS_PILL_CLASS: Record<ReadinessStatus, string> = {
-    green: 'admin-pill-live',
-    warning: 'admin-pill-warning',
-    blocker: 'admin-pill-blocker',
 };
 
 const STATUS_ICON: Record<ReadinessStatus, ReactElement> = {
@@ -114,8 +109,8 @@ export function ReadinessPanel({
     if (!readiness) {
         return (
             <section aria-label="Event readiness" className="admin-subsection">
-                <h2>Event readiness</h2>
-                <p>Loading event readiness...</p>
+                <Title order={2}>Event readiness</Title>
+                <Text>Loading event readiness...</Text>
             </section>
         );
     }
@@ -130,13 +125,22 @@ export function ReadinessPanel({
 
     return (
         <section aria-label="Event readiness" className="admin-subsection">
-            <h2>Event readiness</h2>
+            <Title order={2}>Event readiness</Title>
             <div className="admin-readiness-summary" aria-label="Readiness summary">
                 {(['green', 'warning', 'blocker'] as const).map((status) =>
                     statusCounts[status] > 0 ? (
-                        <span key={status} className={`admin-pill ${STATUS_PILL_CLASS[status]}`}>
+                        <Badge
+                            key={status}
+                            color={
+                                status === 'green'
+                                    ? 'green'
+                                    : status === 'warning'
+                                      ? 'yellow'
+                                      : 'red'
+                            }
+                        >
                             {statusCounts[status]} {STATUS_LABEL[status]}
-                        </span>
+                        </Badge>
                     ) : null,
                 )}
             </div>
@@ -152,9 +156,17 @@ export function ReadinessPanel({
                             <div className="admin-readiness-card-head">
                                 {STATUS_ICON[item.status]}
                                 <span className="admin-readiness-label">{item.label}</span>
-                                <span className={`admin-pill ${STATUS_PILL_CLASS[item.status]}`}>
+                                <Badge
+                                    color={
+                                        item.status === 'green'
+                                            ? 'green'
+                                            : item.status === 'warning'
+                                              ? 'yellow'
+                                              : 'red'
+                                    }
+                                >
                                     {STATUS_LABEL[item.status]}
-                                </span>
+                                </Badge>
                             </div>
                             <p className="admin-readiness-detail">{item.detail}</p>
                             {item.checkedAt ? (
@@ -163,8 +175,7 @@ export function ReadinessPanel({
                                 </p>
                             ) : null}
                             {confirmable && !readOnly ? (
-                                <button
-                                    className="admin-btn-secondary"
+                                <Button
                                     type="button"
                                     onClick={() => onConfirm(item.id)}
                                     disabled={pendingItemId === item.id}
@@ -172,7 +183,7 @@ export function ReadinessPanel({
                                     {pendingItemId === item.id
                                         ? 'Confirming...'
                                         : CONFIRM_LABEL[item.id]}
-                                </button>
+                                </Button>
                             ) : null}
                         </li>
                     );

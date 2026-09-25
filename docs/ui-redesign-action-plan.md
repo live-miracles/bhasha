@@ -1,6 +1,6 @@
 # UI Redesign And Frontend Architecture Action Plan
 
-Status: Phase 1 and the first Phase 2/3 slice implemented; remaining phases pending
+Status: Core Mantine migration implemented; final report/table/CSS cleanup remains
 
 ## Decision
 

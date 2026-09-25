@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Button, MantineProvider, Paper, Stack, TextInput, Title } from '@mantine/core';
 
 import { ApiError } from '../api/client';
 import { createPublicApi, type PublicApi } from '../api/public';
@@ -10,6 +11,7 @@ import {
 } from '../api/volunteer';
 import { detectInAppBrowser } from './inAppBrowser';
 import { createQrScanner, normalizeQrScannerError } from './qrScanner';
+import { bhashaTheme } from '../app/theme';
 
 const SCAN_DEBOUNCE_MS = 2_500;
 const RESULT_FLASH_MS = 500;
@@ -339,171 +341,193 @@ export function VolunteerRoute({
     }
 
     return (
-        <main aria-label="Volunteer shell" className="shell shell-volunteer">
-            <section className="volunteer-screen">
-                {auth === 'checking' ? (
-                    <p className="translator-checking">Checking volunteer access...</p>
-                ) : null}
+        <MantineProvider theme={bhashaTheme} defaultColorScheme="light">
+            <main aria-label="Volunteer shell" className="shell shell-volunteer">
+                <section className="volunteer-screen">
+                    {auth === 'checking' ? (
+                        <p className="translator-checking">Checking volunteer access...</p>
+                    ) : null}
 
-                {auth === 'loggingOut' ? (
-                    <p className="translator-checking">Logging out...</p>
-                ) : null}
+                    {auth === 'loggingOut' ? (
+                        <p className="translator-checking">Logging out...</p>
+                    ) : null}
 
-                {auth === 'programMissing' ? (
-                    <p className="lp-info" role="status">
-                        This program does not exist.
-                    </p>
-                ) : null}
+                    {auth === 'programMissing' ? (
+                        <p className="lp-info" role="status">
+                            This program does not exist.
+                        </p>
+                    ) : null}
 
-                {auth === 'loggedOut' ? (
-                    <>
-                        <div className="translator-login-head">
-                            <p className="eyebrow">Volunteer access</p>
-                            <h1>{programName}</h1>
-                        </div>
-                        <form className="translator-login" onSubmit={submitLogin}>
-                            <h2>Volunteer login</h2>
-                            {loginError ? (
-                                <p className="translator-alert" role="alert">
-                                    {loginError}
+                    {auth === 'loggedOut' ? (
+                        <>
+                            <Stack className="translator-login-head">
+                                <p className="eyebrow">Volunteer access</p>
+                                <Title order={1}>{programName}</Title>
+                            </Stack>
+                            <Paper className="translator-login" p="lg" radius="md" withBorder>
+                                <form onSubmit={submitLogin}>
+                                    <Title order={2}>Volunteer login</Title>
+                                    {loginError ? (
+                                        <Alert color="red" mt="md" role="alert">
+                                            {loginError}
+                                        </Alert>
+                                    ) : null}
+                                    <Stack mt="md">
+                                        <TextInput
+                                            aria-label="Login ID"
+                                            label="Login ID"
+                                            autoComplete="username"
+                                            onChange={(event) => setLoginId(event.target.value)}
+                                            required
+                                            type="text"
+                                            value={loginId}
+                                        />
+                                        <TextInput
+                                            aria-label="Password"
+                                            label="Password"
+                                            autoComplete="current-password"
+                                            onChange={(event) => setPassword(event.target.value)}
+                                            required
+                                            type="password"
+                                            value={password}
+                                        />
+                                        <Button
+                                            disabled={loginPending}
+                                            loading={loginPending}
+                                            type="submit"
+                                        >
+                                            Log in
+                                        </Button>
+                                    </Stack>
+                                </form>
+                            </Paper>
+                        </>
+                    ) : null}
+
+                    {auth === 'loggedIn' ? (
+                        <>
+                            <header className="volunteer-topbar">
+                                <strong>{approvedCount} approved</strong>
+                                <Button
+                                    onClick={() => void logout()}
+                                    type="button"
+                                    variant="default"
+                                >
+                                    Log out
+                                </Button>
+                            </header>
+
+                            <div className="volunteer-heading">
+                                <p className="eyebrow">{programName}</p>
+                                <h1>Approve listener access</h1>
+                            </div>
+
+                            {pendingDeepLink ? (
+                                <section
+                                    className="volunteer-deep-link-confirm"
+                                    aria-label="Confirm approval"
+                                >
+                                    <strong>
+                                        Approve code {shortDisplayCode(pendingDeepLink)}?
+                                    </strong>
+                                    <p>Only approve a code shown to you by someone at the event.</p>
+                                    <div>
+                                        <button
+                                            className="lp-btn"
+                                            onClick={() => void confirmDeepLink()}
+                                            type="button"
+                                        >
+                                            Approve {shortDisplayCode(pendingDeepLink)}
+                                        </button>
+                                        <button onClick={dismissDeepLink} type="button">
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </section>
+                            ) : null}
+
+                            {feedback ? (
+                                <p
+                                    className={`volunteer-result-banner volunteer-result-${feedback.kind}`}
+                                    role="status"
+                                    aria-live="polite"
+                                >
+                                    {feedback.message}
                                 </p>
                             ) : null}
-                            <label>
-                                Login ID
-                                <input
-                                    autoComplete="username"
-                                    onChange={(event) => setLoginId(event.target.value)}
-                                    required
-                                    type="text"
-                                    value={loginId}
-                                />
-                            </label>
-                            <label>
-                                Password
-                                <input
-                                    autoComplete="current-password"
-                                    onChange={(event) => setPassword(event.target.value)}
-                                    required
-                                    type="password"
-                                    value={password}
-                                />
-                            </label>
-                            <button className="lp-btn" disabled={loginPending} type="submit">
-                                {loginPending ? 'Logging in...' : 'Log in'}
-                            </button>
-                        </form>
-                    </>
-                ) : null}
 
-                {auth === 'loggedIn' ? (
-                    <>
-                        <header className="volunteer-topbar">
-                            <strong>{approvedCount} approved</strong>
-                            <button onClick={() => void logout()} type="button">
-                                Log out
-                            </button>
-                        </header>
-
-                        <div className="volunteer-heading">
-                            <p className="eyebrow">{programName}</p>
-                            <h1>Approve listener access</h1>
-                        </div>
-
-                        {pendingDeepLink ? (
                             <section
-                                className="volunteer-deep-link-confirm"
-                                aria-label="Confirm approval"
+                                className="volunteer-scanner-panel"
+                                aria-label="Camera scanner"
                             >
-                                <strong>Approve code {shortDisplayCode(pendingDeepLink)}?</strong>
-                                <p>Only approve a code shown to you by someone at the event.</p>
-                                <div>
-                                    <button
-                                        className="lp-btn"
-                                        onClick={() => void confirmDeepLink()}
-                                        type="button"
-                                    >
-                                        Approve {shortDisplayCode(pendingDeepLink)}
-                                    </button>
-                                    <button onClick={dismissDeepLink} type="button">
-                                        Cancel
-                                    </button>
-                                </div>
+                                <h2>Scan a listener QR code</h2>
+                                <VolunteerScanner
+                                    onCameraError={handleCameraError}
+                                    onScan={handleScan}
+                                />
+                                {cameraError ? (
+                                    <div className="volunteer-camera-help">
+                                        <strong>
+                                            {cameraError === 'denied'
+                                                ? 'Camera access was denied. Enter the short code instead.'
+                                                : "A camera isn't available. Enter the short code instead."}
+                                        </strong>
+                                        <p>
+                                            {inAppBrowser.isInApp
+                                                ? 'Open this page in Safari or Chrome to use the camera'
+                                                : "You can also use your phone's Camera app to open the volunteer link."}
+                                        </p>
+                                    </div>
+                                ) : null}
                             </section>
-                        ) : null}
 
-                        {feedback ? (
-                            <p
-                                className={`volunteer-result-banner volunteer-result-${feedback.kind}`}
-                                role="status"
-                                aria-live="polite"
+                            <Paper
+                                className={`volunteer-manual-panel${
+                                    cameraError ? ' volunteer-manual-primary' : ''
+                                }`}
+                                data-testid="manual-code-panel"
+                                p="md"
+                                radius="md"
+                                withBorder
                             >
-                                {feedback.message}
-                            </p>
-                        ) : null}
+                                <form onSubmit={submitManualCode}>
+                                    <Title order={2}>Enter a short code</Title>
+                                    <TextInput
+                                        aria-label="Short code"
+                                        label="Short code"
+                                        autoCapitalize="characters"
+                                        autoComplete="off"
+                                        className="volunteer-code-input"
+                                        id="volunteer-short-code"
+                                        inputMode="text"
+                                        maxLength={12}
+                                        onChange={(event) => changeManualCode(event.target.value)}
+                                        placeholder="ABC234"
+                                        spellCheck={false}
+                                        type="text"
+                                        value={manualCode}
+                                    />
+                                    <Button
+                                        disabled={!manualCode || manualPending}
+                                        loading={manualPending}
+                                        type="submit"
+                                    >
+                                        Approve code
+                                    </Button>
+                                </form>
+                            </Paper>
 
-                        <section className="volunteer-scanner-panel" aria-label="Camera scanner">
-                            <h2>Scan a listener QR code</h2>
-                            <VolunteerScanner
-                                onCameraError={handleCameraError}
-                                onScan={handleScan}
-                            />
-                            {cameraError ? (
-                                <div className="volunteer-camera-help">
-                                    <strong>
-                                        {cameraError === 'denied'
-                                            ? 'Camera access was denied. Enter the short code instead.'
-                                            : "A camera isn't available. Enter the short code instead."}
-                                    </strong>
-                                    <p>
-                                        {inAppBrowser.isInApp
-                                            ? 'Open this page in Safari or Chrome to use the camera'
-                                            : "You can also use your phone's Camera app to open the volunteer link."}
-                                    </p>
-                                </div>
+                            {flashKind ? (
+                                <div
+                                    aria-hidden="true"
+                                    className={`volunteer-result-flash volunteer-result-${flashKind}`}
+                                />
                             ) : null}
-                        </section>
-
-                        <form
-                            className={`volunteer-manual-panel${
-                                cameraError ? ' volunteer-manual-primary' : ''
-                            }`}
-                            data-testid="manual-code-panel"
-                            onSubmit={submitManualCode}
-                        >
-                            <h2>Enter a short code</h2>
-                            <label htmlFor="volunteer-short-code">Short code</label>
-                            <input
-                                autoCapitalize="characters"
-                                autoComplete="off"
-                                className="volunteer-code-input"
-                                id="volunteer-short-code"
-                                inputMode="text"
-                                maxLength={12}
-                                onChange={(event) => changeManualCode(event.target.value)}
-                                placeholder="ABC234"
-                                spellCheck={false}
-                                type="text"
-                                value={manualCode}
-                            />
-                            <button
-                                className="lp-btn"
-                                disabled={!manualCode || manualPending}
-                                type="submit"
-                            >
-                                {manualPending ? 'Approving...' : 'Approve code'}
-                            </button>
-                        </form>
-
-                        {flashKind ? (
-                            <div
-                                aria-hidden="true"
-                                className={`volunteer-result-flash volunteer-result-${flashKind}`}
-                            />
-                        ) : null}
-                    </>
-                ) : null}
-            </section>
-        </main>
+                        </>
+                    ) : null}
+                </section>
+            </main>
+        </MantineProvider>
     );
 }
 

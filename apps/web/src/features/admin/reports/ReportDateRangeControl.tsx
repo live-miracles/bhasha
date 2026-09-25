@@ -41,58 +41,45 @@ export function ReportDateRangeControl({
     }
 
     return (
-        <div className="admin-report-range-control" aria-label="Report range controls">
-            <label className="admin-filter-field admin-report-range-select">
-                <span className="admin-filter-field-label">Range</span>
-                <select
-                    value={preset}
-                    onChange={(event) =>
-                        handlePresetChange(event.target.value as ReportDateRangePreset)
-                    }
-                >
-                    {PRESETS.map((preset) => (
-                        <option key={preset} value={preset}>
-                            {preset}
-                        </option>
-                    ))}
-                </select>
-            </label>
+        <Stack aria-label="Report range controls">
+            <NativeSelect
+                aria-label="Range"
+                label="Range"
+                value={preset}
+                onChange={(event) =>
+                    handlePresetChange(event.target.value as ReportDateRangePreset)
+                }
+                data={PRESETS.map((preset) => ({ label: preset, value: preset }))}
+            />
             {preset === 'Custom' ? (
-                <div className="admin-report-range-custom">
-                    <label className="admin-filter-field">
-                        <span className="admin-filter-field-label">From</span>
-                        <input
-                            aria-label="From"
-                            type="datetime-local"
-                            step="60"
-                            value={value.from}
-                            onChange={(event) =>
-                                handleCustomChange({ ...value, from: event.target.value })
-                            }
-                            onBlur={(event) =>
-                                handleCustomChange({ ...value, from: event.target.value })
-                            }
-                        />
-                        <span className="admin-hint">(IST)</span>
-                    </label>
-                    <label className="admin-filter-field">
-                        <span className="admin-filter-field-label">To</span>
-                        <input
-                            aria-label="To"
-                            type="datetime-local"
-                            step="60"
-                            value={value.to}
-                            onChange={(event) =>
-                                handleCustomChange({ ...value, to: event.target.value })
-                            }
-                            onBlur={(event) =>
-                                handleCustomChange({ ...value, to: event.target.value })
-                            }
-                        />
-                        <span className="admin-hint">(IST)</span>
-                    </label>
-                </div>
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <TextInput
+                        aria-label="From"
+                        label="From (IST)"
+                        type="datetime-local"
+                        step="60"
+                        value={value.from}
+                        onChange={(event) =>
+                            handleCustomChange({ ...value, from: event.target.value })
+                        }
+                        onBlur={(event) =>
+                            handleCustomChange({ ...value, from: event.target.value })
+                        }
+                    />
+                    <TextInput
+                        aria-label="To"
+                        label="To (IST)"
+                        type="datetime-local"
+                        step="60"
+                        value={value.to}
+                        onChange={(event) =>
+                            handleCustomChange({ ...value, to: event.target.value })
+                        }
+                        onBlur={(event) => handleCustomChange({ ...value, to: event.target.value })}
+                    />
+                </SimpleGrid>
             ) : null}
-        </div>
+        </Stack>
     );
 }
+import { NativeSelect, SimpleGrid, Stack, TextInput } from '@mantine/core';

@@ -1,4 +1,5 @@
 import { FormEvent, useState } from 'react';
+import { Alert, Button, Paper, Stack, Text, TextInput, Title } from '@mantine/core';
 
 import { ApiError } from '../../api/client';
 import { type AdminApi } from '../../api/admin';
@@ -68,66 +69,68 @@ export function AccountPanel({ adminApi, username, onSignOut }: AccountPanelProp
 
     return (
         <section aria-label="Account" className="admin-section">
-            <div className="admin-section-head">
-                <h2>Account</h2>
-            </div>
-            <article className="admin-card">
-                <h2>Change password</h2>
-                <form className="admin-form" onSubmit={submit}>
-                    <label>
-                        Current password
-                        <input
+            <Title order={2}>Account</Title>
+            <Paper mt="md" p="md" radius="md" withBorder>
+                <Title order={3}>Change password</Title>
+                <form onSubmit={submit}>
+                    <Stack mt="md">
+                        <TextInput
+                            aria-label="Current password"
+                            label="Current password"
                             autoComplete="current-password"
                             onChange={(event) => setCurrentPassword(event.target.value)}
                             type="password"
                             value={currentPassword}
                         />
-                    </label>
-                    <label>
-                        New password
-                        <input
+                        <TextInput
+                            aria-label="New password"
+                            label="New password"
                             autoComplete="new-password"
                             onChange={(event) => setNewPassword(event.target.value)}
                             required
                             type="password"
                             value={newPassword}
                         />
-                    </label>
-                    <label>
-                        Confirm new password
-                        <input
+                        <TextInput
+                            aria-label="Confirm new password"
+                            label="Confirm new password"
                             autoComplete="new-password"
                             onChange={(event) => setConfirmPassword(event.target.value)}
                             required
                             type="password"
                             value={confirmPassword}
                         />
-                    </label>
-                    <button disabled={pending} type="submit">
-                        {pending ? 'Changing…' : 'Change password'}
-                    </button>
+                        <Button disabled={pending} loading={pending} type="submit">
+                            Change password
+                        </Button>
+                    </Stack>
                 </form>
-            </article>
+            </Paper>
 
-            <article className="admin-card">
-                <h2>Session</h2>
-                {username ? <p className="admin-prog-label">Signed in as {username}</p> : null}
-                <button
-                    className="admin-secondary"
+            <Paper mt="md" p="md" radius="md" withBorder>
+                <Title order={3}>Session</Title>
+                {username ? <Text mt="xs">Signed in as {username}</Text> : null}
+                <Button
                     disabled={signingOut}
+                    loading={signingOut}
                     onClick={() => void signOut()}
                     type="button"
+                    variant="default"
                 >
-                    {signingOut ? 'Signing out…' : 'Sign out'}
-                </button>
-            </article>
+                    Sign out
+                </Button>
+            </Paper>
 
             {error ? (
-                <p className="admin-alert" role="alert">
+                <Alert color="red" mt="md" role="alert">
                     {error}
-                </p>
+                </Alert>
             ) : null}
-            {success ? <p className="admin-session-count--active">{success}</p> : null}
+            {success ? (
+                <Alert color="green" mt="md">
+                    {success}
+                </Alert>
+            ) : null}
         </section>
     );
 }

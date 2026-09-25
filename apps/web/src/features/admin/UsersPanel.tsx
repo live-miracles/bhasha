@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { Alert, Badge, Button, Group, Paper, Stack, Table, TextInput, Title } from '@mantine/core';
 
 import { ApiError } from '../../api/client';
 import { type AdminApi, type AdminUser } from '../../api/admin';
@@ -141,26 +142,23 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
 
     return (
         <section aria-label="Users" className="admin-section">
-            <div className="admin-section-head">
-                <h2>Users</h2>
-            </div>
+            <Title order={2}>Users</Title>
 
-            <article className="admin-card">
-                <h2>Invite user</h2>
-                <form className="admin-form" onSubmit={submitCreate}>
-                    <label>
-                        Username
-                        <input
+            <Paper mt="md" p="md" radius="md" withBorder>
+                <Title order={3}>Invite user</Title>
+                <form onSubmit={submitCreate}>
+                    <Stack mt="md">
+                        <TextInput
+                            aria-label="Username"
+                            label="Username"
                             onChange={(event) => setForm({ ...form, username: event.target.value })}
                             required
                             type="text"
                             value={form.username}
                         />
-                    </label>
-
-                    <label>
-                        Temp password
-                        <input
+                        <TextInput
+                            aria-label="Temp password"
+                            label="Temp password"
                             onChange={(event) =>
                                 setForm({ ...form, tempPassword: event.target.value })
                             }
@@ -168,90 +166,100 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
                             type="password"
                             value={form.tempPassword}
                         />
-                    </label>
-
-                    <button disabled={pending} type="submit">
-                        Create user
-                    </button>
+                        <Button disabled={pending} loading={pending} type="submit">
+                            Create user
+                        </Button>
+                    </Stack>
                 </form>
-            </article>
+            </Paper>
 
             {error ? (
-                <p className="admin-alert" role="alert">
+                <Alert color="red" mt="md" role="alert">
                     {error}
-                </p>
+                </Alert>
             ) : null}
 
             {users.length === 0 ? <p>No users yet.</p> : null}
             {users.length > 0 ? (
-                <table className="admin-table">
-                    <thead>
-                        <tr>
-                            <th>Username</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+                <Table mt="md" striped withTableBorder>
+                    <Table.Thead>
+                        <Table.Tr>
+                            <Table.Th>Username</Table.Th>
+                            <Table.Th>Role</Table.Th>
+                            <Table.Th>Status</Table.Th>
+                            <Table.Th>Actions</Table.Th>
+                        </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
                         {users.map((user) => (
-                            <tr key={user.id}>
-                                <td>{user.username}</td>
-                                <td>{user.role}</td>
-                                <td>{user.isDisabled ? 'Disabled' : 'Active'}</td>
-                                <td>
-                                    <button
-                                        disabled={pending}
-                                        onClick={() => void toggleDisabled(user)}
-                                        type="button"
-                                    >
-                                        {user.isDisabled ? 'Enable' : 'Disable'}
-                                    </button>
-                                    <button
-                                        disabled={pending}
-                                        onClick={() => void openResetDialog(user)}
-                                        type="button"
-                                    >
-                                        Reset password
-                                    </button>
-                                </td>
-                            </tr>
+                            <Table.Tr key={user.id}>
+                                <Table.Td>{user.username}</Table.Td>
+                                <Table.Td>{user.role}</Table.Td>
+                                <Table.Td>
+                                    <Badge color={user.isDisabled ? 'gray' : 'green'}>
+                                        {user.isDisabled ? 'Disabled' : 'Active'}
+                                    </Badge>
+                                </Table.Td>
+                                <Table.Td>
+                                    <Group gap="xs">
+                                        <Button
+                                            disabled={pending}
+                                            onClick={() => void toggleDisabled(user)}
+                                            size="compact-sm"
+                                            type="button"
+                                            variant="default"
+                                        >
+                                            {user.isDisabled ? 'Enable' : 'Disable'}
+                                        </Button>
+                                        <Button
+                                            disabled={pending}
+                                            onClick={() => void openResetDialog(user)}
+                                            size="compact-sm"
+                                            type="button"
+                                            variant="default"
+                                        >
+                                            Reset password
+                                        </Button>
+                                    </Group>
+                                </Table.Td>
+                            </Table.Tr>
                         ))}
-                    </tbody>
-                </table>
+                    </Table.Tbody>
+                </Table>
             ) : null}
 
             <AdminDialog open={passwordUser !== null} onClose={closeResetDialog}>
-                <div className="admin-card">
-                    <form className="admin-form" onSubmit={submitResetPassword}>
-                        <p>
-                            Set a new temporary password for{' '}
-                            <strong>{passwordUser?.username}</strong>
-                        </p>
-                        <label>
-                            New password
-                            <input
+                <Paper p="md" radius="md" withBorder>
+                    <form onSubmit={submitResetPassword}>
+                        <Stack>
+                            <p>
+                                Set a new temporary password for{' '}
+                                <strong>{passwordUser?.username}</strong>
+                            </p>
+                            <TextInput
+                                aria-label="New password"
+                                label="New password"
                                 autoComplete="new-password"
                                 onChange={(event) => setNewPassword(event.target.value)}
                                 required
                                 type="password"
                                 value={newPassword}
                             />
-                        </label>
-                        {resetError ? <p className="admin-alert">{resetError}</p> : null}
-                        <div className="admin-actions">
-                            <button type="button" onClick={closeResetDialog}>
-                                Cancel
-                            </button>
-                            <button
-                                disabled={resetPending || newPassword.trim().length === 0}
-                                type="submit"
-                            >
-                                {resetPending ? 'Resetting…' : 'Reset'}
-                            </button>
-                        </div>
+                            {resetError ? <Alert color="red">{resetError}</Alert> : null}
+                            <Group>
+                                <Button type="button" onClick={closeResetDialog} variant="default">
+                                    Cancel
+                                </Button>
+                                <Button
+                                    disabled={resetPending || newPassword.trim().length === 0}
+                                    type="submit"
+                                >
+                                    Reset
+                                </Button>
+                            </Group>
+                        </Stack>
                     </form>
-                </div>
+                </Paper>
             </AdminDialog>
         </section>
     );
