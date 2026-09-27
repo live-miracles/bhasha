@@ -329,7 +329,7 @@ export interface AdminApi {
     createUser(payload: {
         username: string;
         role: AdminRole;
-        tempPassword: string;
+        password: string;
     }): Promise<AdminUser>;
     updateUser(id: string, payload: { isDisabled?: boolean; role?: AdminRole }): Promise<AdminUser>;
     resetUserPassword(id: string, payload: { newPassword: string }): Promise<{ ok: true }>;
@@ -456,7 +456,7 @@ export function createAdminApi(client: AdminHttpClient = apiClient): AdminApi {
         listUsers() {
             return client.get<{ users: AdminUser[] }>('/api/admin/users');
         },
-        createUser(p: { username: string; role: AdminRole; tempPassword: string }) {
+        createUser(p: { username: string; role: AdminRole; password: string }) {
             return client.post<AdminUser>('/api/admin/users', p);
         },
         updateUser(id: string, p: { isDisabled?: boolean; role?: AdminRole }) {

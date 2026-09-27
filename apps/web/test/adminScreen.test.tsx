@@ -577,10 +577,11 @@ describe('AdminScreen', () => {
         expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument();
         expect(screen.getByText('existing_user')).toBeInTheDocument();
 
+        fireEvent.click(screen.getByRole('button', { name: 'Add user' }));
         fireEvent.change(await screen.findByLabelText('Username'), {
             target: { value: 'new_user' },
         });
-        fireEvent.change(screen.getByLabelText('Temp password'), {
+        fireEvent.change(screen.getByLabelText('Password'), {
             target: { value: 'new-user-pass' },
         });
         fireEvent.click(screen.getByRole('button', { name: 'Create user' }));
@@ -589,7 +590,7 @@ describe('AdminScreen', () => {
             expect(createUser).toHaveBeenCalledWith({
                 username: 'new_user',
                 role: 'user',
-                tempPassword: 'new-user-pass',
+                password: 'new-user-pass',
             });
         });
     });
@@ -638,15 +639,52 @@ describe('AdminScreen', () => {
         expect(await screen.findByLabelText('Username')).toBeInTheDocument();
     });
 
-    it('derives listener and translator URLs from the program slug and browser origin', async () => {
+    it('derives the listener URL from the program slug and browser origin', async () => {
         renderAdmin(<AdminScreen adminApi={makeApi()} />);
 
         expect(await screen.findByText('Patna Event 2026')).toBeInTheDocument();
         expect(screen.getByText('DRAFT')).toBeInTheDocument();
-        expect(screen.getByText('https://bhasha.test/patna-event-2026')).toBeInTheDocument();
+        expect(screen.getByText('patna-event-2026')).toBeInTheDocument();
         expect(
-            screen.getByText('https://bhasha.test/patna-event-2026/translate'),
-        ).toBeInTheDocument();
+            screen.queryByText('https://bhasha.test/patna-event-2026/translate'),
+        ).not.toBeInTheDocument();
+    });
+
+    it('sorts program cards by start date ascending', async () => {
+        const earlyProgram = {
+            ...firstProgram(),
+            id: 'program_early',
+            name: 'Early Event',
+            slug: 'early-event',
+            startDate: '2026-01-15',
+            endDate: '2026-01-16',
+        };
+        const lateProgram = {
+            ...firstProgram(),
+            id: 'program_late',
+            name: 'Late Event',
+            slug: 'late-event',
+            startDate: '2026-12-15',
+        };
+
+        renderAdmin(
+            <AdminScreen
+                adminApi={makeApi({
+                    listPrograms: vi.fn(async () => ({
+                        programs: [lateProgram, earlyProgram],
+                    })),
+                })}
+            />,
+        );
+
+        const cards = await screen.findAllByRole('button');
+        const cardNames = cards
+            .map((card) => card.textContent ?? '')
+            .filter((text) => text.includes('Early Event') || text.includes('Late Event'));
+        expect(cardNames).toHaveLength(2);
+        expect(cardNames[0]).toContain('2026-01-15 – 16');
+        expect(cardNames[0]).toContain('Early Event');
+        expect(cardNames[1]).toContain('Late Event');
     });
 
     it('opens a program by clicking the program card instead of an Open button', async () => {
@@ -661,7 +699,7 @@ describe('AdminScreen', () => {
 
         fireEvent.click(
             screen.getByRole('button', {
-                name: /Patna Event 2026[\s\S]*Main Hall/,
+                name: /2026-07-01[\s\S]*Patna Event 2026/,
             }),
         );
 

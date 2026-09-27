@@ -877,7 +877,7 @@ export async function handleAdminRoutes(
                 username: input.username,
                 role: input.role,
             });
-            await users.setPassword(newUser.id, input.tempPassword);
+            await users.setPassword(newUser.id, input.password);
             return json(publicAdminUser(newUser), { status: 201 });
         } catch (error) {
             if (isUsernameConflict(error)) {

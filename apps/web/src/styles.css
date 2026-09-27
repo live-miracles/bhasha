@@ -371,10 +371,29 @@ body {
 }
 
 .admin-content {
-    padding: 26px 32px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 18px;
+}
+
+.shell.shell-admin {
+    padding: 16px 16px 24px;
+}
+
+.admin-add-program-button {
+    flex: 0 0 40px;
+    width: 40px;
+    min-width: 40px;
+    padding-inline: 0;
+}
+
+.admin-add-program-button .mantine-Button-section {
+    margin: 0;
+}
+
+.admin-add-program-label {
+    display: none;
 }
 
 .admin-app .admin-nav-item,
@@ -2019,6 +2038,35 @@ body {
     outline-offset: 3px;
 }
 
+.admin-program-card {
+    min-width: 0;
+}
+
+.admin-program-meta {
+    min-width: 0;
+}
+
+.admin-program-heading {
+    min-width: 0;
+    overflow: hidden;
+}
+
+.admin-program-slug {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--adm-text-soft);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.admin-program-heading .mantine-Title-root {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .admin-card-url {
     font-size: 12px;
     color: var(--adm-text-soft);
@@ -2808,6 +2856,26 @@ body {
 }
 
 @media (max-width: 720px) {
+    .shell.shell-admin {
+        padding: 0 8px 16px;
+    }
+
+    .admin-content {
+        padding: 12px 8px;
+    }
+
+    .admin-section {
+        padding: 12px;
+    }
+
+    .admin-section-head {
+        gap: 8px;
+    }
+
+    .admin-section-head h2 {
+        font-size: 1.35rem;
+    }
+
     .admin-content .admin-table {
         display: block;
         overflow-x: auto;

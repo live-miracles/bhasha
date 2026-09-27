@@ -478,6 +478,7 @@ export function ApproverRoute({
                                         maxLength={12}
                                         onChange={(event) => changeManualCode(event.target.value)}
                                         placeholder="ABC234"
+                                        required
                                         spellCheck={false}
                                         type="text"
                                         value={manualCode}

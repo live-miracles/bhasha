@@ -11,7 +11,7 @@ const MIN_PASSWORD_LENGTH = 8;
 export interface CreateUserInput {
     username: string;
     role: UserRole;
-    tempPassword: string;
+    password: string;
 }
 
 export interface UpdateUserInput {
@@ -80,7 +80,7 @@ export function parseCreateUserInput(input: unknown): CreateUserInput {
     return {
         username: parseUsername(data.username),
         role: parseUserRole(data.role),
-        tempPassword: parsePassword(data.tempPassword, 'tempPassword'),
+        password: parsePassword(data.password, 'password'),
     };
 }
 

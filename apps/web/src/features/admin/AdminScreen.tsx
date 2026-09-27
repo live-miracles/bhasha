@@ -88,6 +88,14 @@ const EMPTY_REPORT_FILTERS: ReportFiltersState = {
     streamId: '',
     deviceLabel: '',
 };
+
+function PlusIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+        </svg>
+    );
+}
 const EMPTY_EVENT_FILTERS: EventFiltersState = {
     eventTypes: [],
     translatorId: '',
@@ -413,7 +421,12 @@ function editFormFromProgram(program: AdminProgram) {
 function programDateRange(program: AdminProgram): string {
     const startDate = program.startDate ?? program.eventDate ?? '';
     const endDate = program.endDate ?? '';
-    return endDate && endDate !== startDate ? `${startDate} – ${endDate}` : startDate;
+    if (!endDate || endDate === startDate) {
+        return startDate;
+    }
+
+    const endDay = endDate.split('-').pop();
+    return endDay ? `${startDate} – ${endDay}` : `${startDate} – ${endDate}`;
 }
 
 export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
@@ -1727,14 +1740,16 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                             <div className="admin-section-head">
                                                 <h2>Programs</h2>
                                                 <Button
-                                                    leftSection={<span aria-hidden="true">+</span>}
+                                                    aria-label="Add program"
+                                                    className="admin-add-program-button"
+                                                    leftSection={<PlusIcon />}
                                                     onClick={() => {
                                                         setError(null);
                                                         setCreateProgramOpen(true);
                                                     }}
                                                     type="button"
                                                 >
-                                                    Add program
+                                                    <span className="admin-add-program-label">Add program</span>
                                                 </Button>
                                             </div>
                                             <ProgramList
@@ -1874,13 +1889,17 @@ function ProgramCreateForm({
                 />
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                     <TextInput
+                        aria-label="Program name"
                         label="Program name"
                         onChange={(event) => onChange({ ...form, name: event.target.value })}
+                        required
                         value={form.name}
                     />
                     <TextInput
+                        aria-label="Program slug"
                         label="Program slug"
                         onChange={(event) => onChange({ ...form, slug: event.target.value })}
+                        required
                         value={form.slug}
                     />
                     <TextInput
@@ -1921,9 +1940,18 @@ function ProgramList({
         return <p>No programs yet.</p>;
     }
 
+    const sortedPrograms = [...programs].sort((left, right) => {
+        const leftStartDate = left.startDate ?? left.eventDate ?? '';
+        const rightStartDate = right.startDate ?? right.eventDate ?? '';
+
+        if (!leftStartDate) return rightStartDate ? 1 : 0;
+        if (!rightStartDate) return -1;
+        return leftStartDate.localeCompare(rightStartDate) || left.name.localeCompare(right.name);
+    });
+
     return (
         <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
-            {programs.map((program) => {
+            {sortedPrograms.map((program) => {
                 function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
                     if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
@@ -1933,7 +1961,7 @@ function ProgramList({
 
                 return (
                     <Paper
-                        className="admin-card admin-card-clickable"
+                        className="admin-card admin-card-clickable admin-program-card"
                         component="article"
                         key={program.id}
                         onClick={() => onOpen(program)}
@@ -1945,21 +1973,22 @@ function ProgramList({
                         withBorder
                     >
                         <Stack gap="xs">
-                            <Title order={3} size="h4">
-                                {program.name}
-                            </Title>
-                            <Text c="dimmed" size="sm">
-                                {programDateRange(program)}
-                            </Text>
-                            <StatusPill tone={program.status}>
-                                {program.status.toUpperCase()}
-                            </StatusPill>
-                            <Text className="admin-card-url" size="xs">
-                                {urlForProgram(program.slug)}
-                            </Text>
-                            <Text className="admin-card-url" size="xs">
-                                {urlForProgram(program.slug, '/translate')}
-                            </Text>
+                            <Group className="admin-program-meta" justify="space-between" wrap="nowrap">
+                                <Text c="dimmed" size="sm">
+                                    {programDateRange(program)}
+                                </Text>
+                                <StatusPill tone={program.status}>
+                                    {program.status.toUpperCase()}
+                                </StatusPill>
+                            </Group>
+                            <Group className="admin-program-heading" gap="xs" wrap="nowrap">
+                                <Text className="admin-program-slug" size="xs">
+                                    {program.slug}
+                                </Text>
+                                <Title order={3} size="h4">
+                                    {program.name}
+                                </Title>
+                            </Group>
                         </Stack>
                     </Paper>
                 );
@@ -2053,36 +2082,44 @@ function ProgramDetailForm({
                     />
                     <SimpleGrid cols={{ base: 1, sm: 2 }}>
                         <TextInput
+                            aria-label="Detail program name"
                             disabled={readOnly}
                             label="Detail program name"
                             onChange={(event) => onChange({ ...form, name: event.target.value })}
+                            required
                             value={form.name}
                         />
                         <TextInput
+                            aria-label="Detail start date"
                             disabled={readOnly}
                             label="Detail start date"
                             onChange={(event) =>
                                 onChange({ ...form, startDate: event.target.value })
                             }
                             type="date"
+                            required
                             value={form.startDate}
                         />
                         <TextInput
+                            aria-label="Detail end date"
                             disabled={readOnly}
                             label="Detail end date"
                             onChange={(event) =>
                                 onChange({ ...form, endDate: event.target.value })
                             }
                             type="date"
+                            required
                             value={form.endDate}
                         />
                         <TextInput
                             aria-describedby={slugLocked ? 'next-slug-hint' : undefined}
+                            aria-label="Next slug"
                             disabled={readOnly || slugLocked}
                             label="Next slug"
                             onChange={(event) =>
                                 onChange({ ...form, nextSlug: event.target.value })
                             }
+                            required={!slugLocked}
                             value={form.nextSlug}
                         />
                     </SimpleGrid>
@@ -2603,6 +2640,7 @@ function StreamsPanel({
                                         onChange({ ...form, displayOrder: event.target.value })
                                     }
                                     type="number"
+                                    required
                                     value={form.displayOrder}
                                 />
                                 <Group align="end">
@@ -3009,6 +3047,7 @@ function TranslatorsPanel({
                                 onChange={(event) =>
                                     onChange({ ...form, name: event.target.value })
                                 }
+                                required
                                 value={form.name}
                             />
                             <TextInput
@@ -3018,6 +3057,7 @@ function TranslatorsPanel({
                                 onChange={(event) =>
                                     onChange({ ...form, password: event.target.value })
                                 }
+                                required
                                 type="password"
                                 value={form.password}
                             />

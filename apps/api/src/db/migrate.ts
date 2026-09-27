@@ -17,6 +17,13 @@ export function runMigrations(
     db: Database,
     schemaPath: string = DEFAULT_SCHEMA_PATH,
 ): { applied: string[] } {
+    const hasTables = db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1")
+        .get();
+    if (hasTables) {
+        return { applied: [] };
+    }
+
     db.transaction(() => db.exec(readFileSync(schemaPath, 'utf8')))();
     return { applied: [path.basename(schemaPath)] };
 }

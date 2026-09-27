@@ -225,7 +225,7 @@ describe('AdminApi', () => {
         await api.createUser({
             username: 'plain_user',
             role: 'user',
-            tempPassword: 'temp-pass',
+            password: 'temp-pass',
         });
         await api.updateUser('user_2', { isDisabled: true });
         await api.resetUserPassword('user_2', { newPassword: 'new-pass' });
@@ -239,7 +239,7 @@ describe('AdminApi', () => {
         expect(client.post).toHaveBeenCalledWith('/api/admin/users', {
             username: 'plain_user',
             role: 'user',
-            tempPassword: 'temp-pass',
+            password: 'temp-pass',
         });
         expect(client.patch).toHaveBeenCalledWith('/api/admin/users/user_2', {
             isDisabled: true,

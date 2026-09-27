@@ -36,9 +36,10 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
     const [users, setUsers] = useState<AdminUser[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [pending, setPending] = useState(false);
+    const [createOpen, setCreateOpen] = useState(false);
     const [form, setForm] = useState({
         username: '',
-        tempPassword: '',
+        password: '',
     });
     const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
     const [newPassword, setNewPassword] = useState('');
@@ -78,10 +79,11 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
             const created = await adminApi.createUser({
                 username: form.username,
                 role: 'user',
-                tempPassword: form.tempPassword,
+                password: form.password,
             });
             setUsers((previous) => [...previous, created]);
-            setForm({ username: '', tempPassword: '' });
+            setForm({ username: '', password: '' });
+            setCreateOpen(false);
         } catch (createError) {
             setError(errorText(createError));
         } finally {
@@ -142,36 +144,21 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
 
     return (
         <section aria-label="Users" className="admin-section">
-            <Title order={2}>Users</Title>
-
-            <Paper mt="md" p="md" radius="md" withBorder>
-                <Title order={3}>Invite user</Title>
-                <form onSubmit={submitCreate}>
-                    <Stack mt="md">
-                        <TextInput
-                            aria-label="Username"
-                            label="Username"
-                            onChange={(event) => setForm({ ...form, username: event.target.value })}
-                            required
-                            type="text"
-                            value={form.username}
-                        />
-                        <TextInput
-                            aria-label="Temp password"
-                            label="Temp password"
-                            onChange={(event) =>
-                                setForm({ ...form, tempPassword: event.target.value })
-                            }
-                            required
-                            type="password"
-                            value={form.tempPassword}
-                        />
-                        <Button disabled={pending} loading={pending} type="submit">
-                            Create user
-                        </Button>
-                    </Stack>
-                </form>
-            </Paper>
+            <Group justify="space-between" mb="md">
+                <Title order={2}>Users</Title>
+                <Button
+                    aria-label="Add user"
+                    className="admin-add-program-button"
+                    leftSection={<PlusIcon />}
+                    onClick={() => {
+                        setError(null);
+                        setCreateOpen(true);
+                    }}
+                    type="button"
+                >
+                    <span className="admin-add-program-label">Add user</span>
+                </Button>
+            </Group>
 
             {error ? (
                 <Alert color="red" mt="md" role="alert">
@@ -228,12 +215,54 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
                 </Table>
             ) : null}
 
+            <AdminDialog open={createOpen} onClose={() => setCreateOpen(false)} title="Create user">
+                <Paper p="md" radius="md" withBorder>
+                    <form onSubmit={submitCreate}>
+                        <Stack>
+                            <TextInput
+                                aria-label="Username"
+                                label="Username"
+                                onChange={(event) =>
+                                    setForm({ ...form, username: event.target.value })
+                                }
+                                required
+                                type="text"
+                                value={form.username}
+                            />
+                            <TextInput
+                                aria-label="Password"
+                                label="Password"
+                                onChange={(event) =>
+                                    setForm({ ...form, password: event.target.value })
+                                }
+                                required
+                                type="password"
+                                value={form.password}
+                            />
+                            {error ? <Alert color="red" role="alert">{error}</Alert> : null}
+                            <Group justify="flex-end">
+                                <Button
+                                    onClick={() => setCreateOpen(false)}
+                                    type="button"
+                                    variant="default"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button disabled={pending} loading={pending} type="submit">
+                                    Create user
+                                </Button>
+                            </Group>
+                        </Stack>
+                    </form>
+                </Paper>
+            </AdminDialog>
+
             <AdminDialog open={passwordUser !== null} onClose={closeResetDialog}>
                 <Paper p="md" radius="md" withBorder>
                     <form onSubmit={submitResetPassword}>
                         <Stack>
                             <p>
-                                Set a new temporary password for{' '}
+                                Set a new password for{' '}
                                 <strong>{passwordUser?.username}</strong>
                             </p>
                             <TextInput
@@ -262,5 +291,13 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
                 </Paper>
             </AdminDialog>
         </section>
+    );
+}
+
+function PlusIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 16 16" width="16">
+            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+        </svg>
     );
 }

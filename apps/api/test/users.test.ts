@@ -60,7 +60,7 @@ describe('admin user management APIs', () => {
             body: JSON.stringify({
                 username: 'new_user',
                 role: 'user',
-                tempPassword: 'very-strong-password',
+                password: 'very-strong-password',
             }),
         });
         expect(created.status).toBe(201);
@@ -82,7 +82,7 @@ describe('admin user management APIs', () => {
             body: JSON.stringify({
                 username: 'second_admin',
                 role: 'admin',
-                tempPassword: 'very-strong-password',
+                password: 'very-strong-password',
             }),
         });
         expect(rejectAdmin.status).toBe(400);
@@ -97,7 +97,7 @@ describe('admin user management APIs', () => {
             body: JSON.stringify({
                 username: 'new_user',
                 role: 'user',
-                tempPassword: 'very-strong-password',
+                password: 'very-strong-password',
             }),
         });
         expect(duplicate.status).toBe(409);
@@ -112,7 +112,7 @@ describe('admin user management APIs', () => {
             body: JSON.stringify({
                 username: 'should-not-work',
                 role: 'user',
-                tempPassword: 'very-strong-password',
+                password: 'very-strong-password',
             }),
         });
         expect(userDenied.status).toBe(403);
