@@ -491,7 +491,7 @@ describe('AdminScreen', () => {
             await screen.findByRole('heading', { name: 'Management login' }),
         ).toBeInTheDocument();
         expect(screen.getByLabelText('Username')).toBeInTheDocument();
-        expect(screen.getByLabelText('Management password')).toBeInTheDocument();
+        expect(screen.getByLabelText('Password')).toBeInTheDocument();
     });
 
     it('shows invalid login errors', async () => {
@@ -509,7 +509,7 @@ describe('AdminScreen', () => {
         fireEvent.change(await screen.findByLabelText('Username'), {
             target: { value: 'admin' },
         });
-        fireEvent.change(await screen.findByLabelText('Management password'), {
+        fireEvent.change(await screen.findByLabelText('Password'), {
             target: { value: 'wrong-pass' },
         });
         fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
@@ -529,7 +529,7 @@ describe('AdminScreen', () => {
         fireEvent.change(await screen.findByLabelText('Username'), {
             target: { value: 'admin' },
         });
-        fireEvent.change(await screen.findByLabelText('Management password'), {
+        fireEvent.change(await screen.findByLabelText('Password'), {
             target: { value: 'admin-pass' },
         });
         fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
@@ -686,16 +686,17 @@ describe('AdminScreen', () => {
         renderAdmin(<AdminScreen adminApi={api} />);
 
         await screen.findByText('Patna Event 2026');
-        fireEvent.change(screen.getByLabelText('Program name'), {
+        fireEvent.click(screen.getByRole('button', { name: 'Add program' }));
+        fireEvent.change(await screen.findByLabelText('Program name'), {
             target: { value: 'Bad Slug Event' },
         });
         fireEvent.change(screen.getByLabelText('Program slug'), {
             target: { value: 'Bad Slug' },
         });
-        fireEvent.change(screen.getByLabelText('Program venue'), {
-            target: { value: 'Main Hall' },
+        fireEvent.change(await screen.findByLabelText('Start date'), {
+            target: { value: '2026-07-01' },
         });
-        fireEvent.change(screen.getByLabelText('Program date'), {
+        fireEvent.change(await screen.findByLabelText('End date'), {
             target: { value: '2026-07-01' },
         });
         fireEvent.click(screen.getByRole('button', { name: 'Create program' }));
@@ -707,7 +708,7 @@ describe('AdminScreen', () => {
     });
 
     it.each(['admin', 'user'] as const)(
-        'shows the create-program form for %s accounts (both roles can now create programs)',
+        'shows the add-program action for %s accounts (both roles can now create programs)',
         async (role) => {
             const api = makeApi({ me: vi.fn(async () => adminMe(role)) });
 
@@ -715,9 +716,10 @@ describe('AdminScreen', () => {
 
             await screen.findByText('Patna Event 2026');
             expect(
-                await screen.findByRole('button', { name: 'Create program' }),
+                await screen.findByRole('button', { name: 'Add program' }),
             ).toBeInTheDocument();
-            expect(screen.getByLabelText('Program name')).toBeInTheDocument();
+            fireEvent.click(screen.getByRole('button', { name: 'Add program' }));
+            expect(await screen.findByLabelText('Program name')).toBeInTheDocument();
         },
     );
 
@@ -727,17 +729,18 @@ describe('AdminScreen', () => {
 
         renderAdmin(<AdminScreen adminApi={api} />);
 
-        await screen.findByRole('button', { name: 'Create program' });
-        fireEvent.change(screen.getByLabelText('Program name'), {
+        await screen.findByRole('button', { name: 'Add program' });
+        fireEvent.click(screen.getByRole('button', { name: 'Add program' }));
+        fireEvent.change(await screen.findByLabelText('Program name'), {
             target: { value: 'Gaya Event 2026' },
         });
         fireEvent.change(screen.getByLabelText('Program slug'), {
             target: { value: 'gaya-event-2026' },
         });
-        fireEvent.change(screen.getByLabelText('Program venue'), {
-            target: { value: 'Main Hall' },
+        fireEvent.change(await screen.findByLabelText('Start date'), {
+            target: { value: '2026-09-01' },
         });
-        fireEvent.change(screen.getByLabelText('Program date'), {
+        fireEvent.change(await screen.findByLabelText('End date'), {
             target: { value: '2026-09-01' },
         });
         expect(
@@ -1297,7 +1300,7 @@ describe('AdminScreen', () => {
         expect(
             await screen.findByRole('heading', { name: 'Management login' }),
         ).toBeInTheDocument();
-        expect(screen.getByLabelText('Management password')).toBeInTheDocument();
+            expect(screen.getByLabelText('Password')).toBeInTheDocument();
 
         const summaryCallsAfterExpiry = getReportSummary.mock.calls.length;
         const eventCallsAfterExpiry = getEventFeed.mock.calls.length;
@@ -2873,7 +2876,7 @@ describe('AdminScreen', () => {
         expect(
             await screen.findByRole('heading', { name: 'Management login' }),
         ).toBeInTheDocument();
-        expect(screen.getByLabelText('Management password')).toBeInTheDocument();
+        expect(screen.getByLabelText('Password')).toBeInTheDocument();
         expect(screen.queryByText('Could not load sessions. Retrying…')).not.toBeInTheDocument();
     });
 
@@ -3040,9 +3043,6 @@ describe('AdminScreen', () => {
         fireEvent.change(await screen.findByLabelText('Detail program name'), {
             target: { value: 'Patna Event 2026 Updated' },
         });
-        fireEvent.change(screen.getByLabelText('Detail venue'), {
-            target: { value: 'New Hall' },
-        });
         fireEvent.click(screen.getByRole('button', { name: 'Update program' }));
 
         await waitFor(() => {
@@ -3052,7 +3052,6 @@ describe('AdminScreen', () => {
         expect(payload).not.toHaveProperty('nextSlug');
         expect(payload).toMatchObject({
             name: 'Patna Event 2026 Updated',
-            venue: 'New Hall',
             status: 'live',
         });
     });

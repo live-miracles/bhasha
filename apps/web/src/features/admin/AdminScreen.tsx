@@ -65,6 +65,7 @@ import {
 } from './AdminShell';
 import { UsersPanel } from './UsersPanel';
 import { AccountPanel } from './AccountPanel';
+import { LoginPage } from '../../components/LoginPage';
 
 interface AdminScreenProps {
     adminApi?: AdminApi;
@@ -398,15 +399,21 @@ function volunteerSvgFilename(filename: string): string {
 }
 
 function editFormFromProgram(program: AdminProgram) {
+    const startDate = program.startDate ?? program.eventDate ?? '';
     return {
         name: program.name,
-        venue: program.venue,
-        eventDate: program.eventDate,
-        adminNotes: program.adminNotes,
+        startDate,
+        endDate: program.endDate ?? startDate,
         status: program.status,
         nextSlug: program.slug,
         accessControlEnabled: program.accessControlEnabled,
     };
+}
+
+function programDateRange(program: AdminProgram): string {
+    const startDate = program.startDate ?? program.eventDate ?? '';
+    const endDate = program.endDate ?? '';
+    return endDate && endDate !== startDate ? `${startDate} – ${endDate}` : startDate;
 }
 
 export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
@@ -467,13 +474,13 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     const [kickError, setKickError] = useState<string | null>(null);
     const [loginUsername, setLoginUsername] = useState('');
     const [loginPassword, setLoginPassword] = useState('');
+    const [createProgramOpen, setCreateProgramOpen] = useState(false);
     const [identity, setIdentity] = useState<AdminMe | null>(null);
     const [programForm, setProgramForm] = useState({
         slug: '',
         name: '',
-        venue: '',
-        eventDate: '',
-        adminNotes: '',
+        startDate: '',
+        endDate: '',
         accessControlEnabled: false,
     });
     const [streamForm, setStreamForm] = useState({
@@ -488,9 +495,8 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     });
     const [editForm, setEditForm] = useState({
         name: '',
-        venue: '',
-        eventDate: '',
-        adminNotes: '',
+        startDate: '',
+        endDate: '',
         status: 'draft' as ProgramStatus,
         nextSlug: '',
         accessControlEnabled: false,
@@ -1199,19 +1205,18 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             await adminApi.createProgram({
                 slug: programForm.slug,
                 name: programForm.name,
-                venue: programForm.venue,
-                eventDate: programForm.eventDate,
-                adminNotes: programForm.adminNotes,
+                startDate: programForm.startDate,
+                endDate: programForm.endDate,
                 accessControlEnabled: programForm.accessControlEnabled,
             });
             setProgramForm({
                 slug: '',
                 name: '',
-                venue: '',
-                eventDate: '',
-                adminNotes: '',
+                startDate: '',
+                endDate: '',
                 accessControlEnabled: false,
             });
+            setCreateProgramOpen(false);
             await loadPrograms();
         } catch (programError) {
             setError(errorCode(programError));
@@ -1227,14 +1232,13 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         // The slug is editable in draft until the program ever becomes live; any row
         // with firstLiveAt set is locked, even if status is back to draft.
         // Only send nextSlug when the persisted program is still a draft, so edits
-        // to name/venue/date/status keep working after a program goes live.
+        // to name/date/status keep working after a program goes live.
         const slugEditable = detail?.program.status === 'draft' && !detail?.program.firstLiveAt;
         try {
             const response = await adminApi.updateProgram(selectedProgramId, {
                 name: editForm.name,
-                venue: editForm.venue,
-                eventDate: editForm.eventDate,
-                adminNotes: editForm.adminNotes,
+                startDate: editForm.startDate,
+                endDate: editForm.endDate,
                 status: editForm.status,
                 accessControlEnabled: editForm.accessControlEnabled,
                 ...(slugEditable ? { nextSlug: editForm.nextSlug } : {}),
@@ -1646,7 +1650,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     return (
         <AdminUiProvider>
             <main aria-label="Management workspace" className="shell shell-admin admin-screen">
-                {error ? (
+                {error && loadState === 'error' ? (
                     <Alert color="red" role="alert">
                         {error}
                     </Alert>
@@ -1654,37 +1658,16 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
 
                 {loadState === 'checking' ? <p>Checking management access...</p> : null}
                 {loadState === 'login' ? (
-                    <Paper
-                        className="admin-login"
-                        component="form"
+                    <LoginPage
+                        identityLabel="Username"
+                        identityValue={loginUsername}
+                        onIdentityChange={setLoginUsername}
+                        onPasswordChange={setLoginPassword}
                         onSubmit={submitLogin}
-                        p="lg"
-                        radius="md"
-                        withBorder
-                    >
-                        <Stack>
-                            <Title order={2}>Management login</Title>
-                            <TextInput
-                                aria-label="Username"
-                                label="Username"
-                                autoComplete="username"
-                                onChange={(event) => setLoginUsername(event.target.value)}
-                                required
-                                type="text"
-                                value={loginUsername}
-                            />
-                            <TextInput
-                                aria-label="Management password"
-                                label="Management password"
-                                autoComplete="current-password"
-                                required
-                                onChange={(event) => setLoginPassword(event.target.value)}
-                                type="password"
-                                value={loginPassword}
-                            />
-                            <Button type="submit">Log in</Button>
-                        </Stack>
-                    </Paper>
+                        passwordValue={loginPassword}
+                        error={error}
+                        title="Management login"
+                    />
                 ) : null}
                 {loadState === 'error' ? (
                     <Button onClick={() => void loadPrograms()} type="button">
@@ -1710,7 +1693,11 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                     />
                                 }
                             >
-                                <TopBar crumbs={['Programs']} action={null} />
+                                {error && !createProgramOpen ? (
+                                    <Alert color="red" role="alert">
+                                        {error}
+                                    </Alert>
+                                ) : null}
                                 <div className="admin-content">
                                     {activeSection === 'deleted' ? (
                                         <section
@@ -1739,13 +1726,17 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                         <section aria-label="Programs" className="admin-section">
                                             <div className="admin-section-head">
                                                 <h2>Programs</h2>
+                                                <Button
+                                                    leftSection={<span aria-hidden="true">+</span>}
+                                                    onClick={() => {
+                                                        setError(null);
+                                                        setCreateProgramOpen(true);
+                                                    }}
+                                                    type="button"
+                                                >
+                                                    Add program
+                                                </Button>
                                             </div>
-                                            <ProgramCreateForm
-                                                form={programForm}
-                                                onChange={setProgramForm}
-                                                onSubmit={submitProgram}
-                                                readOnly={false}
-                                            />
                                             <ProgramList
                                                 programs={programs}
                                                 onOpen={(program) =>
@@ -1773,6 +1764,11 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                     />
                                 }
                             >
+                                {error ? (
+                                    <Alert color="red" role="alert">
+                                        {error}
+                                    </Alert>
+                                ) : null}
                                 <TopBar
                                     crumbs={[
                                         'Programs',
@@ -1784,6 +1780,22 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                 <div className="admin-content">{renderSection()}</div>
                             </AdminLayout>
                         )}
+                        <AdminDialog
+                            onClose={() => {
+                                setError(null);
+                                setCreateProgramOpen(false);
+                            }}
+                            open={createProgramOpen}
+                            title="Create program"
+                        >
+                            <ProgramCreateForm
+                                error={error}
+                                form={programForm}
+                                onChange={setProgramForm}
+                                onSubmit={submitProgram}
+                                readOnly={false}
+                            />
+                        </AdminDialog>
                         <KickConfirmDialog
                             open={kickedStream !== null}
                             onClose={closeKickDialog}
@@ -1812,25 +1824,25 @@ function ProgramCreateForm({
     form,
     onChange,
     onSubmit,
+    error,
     readOnly,
 }: {
     form: {
         slug: string;
         name: string;
-        venue: string;
-        eventDate: string;
-        adminNotes: string;
+        startDate: string;
+        endDate: string;
         accessControlEnabled: boolean;
     };
     onChange: (form: {
         slug: string;
         name: string;
-        venue: string;
-        eventDate: string;
-        adminNotes: string;
+        startDate: string;
+        endDate: string;
         accessControlEnabled: boolean;
     }) => void;
     onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+    error?: string | null;
     readOnly: boolean;
 }) {
     if (readOnly) {
@@ -1838,63 +1850,63 @@ function ProgramCreateForm({
     }
 
     return (
-        <Paper p="lg" radius="md" withBorder>
-            <form onSubmit={onSubmit}>
-                <Stack gap="md">
-                    <div>
-                        <Title order={3}>Create program</Title>
-                        <Text c="dimmed" size="sm">
-                            Set up the event before adding language streams and translators.
-                        </Text>
-                    </div>
-                    <Checkbox
-                        aria-label="Require listener approval before they can listen"
-                        checked={form.accessControlEnabled}
-                        description="Listeners must be approved by a volunteer before they can listen"
-                        label="Require listener approval"
+        <form onSubmit={onSubmit}>
+            <Stack gap="md">
+                <Text c="dimmed" size="sm">
+                    Set up the event before adding language streams and translators.
+                </Text>
+                {error ? (
+                    <Alert color="red" role="alert">
+                        {error}
+                    </Alert>
+                ) : null}
+                <Checkbox
+                    aria-label="Require listener approval before they can listen"
+                    checked={form.accessControlEnabled}
+                    description="Listeners must be approved by a volunteer before they can listen"
+                    label="Require listener approval"
+                    onChange={(event) =>
+                        onChange({
+                            ...form,
+                            accessControlEnabled: event.currentTarget.checked,
+                        })
+                    }
+                />
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <TextInput
+                        label="Program name"
+                        onChange={(event) => onChange({ ...form, name: event.target.value })}
+                        value={form.name}
+                    />
+                    <TextInput
+                        label="Program slug"
+                        onChange={(event) => onChange({ ...form, slug: event.target.value })}
+                        value={form.slug}
+                    />
+                    <TextInput
+                        aria-label="Start date"
+                        label="Start date"
                         onChange={(event) =>
-                            onChange({
-                                ...form,
-                                accessControlEnabled: event.currentTarget.checked,
-                            })
+                            onChange({ ...form, startDate: event.target.value })
                         }
+                        type="date"
+                        required
+                        value={form.startDate}
                     />
-                    <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                        <TextInput
-                            label="Program name"
-                            onChange={(event) => onChange({ ...form, name: event.target.value })}
-                            value={form.name}
-                        />
-                        <TextInput
-                            label="Program slug"
-                            onChange={(event) => onChange({ ...form, slug: event.target.value })}
-                            value={form.slug}
-                        />
-                        <TextInput
-                            label="Program venue"
-                            onChange={(event) => onChange({ ...form, venue: event.target.value })}
-                            value={form.venue}
-                        />
-                        <TextInput
-                            label="Program date"
-                            onChange={(event) =>
-                                onChange({ ...form, eventDate: event.target.value })
-                            }
-                            type="date"
-                            value={form.eventDate}
-                        />
-                    </SimpleGrid>
-                    <Textarea
-                        label="Admin notes"
-                        onChange={(event) => onChange({ ...form, adminNotes: event.target.value })}
-                        value={form.adminNotes}
+                    <TextInput
+                        aria-label="End date"
+                        label="End date"
+                        onChange={(event) => onChange({ ...form, endDate: event.target.value })}
+                        type="date"
+                        required
+                        value={form.endDate}
                     />
-                    <Group justify="flex-end">
-                        <Button type="submit">Create program</Button>
-                    </Group>
-                </Stack>
-            </form>
-        </Paper>
+                </SimpleGrid>
+                <Group justify="flex-end">
+                    <Button type="submit">Create program</Button>
+                </Group>
+            </Stack>
+        </form>
     );
 }
 
@@ -1937,10 +1949,7 @@ function ProgramList({
                                 {program.name}
                             </Title>
                             <Text c="dimmed" size="sm">
-                                {program.venue}
-                            </Text>
-                            <Text c="dimmed" size="sm">
-                                {program.eventDate}
+                                {programDateRange(program)}
                             </Text>
                             <StatusPill tone={program.status}>
                                 {program.status.toUpperCase()}
@@ -1979,10 +1988,7 @@ function DeletedProgramList({
                             {program.name}
                         </Title>
                         <Text c="dimmed" size="sm">
-                            {program.venue}
-                        </Text>
-                        <Text c="dimmed" size="sm">
-                            {program.eventDate}
+                            {programDateRange(program)}
                         </Text>
                     </Stack>
                     {onRestore ? (
@@ -2007,9 +2013,8 @@ function ProgramDetailForm({
 }: {
     form: {
         name: string;
-        venue: string;
-        eventDate: string;
-        adminNotes: string;
+        startDate: string;
+        endDate: string;
         status: ProgramStatus;
         nextSlug: string;
         accessControlEnabled: boolean;
@@ -2017,9 +2022,8 @@ function ProgramDetailForm({
     slugLocked: boolean;
     onChange: (form: {
         name: string;
-        venue: string;
-        eventDate: string;
-        adminNotes: string;
+        startDate: string;
+        endDate: string;
         status: ProgramStatus;
         nextSlug: string;
         accessControlEnabled: boolean;
@@ -2056,18 +2060,21 @@ function ProgramDetailForm({
                         />
                         <TextInput
                             disabled={readOnly}
-                            label="Detail venue"
-                            onChange={(event) => onChange({ ...form, venue: event.target.value })}
-                            value={form.venue}
+                            label="Detail start date"
+                            onChange={(event) =>
+                                onChange({ ...form, startDate: event.target.value })
+                            }
+                            type="date"
+                            value={form.startDate}
                         />
                         <TextInput
                             disabled={readOnly}
-                            label="Detail date"
+                            label="Detail end date"
                             onChange={(event) =>
-                                onChange({ ...form, eventDate: event.target.value })
+                                onChange({ ...form, endDate: event.target.value })
                             }
                             type="date"
-                            value={form.eventDate}
+                            value={form.endDate}
                         />
                         <TextInput
                             aria-describedby={slugLocked ? 'next-slug-hint' : undefined}
@@ -2095,13 +2102,6 @@ function ProgramDetailForm({
                             })
                         }
                         value={form.status}
-                    />
-                    <Textarea
-                        disabled={readOnly}
-                        label="Detail notes"
-                        minRows={4}
-                        onChange={(event) => onChange({ ...form, adminNotes: event.target.value })}
-                        value={form.adminNotes}
                     />
                     {readOnly ? null : (
                         <>

@@ -7,14 +7,10 @@ import {
     useState,
 } from 'react';
 import {
-    Alert,
     Button,
     MantineProvider,
     NativeSelect,
-    Paper,
     Stack,
-    TextInput,
-    Title,
 } from '@mantine/core';
 
 import { ApiError } from '../api/client';
@@ -35,6 +31,7 @@ import {
 import { loadTranslatorPrefs, saveTranslatorPrefs } from '../lib/translatorPrefs';
 import { getMeterZone, levelToFilledSegments, METER_SEGMENTS } from '../lib/micMeter';
 import { bhashaTheme } from '../app/theme';
+import { LoginPage } from '../components/LoginPage';
 
 export interface TranslatorAudioMeter {
     getLevel(): number;
@@ -1260,7 +1257,7 @@ export function TranslatorRoute({
     }, []);
 
     return (
-        <MantineProvider theme={bhashaTheme} defaultColorScheme="light">
+        <MantineProvider theme={bhashaTheme} defaultColorScheme="dark">
             <main aria-label="Translator shell" className="shell shell-translator">
                 <section className="translator-screen">
                     {auth.status === 'checking' ? (
@@ -1280,44 +1277,20 @@ export function TranslatorRoute({
                                     {endedMessage}
                                 </p>
                             ) : null}
-                            <Stack className="translator-login-head">
-                                {/* Program eyebrow: we only have the slug pre-session. .eyebrow CSS
-                  uppercases it for display; the textContent stays the raw slug. */}
-                                <p className="eyebrow">{programSlug}</p>
-                                <Title order={1}>Live translation</Title>
-                            </Stack>
-                            <Paper className="translator-login" p="lg" radius="md" withBorder>
-                                <form onSubmit={submitLogin}>
-                                    <Title order={2}>Translator login</Title>
-                                    {loginError ? (
-                                        <Alert color="red" mt="md" role="alert">
-                                            {loginError}
-                                        </Alert>
-                                    ) : null}
-                                    <Stack mt="md">
-                                        <TextInput
-                                            aria-label="Email"
-                                            label="Email"
-                                            autoComplete="username"
-                                            onChange={(event) => setLoginEmail(event.target.value)}
-                                            required
-                                            type="email"
-                                            value={loginEmail}
-                                        />
-                                        <TextInput
-                                            aria-label="Password"
-                                            label="Password"
-                                            autoComplete="current-password"
-                                            onChange={(event) =>
-                                                setLoginPassword(event.target.value)
-                                            }
-                                            type="password"
-                                            value={loginPassword}
-                                        />
-                                        <Button type="submit">Log in</Button>
-                                    </Stack>
-                                </form>
-                            </Paper>
+                            <LoginPage
+                                eyebrow={programSlug}
+                                heading="Live translation"
+                                identityLabel="Email"
+                                identityType="email"
+                                identityValue={loginEmail}
+                                onIdentityChange={setLoginEmail}
+                                onPasswordChange={setLoginPassword}
+                                onSubmit={submitLogin}
+                                passwordRequired={false}
+                                passwordValue={loginPassword}
+                                error={loginError}
+                                title="Translator login"
+                            />
                         </>
                     ) : null}
 

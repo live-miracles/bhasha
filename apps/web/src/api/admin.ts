@@ -6,10 +6,15 @@ export interface AdminProgram {
     id: string;
     slug: string;
     name: string;
-    venue: string;
-    eventDate: string;
+    /** @deprecated Compatibility field; venues are no longer returned. */
+    venue?: string;
+    startDate?: string;
+    endDate?: string | null;
+    /** @deprecated Compatibility alias for older API responses. */
+    eventDate?: string;
     status: ProgramStatus;
-    adminNotes: string;
+    /** @deprecated Compatibility alias for older API responses. */
+    adminNotes?: string;
     accessControlEnabled: boolean;
     createdAt: string;
     updatedAt: string;
@@ -272,17 +277,23 @@ export interface AdminRetentionRun {
 export interface CreateProgramPayload {
     slug: string;
     name: string;
-    venue: string;
-    eventDate: string;
-    adminNotes: string;
+    /** @deprecated Ignored compatibility field. */
+    venue?: string;
+    startDate?: string;
+    endDate?: string;
+    /** @deprecated Compatibility alias for older API callers. */
+    eventDate?: string;
+    /** @deprecated Ignored compatibility alias. */
+    adminNotes?: string;
     accessControlEnabled: boolean;
 }
 
 export interface UpdateProgramPayload {
     name?: string;
+    /** @deprecated Ignored compatibility field. */
     venue?: string;
-    eventDate?: string;
-    adminNotes?: string;
+    startDate?: string;
+    endDate?: string;
     status?: ProgramStatus;
     nextSlug?: string;
     accessControlEnabled?: boolean;

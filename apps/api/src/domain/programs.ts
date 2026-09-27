@@ -5,16 +5,26 @@ export type ProgramStatus = 'draft' | 'live' | 'archived';
 export interface CreateProgramInput {
     slug: string;
     name: string;
-    venue: string;
-    eventDate: string;
-    adminNotes: string;
+    /** @deprecated Ignored compatibility field; venues are no longer stored. */
+    venue?: string;
+    startDate?: string;
+    endDate?: string;
     accessControlEnabled?: boolean;
+    /** @deprecated Accepted only for old clients during the date-range rollout. */
+    eventDate?: string;
+    /** @deprecated Ignored; retained so older callers can be migrated safely. */
+    adminNotes?: string;
 }
 
 export interface UpdateProgramInput {
     name?: string;
+    /** @deprecated Ignored compatibility field; venues are no longer stored. */
     venue?: string;
+    startDate?: string;
+    endDate?: string;
+    /** @deprecated Accepted only for old clients during the date-range rollout. */
     eventDate?: string;
+    /** @deprecated Ignored; retained so older callers can be migrated safely. */
     adminNotes?: string;
     accessControlEnabled?: boolean;
     status?: ProgramStatus;
@@ -126,12 +136,12 @@ export function parseEmail(value: unknown): string {
     return email;
 }
 
-function parseEventDate(value: unknown, field: string): string {
-    const eventDate = requireString(value, field);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) {
+function parseDate(value: unknown, field: string): string {
+    const date = requireString(value, field);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         throw new Error(`${field} must be YYYY-MM-DD`);
     }
-    return eventDate;
+    return date;
 }
 
 function parseProgramStatus(value: unknown, field: string): ProgramStatus {
@@ -144,14 +154,18 @@ function parseProgramStatus(value: unknown, field: string): ProgramStatus {
 export function parseCreateProgramInput(input: unknown): CreateProgramInput {
     const data = requireRecord(input, 'program');
     const slug = parseProgramSlug(data.slug, 'slug');
-    const eventDate = parseEventDate(data.eventDate, 'eventDate');
+    const startDate = parseDate(data.startDate ?? data.eventDate, 'startDate');
+    const endDate = parseDate(data.endDate ?? data.startDate ?? data.eventDate, 'endDate');
+    if (endDate < startDate) {
+        throw new Error('endDate must be on or after startDate');
+    }
 
     const program: CreateProgramInput = {
         slug,
         name: requireString(data.name, 'name'),
-        venue: requireString(data.venue, 'venue'),
-        eventDate,
-        adminNotes: typeof data.adminNotes === 'string' ? data.adminNotes.trim() : '',
+        startDate,
+        endDate,
+        eventDate: startDate,
     };
     if (data.accessControlEnabled !== undefined) {
         program.accessControlEnabled = parseBoolean(
@@ -169,17 +183,13 @@ export function parseUpdateProgramInput(input: unknown): UpdateProgramInput {
     if (data.name !== undefined) {
         update.name = requireString(data.name, 'name');
     }
-    if (data.venue !== undefined) {
-        update.venue = requireString(data.venue, 'venue');
+    if (data.startDate !== undefined || data.eventDate !== undefined) {
+        const startDate = parseDate(data.startDate ?? data.eventDate, 'startDate');
+        update.startDate = startDate;
+        update.eventDate = startDate;
     }
-    if (data.eventDate !== undefined) {
-        update.eventDate = parseEventDate(data.eventDate, 'eventDate');
-    }
-    if (data.adminNotes !== undefined) {
-        if (typeof data.adminNotes !== 'string') {
-            throw new Error('adminNotes must be a string');
-        }
-        update.adminNotes = data.adminNotes.trim();
+    if (data.endDate !== undefined) {
+        update.endDate = parseDate(data.endDate, 'endDate');
     }
     if (data.accessControlEnabled !== undefined) {
         update.accessControlEnabled = parseBoolean(

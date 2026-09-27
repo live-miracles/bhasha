@@ -46,8 +46,7 @@ access tokens (JWTs). Browser clients receive only those tokens plus the public
 ```text
 apps/
   api/
-    migrations/              better-sqlite3 schema migrations (plain SQL, run by a
-                              small hand-rolled runner -- db/migrate.ts)
+    src/db/schema.sql        fresh better-sqlite3 schema for the draft app
     src/
       index.ts               Node/Hono entry point, route dispatch, static SPA serving,
                               retention cron wiring
@@ -170,10 +169,10 @@ in `apps/web/src/realtime/`.
 One WAL-mode SQLite file (`apps/api/src/db/sqlite.ts`'s `openDatabase`, `DATABASE_PATH`
 env var). `foreign_keys = ON` is set explicitly on open (D1 enabled this by default;
 better-sqlite3 does not, and the repositories rely on FK-violation errors + every
-`ON DELETE CASCADE` in the schema). Migrations are the same 21 plain-SQL files as
-before the migration (verified to have no D1-only syntax), applied in filename order
-by a small hand-rolled runner (`apps/api/src/db/migrate.ts`) that tracks applied
-filenames in a `_migrations` table.
+`ON DELETE CASCADE` in the schema). The draft app starts from one fresh plain-SQL
+schema (`apps/api/src/db/schema.sql`). Because the product is not in production yet,
+the local SQLite database may be wiped and recreated when the schema changes; a
+migration history is intentionally not maintained at this stage.
 
 Core tables:
 

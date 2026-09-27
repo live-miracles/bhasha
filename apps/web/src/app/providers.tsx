@@ -20,7 +20,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     );
 
     return (
-        <MantineProvider theme={bhashaTheme} defaultColorScheme="light">
+        <MantineProvider theme={bhashaTheme} defaultColorScheme="dark">
             <Notifications position="top-right" />
             <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
         </MantineProvider>

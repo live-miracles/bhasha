@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, MantineProvider, Paper, Stack, TextInput, Title } from '@mantine/core';
+import { Button, MantineProvider, Paper, Stack, TextInput, Title } from '@mantine/core';
 
 import { ApiError } from '../api/client';
 import { createPublicApi, type PublicApi } from '../api/public';
@@ -12,6 +12,7 @@ import {
 import { detectInAppBrowser } from './inAppBrowser';
 import { createQrScanner, normalizeQrScannerError } from './qrScanner';
 import { bhashaTheme } from '../app/theme';
+import { LoginPage } from '../components/LoginPage';
 
 const SCAN_DEBOUNCE_MS = 2_500;
 const RESULT_FLASH_MS = 500;
@@ -341,7 +342,7 @@ export function VolunteerRoute({
     }
 
     return (
-        <MantineProvider theme={bhashaTheme} defaultColorScheme="light">
+        <MantineProvider theme={bhashaTheme} defaultColorScheme="dark">
             <main aria-label="Volunteer shell" className="shell shell-volunteer">
                 <section className="volunteer-screen">
                     {auth === 'checking' ? (
@@ -359,49 +360,18 @@ export function VolunteerRoute({
                     ) : null}
 
                     {auth === 'loggedOut' ? (
-                        <>
-                            <Stack className="translator-login-head">
-                                <p className="eyebrow">Volunteer access</p>
-                                <Title order={1}>{programName}</Title>
-                            </Stack>
-                            <Paper className="translator-login" p="lg" radius="md" withBorder>
-                                <form onSubmit={submitLogin}>
-                                    <Title order={2}>Volunteer login</Title>
-                                    {loginError ? (
-                                        <Alert color="red" mt="md" role="alert">
-                                            {loginError}
-                                        </Alert>
-                                    ) : null}
-                                    <Stack mt="md">
-                                        <TextInput
-                                            aria-label="Login ID"
-                                            label="Login ID"
-                                            autoComplete="username"
-                                            onChange={(event) => setLoginId(event.target.value)}
-                                            required
-                                            type="text"
-                                            value={loginId}
-                                        />
-                                        <TextInput
-                                            aria-label="Password"
-                                            label="Password"
-                                            autoComplete="current-password"
-                                            onChange={(event) => setPassword(event.target.value)}
-                                            required
-                                            type="password"
-                                            value={password}
-                                        />
-                                        <Button
-                                            disabled={loginPending}
-                                            loading={loginPending}
-                                            type="submit"
-                                        >
-                                            Log in
-                                        </Button>
-                                    </Stack>
-                                </form>
-                            </Paper>
-                        </>
+                        <LoginPage
+                            eyebrow="Volunteer access"
+                            heading={programName}
+                            identityLabel="Login ID"
+                            identityValue={loginId}
+                            onIdentityChange={setLoginId}
+                            onPasswordChange={setPassword}
+                            onSubmit={submitLogin}
+                            passwordValue={password}
+                            pending={loginPending}
+                            title="Volunteer login"
+                        />
                     ) : null}
 
                     {auth === 'loggedIn' ? (
@@ -439,7 +409,11 @@ export function VolunteerRoute({
                                         >
                                             Approve {shortDisplayCode(pendingDeepLink)}
                                         </button>
-                                        <button onClick={dismissDeepLink} type="button">
+                                        <button
+                                            className="volunteer-cancel-btn"
+                                            onClick={dismissDeepLink}
+                                            type="button"
+                                        >
                                             Cancel
                                         </button>
                                     </div>

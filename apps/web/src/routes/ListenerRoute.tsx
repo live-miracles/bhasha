@@ -1422,7 +1422,7 @@ export function ListenerRoute({
     }
 
     return (
-        <MantineProvider theme={bhashaTheme} defaultColorScheme="light">
+        <MantineProvider theme={bhashaTheme} defaultColorScheme="dark">
             <main aria-label="Listener shell" className="shell shell-listener">
                 {state.status === 'loading' ? <p className="lp-info">Loading program...</p> : null}
                 {state.status === 'error' ? (
@@ -1523,7 +1523,6 @@ function ListenerMetadata({
     );
     const statusByStream = new Map((snapshot?.streams ?? []).map((stream) => [stream.id, stream]));
     const activeStream = streams.find((stream) => stream.id === playbackStreamId(playback));
-    const metaLine = [metadata.program.venue].filter(Boolean).join(' · ');
     const listenability = getProgramListenability(metadata, snapshot);
 
     if (listenability.listenable === false) {
@@ -1532,7 +1531,6 @@ function ListenerMetadata({
                 <header className="lp-header">
                     <p className="eyebrow">Live translation</p>
                     <h1>{metadata.program.name}</h1>
-                    {metaLine ? <p className="listener-meta">{metaLine}</p> : null}
                 </header>
                 {listenability.notListenableReason ? (
                     <ListenerGateMessage reason={listenability.notListenableReason} />
@@ -1546,7 +1544,6 @@ function ListenerMetadata({
             <header className="lp-header">
                 <p className="eyebrow">Live translation</p>
                 <h1>{metadata.program.name}</h1>
-                {metaLine ? <p className="listener-meta">{metaLine}</p> : null}
             </header>
 
             {statusDegraded || snapshot?.degraded ? (

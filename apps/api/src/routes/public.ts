@@ -158,8 +158,9 @@ export async function handlePublicRoutes(
                 program: {
                     slug: program.slug,
                     name: program.name,
-                    venue: program.venue,
-                    eventDate: program.eventDate,
+                    startDate: program.startDate,
+                    endDate: program.endDate,
+                    eventDate: program.startDate,
                     status: program.status,
                     accessControlEnabled: program.accessControlEnabled,
                     listenable: programStatusFlags.listenable,

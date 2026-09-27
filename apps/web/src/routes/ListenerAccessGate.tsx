@@ -41,15 +41,12 @@ export function ListenerAccessGate({
     inAppBrowserBanner?: ReactNode;
     onAccess: () => void;
 }) {
-    const metaLine = [metadata.program.venue].filter(Boolean).join(' · ');
-
     return (
-        <MantineProvider theme={bhashaTheme} defaultColorScheme="light">
+        <MantineProvider theme={bhashaTheme} defaultColorScheme="dark">
             <section className="listener-screen listener-access-gate">
                 <header className="lp-header">
                     <p className="eyebrow">Live translation</p>
                     <h1>{metadata.program.name}</h1>
-                    {metaLine ? <p className="listener-meta">{metaLine}</p> : null}
                 </header>
 
                 {entered ? (

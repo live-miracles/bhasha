@@ -12,7 +12,7 @@
 #   runtime     - the actual image that ships: apps/api's source (run
 #                 directly via tsx, matching `npm run start` in dev -- see
 #                 the tsx-in-dependencies note below) + apps/web/dist +
-#                 migrations, on the same base image as runtime-deps so
+#                 the fresh database schema, on the same base image as runtime-deps so
 #                 better-sqlite3's native binding is ABI-compatible.
 #
 # Design choice (see repo-root docs / task report for the full rationale):
@@ -68,7 +68,7 @@ COPY --from=runtime-deps /app/package-lock.json ./package-lock.json
 COPY tsconfig.base.json tsconfig.base.json
 COPY apps/api/package.json apps/api/package.json
 COPY apps/api/src apps/api/src
-COPY apps/api/migrations apps/api/migrations
+COPY apps/api/src/db/schema.sql apps/api/src/db/schema.sql
 # apps/api/src/index.ts's DEFAULT_WEB_DIST_PATH resolves two directories up
 # from itself plus "web/dist" -- i.e. apps/web/dist relative to this same
 # /app root -- so mirroring the monorepo's own apps/api + apps/web layout

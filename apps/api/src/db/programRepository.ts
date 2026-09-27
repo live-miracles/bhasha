@@ -19,10 +19,13 @@ export interface ProgramRecord {
     id: string;
     slug: string;
     name: string;
-    venue: string;
+    startDate: string;
+    endDate: string | null;
+    /** @deprecated Compatibility alias for clients during migration. */
     eventDate: string;
     status: 'draft' | 'live' | 'archived';
     createdBy: string | null;
+    /** @deprecated No longer written or shown by the application. */
     adminNotes: string;
     accessControlEnabled: boolean;
     createdAt: string;
@@ -174,15 +177,18 @@ export class ProgramRepository {
         }
 
         const timestamp = nowIso();
+        const startDate = input.startDate ?? input.eventDate ?? '';
+        const endDate = input.endDate ?? startDate;
         const program: ProgramRecord = {
             id: id('program'),
             slug: input.slug,
             name: input.name,
-            venue: input.venue,
-            eventDate: input.eventDate,
+            startDate,
+            endDate,
+            eventDate: startDate,
             status: 'draft',
             createdBy,
-            adminNotes: input.adminNotes,
+            adminNotes: '',
             accessControlEnabled: input.accessControlEnabled ?? false,
             createdAt: timestamp,
             updatedAt: timestamp,
@@ -196,7 +202,7 @@ export class ProgramRepository {
             this.db
                 .prepare(
                     `INSERT INTO programs
-          (id, slug, name, venue, event_date, status, admin_notes,
+          (id, slug, name, start_date, end_date, status,
            access_control_enabled, created_at, updated_at, created_by)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 )
@@ -204,10 +210,9 @@ export class ProgramRepository {
                     program.id,
                     program.slug,
                     program.name,
-                    program.venue,
-                    program.eventDate,
+                    program.startDate,
+                    program.endDate,
                     program.status,
-                    program.adminNotes,
                     Number(program.accessControlEnabled),
                     program.createdAt,
                     program.updatedAt,
@@ -243,8 +248,9 @@ export class ProgramRepository {
 
         const results = this.db
             .prepare(
-                `SELECT id, slug, name, venue, event_date as eventDate, status,
-        admin_notes as adminNotes, access_control_enabled as accessControlEnabled,
+        `SELECT id, slug, name, start_date as startDate,
+        end_date as endDate, start_date as eventDate, status,
+        '' as adminNotes, access_control_enabled as accessControlEnabled,
         created_at as createdAt, updated_at as updatedAt,
         first_live_at as firstLiveAt,
         archived_at as archivedAt, retention_processed_at as retentionProcessedAt,
@@ -252,7 +258,7 @@ export class ProgramRepository {
         created_by as createdBy
         FROM programs
         ${whereClause}
-        ORDER BY event_date DESC, created_at DESC`,
+        ORDER BY start_date DESC, created_at DESC`,
             )
             .all(...binds) as ProgramRow[];
         return results.map(toProgramRecord);
@@ -380,17 +386,13 @@ export class ProgramRepository {
             setters.push('name = ?');
             values.push(input.name);
         }
-        if (input.venue !== undefined) {
-            setters.push('venue = ?');
-            values.push(input.venue);
+        if (input.startDate !== undefined) {
+            setters.push('start_date = ?');
+            values.push(input.startDate);
         }
-        if (input.eventDate !== undefined) {
-            setters.push('event_date = ?');
-            values.push(input.eventDate);
-        }
-        if (input.adminNotes !== undefined) {
-            setters.push('admin_notes = ?');
-            values.push(input.adminNotes);
+        if (input.endDate !== undefined) {
+            setters.push('end_date = ?');
+            values.push(input.endDate);
         }
         if (input.accessControlEnabled !== undefined) {
             setters.push('access_control_enabled = ?');
@@ -976,10 +978,12 @@ export class ProgramRepository {
     }
 }
 
-const PROGRAM_SELECT = `SELECT id, slug, name, venue,
-  event_date as eventDate,
+const PROGRAM_SELECT = `SELECT id, slug, name,
+  start_date as startDate,
+  end_date as endDate,
+  start_date as eventDate,
   status,
-  admin_notes as adminNotes,
+  '' as adminNotes,
   access_control_enabled as accessControlEnabled,
   created_by as createdBy,
   created_at as createdAt,

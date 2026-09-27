@@ -99,7 +99,7 @@ const PROGRAM_NAV_ITEMS: Array<{ section: ProgramNavSection; label: string }> = 
 
 export function AdminUiProvider({ children }: { children: ReactNode }) {
     return (
-        <MantineProvider theme={bhashaTheme} defaultColorScheme="light">
+        <MantineProvider theme={bhashaTheme} defaultColorScheme="dark">
             {children}
         </MantineProvider>
     );
@@ -237,7 +237,7 @@ export function AdminLayout({ sidebar, children }: AdminLayoutProps) {
         <AdminUiProvider>
             <AppShell
                 className="admin-app"
-                header={{ height: 64 }}
+                header={{ height: { base: 64, sm: 0 } }}
                 navbar={{
                     breakpoint: 'sm',
                     collapsed: { mobile: !opened },

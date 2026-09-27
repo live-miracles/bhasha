@@ -45,7 +45,7 @@ Do not rely on memory for API syntax, LiveKit server-sdk/client-sdk behavior, be
 
 ## Engineering Workflow
 
-Follow a TDD-based workflow for feature and bug-fix work when practical: reproduce the issue or write a failing test first, make the smallest scoped change, then run the relevant tests and type checks. Keep changes reviewable and avoid unrelated refactors.
+Use a pragmatic, behavior-focused testing workflow for feature and bug-fix work: test the important user-visible behavior, domain rules, integration boundaries, and regressions comprehensively, but add tests where they provide meaningful confidence. Writing a failing test first is encouraged when it clarifies the expected behavior or reproduces a bug, but it is not required for every change. Do not contort production code or design solely to increase line coverage. Keep changes reviewable and avoid unrelated refactors.
 
 Claude Code and Codex are both supported as primary implementation and review agents for this repository. The developer may choose either based on preference and task fit. The active agent should inspect the relevant code and documentation, state important assumptions, use the repository's normal editing conventions, and report verification results clearly. Do not delegate routine work merely to satisfy a process rule; delegate when parallel research, an isolated implementation slice, or an independent review will materially improve the result.
 
@@ -128,7 +128,10 @@ Rules:
   filename grep. `--capture` the baseline before dispatch.
 - **Test commands to hand the agent**: `npm test --workspace apps/web` /
   `--workspace apps/api` (vitest), `npm run e2e --workspace apps/web`
-  (Playwright). Keep TDD red/green: failing test first.
+  (Playwright). Ask agents to add or update focused tests when the behavior is
+  meaningfully testable, and to explain any intentionally untested paths; do
+  not require a failing test first for every change or pursue line coverage at
+  the expense of clear production design.
 - **Fence check before accepting changes**: set `allowed_files` globs in the spec, then run
   `codex_par.py audit <rundir>` (or read the `⚠FENCE` flag in status/watch). If
   violated, stop and correct the job scope before accepting the result.
@@ -176,7 +179,7 @@ For a feature request, adapt the depth to the risk and size of the change:
 
 1. Inspect the requirements, architecture, relevant code, and current worktree state.
 2. Create a concise implementation plan for non-trivial work.
-3. Use a failing test first when behavior is testable, then implement the smallest complete slice.
+3. Add focused tests for meaningful behavior and regressions. Use a failing test first when it clarifies the expected behavior, then implement the smallest complete slice; otherwise, implement first and verify with appropriate tests.
 4. Run focused tests and type checks; run broader regression or end-to-end checks when the change affects integration boundaries, realtime behavior, authentication, or mobile UX.
 5. For larger or higher-risk changes, obtain an independent architecture or code review, either directly or through an isolated delegated agent.
 6. Address review findings, re-run verification, and report any blocker precisely.

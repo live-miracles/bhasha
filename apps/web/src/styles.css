@@ -78,12 +78,55 @@
         sans-serif;
 }
 
+[data-mantine-color-scheme='dark'] {
+    --lp-bg: #101214;
+    --lp-surface: #1a1d21;
+    --lp-border: #343a40;
+    --lp-text-primary: #f1f3f5;
+    --lp-text-secondary: #adb5bd;
+    --lp-text-muted: #868e96;
+    --lp-accent: #e38f4b;
+    --lp-accent-text: #17110c;
+    --lp-connect-bg: #172b44;
+    --lp-connect-border: #28558a;
+    --lp-connect-text: #a5c8f5;
+    --lp-muted-amber-bg: #3b2e16;
+    --lp-muted-amber-text: #ffd27a;
+    --lp-error-bg: #3b1e22;
+    --lp-error-text: #ffb3b3;
+    --hp-ivory: #151719;
+    --hp-sand: #29231e;
+    --hp-white: #f1f3f5;
+    --hp-charcoal: #f1f3f5;
+    --hp-text-muted: #adb5bd;
+    --adm-text-soft: #adb5bd;
+    --adm-border: #3d4248;
+    --adm-border-strong: #555b63;
+    --adm-wordmark: #f1f3f5;
+    --adm-accent-subtle: #e38f4b26;
+    --adm-accent-focus: #e38f4b40;
+    --adm-live-bg: #183524;
+    --adm-silent-bg: #3b2e16;
+    --adm-offline-bg: #292d32;
+    --adm-danger: #ff8f86;
+    --adm-danger-hover: #ffb3ad;
+    --adm-danger-bg: #3b1e22;
+    --adm-danger-border: #8c4b4b;
+    --adm-success: #a8d08d;
+    --adm-success-bg: #263521;
+    --adm-draft: #c5a5eb;
+    --adm-draft-bg: #302641;
+    color-scheme: dark;
+}
+
 * {
     box-sizing: border-box;
 }
 
 body {
     margin: 0;
+    background: var(--lp-bg);
+    color: var(--lp-text-primary);
 }
 
 .shell {
@@ -132,6 +175,21 @@ body {
     background: var(--hp-terracotta-hover);
 }
 
+.volunteer-cancel-btn {
+    border: 1px solid #9aa6b2;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #202124;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 650;
+    padding: 8px 10px;
+}
+
+.volunteer-cancel-btn:hover {
+    background: #eef3f8;
+}
+
 .landing-note {
     margin-bottom: 0;
     font-size: 0.9rem !important;
@@ -146,70 +204,10 @@ body {
     text-transform: uppercase;
 }
 
-h1 {
+.landing-title {
     margin: 0 0 16px;
     font-size: clamp(2rem, 5vw, 3.25rem);
     line-height: 1.05;
-}
-
-button,
-a[download] {
-    border: 1px solid #9aa6b2;
-    border-radius: 6px;
-    background: #ffffff;
-    color: #202124;
-    cursor: pointer;
-    font: inherit;
-    font-weight: 650;
-    padding: 8px 10px;
-    text-decoration: none;
-}
-
-button:hover,
-a[download]:hover {
-    background: #eef3f8;
-}
-
-input,
-select,
-textarea {
-    width: 100%;
-    border: 1px solid #b9c2cc;
-    border-radius: 6px;
-    color: #202124;
-    font: inherit;
-    padding: 8px 10px;
-}
-
-textarea {
-    min-height: 72px;
-    resize: vertical;
-}
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.92rem;
-}
-
-th,
-td {
-    border-bottom: 1px solid #d9dfe7;
-    padding: 8px 6px;
-    text-align: left;
-    vertical-align: top;
-}
-
-.admin-app button,
-.admin-app a[download] {
-    background: var(--hp-terracotta);
-    color: var(--hp-white);
-    border-color: var(--hp-terracotta);
-}
-
-.admin-app button:hover,
-.admin-app a[download]:hover {
-    background: var(--hp-terracotta-hover);
 }
 
 .admin-app .admin-danger-zone button {
@@ -221,37 +219,6 @@ td {
 .admin-app .admin-danger-zone button:hover {
     background: var(--adm-danger-bg);
     border-color: var(--adm-danger);
-}
-
-.admin-app input,
-.admin-app select,
-.admin-app textarea {
-    border-color: var(--adm-border-strong);
-    color: var(--hp-charcoal);
-    background: var(--hp-white);
-}
-
-.admin-app input:focus,
-.admin-app select:focus,
-.admin-app textarea:focus {
-    border-color: var(--hp-terracotta);
-    box-shadow: 0 0 0 3px var(--adm-accent-focus);
-    outline: none;
-}
-
-.admin-app table {
-    border-color: var(--adm-border);
-}
-
-.admin-app th {
-    background: var(--hp-sand);
-    color: var(--adm-text-soft);
-    border-color: var(--adm-border);
-}
-
-.admin-app td {
-    border-color: var(--adm-border);
-    color: var(--hp-charcoal);
 }
 
 .language-list {
@@ -1764,6 +1731,83 @@ td {
     max-width: 420px;
 }
 
+/* Shared sign-in layout used by management, translator, and volunteer access. */
+.login-page {
+    display: flex;
+    width: 100%;
+    max-width: none !important;
+    min-height: calc(100vh - 64px);
+    align-items: center;
+    justify-content: center;
+    margin-inline: auto;
+    padding: 32px 16px;
+}
+
+.login-page-content {
+    width: min(100%, 440px);
+}
+
+.login-page-heading {
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.login-page-heading h1 {
+    margin: 0;
+    color: var(--lp-text-primary);
+    font-size: clamp(1.75rem, 6vw, 2.1rem);
+    line-height: 1.15;
+}
+
+.login-page-card {
+    border-color: var(--lp-border);
+    background: var(--lp-surface);
+    box-shadow: 0 2px 12px rgb(17 19 24 / 5%);
+}
+
+.login-page-card h2 {
+    margin: 0;
+    color: var(--lp-text-primary);
+    font-size: 1.5rem;
+    text-align: center;
+}
+
+.password-visibility-button {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--lp-text-secondary);
+    cursor: pointer;
+}
+
+.password-visibility-button:hover,
+.password-visibility-button:focus-visible {
+    background: var(--lp-bg);
+    color: var(--lp-text-primary);
+}
+
+.password-visibility-button:focus-visible {
+    outline: 2px solid var(--lp-accent);
+    outline-offset: 1px;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 .admin-section h2,
 .admin-subsection h2,
 .admin-form h3,
@@ -2435,9 +2479,6 @@ td {
 
 .admin-checkbox-row input {
     flex: 0 0 auto;
-    /* Override the global `input { width: 100% }` (styles.css base rule): without
-     this the checkbox stretches to fill the row and pushes the label off the
-     right edge, so labels appear "missing". Matches `.admin-filter-check input`. */
     width: auto;
     margin: 0;
     accent-color: var(--hp-terracotta);
@@ -2971,4 +3012,53 @@ td {
         animation: none;
         opacity: 0.7;
     }
+}
+
+/* The custom surfaces below predate Mantine's color-scheme variables. Keep
+   those surfaces readable when Mantine applies its dark scheme to the app. */
+[data-mantine-color-scheme='dark'] .shell-landing,
+[data-mantine-color-scheme='dark'] .landing-panel {
+    background: var(--lp-bg);
+}
+
+[data-mantine-color-scheme='dark'] .landing-panel,
+[data-mantine-color-scheme='dark'] .admin-section,
+[data-mantine-color-scheme='dark'] .admin-panel,
+[data-mantine-color-scheme='dark'] .admin-subsection,
+[data-mantine-color-scheme='dark'] .admin-card,
+[data-mantine-color-scheme='dark'] .language-list li,
+[data-mantine-color-scheme='dark'] .volunteer-cancel-btn {
+    border-color: var(--lp-border);
+    background: var(--lp-surface);
+    color: var(--lp-text-primary);
+}
+
+[data-mantine-color-scheme='dark'] .admin-shell,
+[data-mantine-color-scheme='dark'] .admin-topbar,
+[data-mantine-color-scheme='dark'] .admin-sidebar,
+[data-mantine-color-scheme='dark'] .admin-app {
+    --lp-bg: #101214;
+    --lp-surface: #1a1d21;
+    --lp-border: #343a40;
+    --lp-text-primary: #f1f3f5;
+    --lp-text-secondary: #adb5bd;
+    --lp-text-muted: #868e96;
+    --lp-accent: #e38f4b;
+    --lp-accent-text: #17110c;
+    background: var(--lp-bg);
+    color: var(--lp-text-primary);
+}
+
+[data-mantine-color-scheme='dark'] .admin-topbar,
+[data-mantine-color-scheme='dark'] .admin-sidebar {
+    border-color: var(--lp-border);
+}
+
+[data-mantine-color-scheme='dark'] .admin-table th,
+[data-mantine-color-scheme='dark'] .admin-table td {
+    border-color: var(--lp-border);
+}
+
+[data-mantine-color-scheme='dark'] .volunteer-cancel-btn:hover {
+    background: var(--lp-bg);
 }
