@@ -17,7 +17,7 @@ export interface PublicProgramMetadata {
     urls: {
         listenerUrl: string;
         translatorUrl: string;
-        volunteerUrl: string;
+        approverUrl: string;
     };
 }
 

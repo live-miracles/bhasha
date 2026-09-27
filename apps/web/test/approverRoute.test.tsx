@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '../src/api/client';
 import type { PublicApi } from '../src/api/public';
-import type { VolunteerApi, VolunteerSessionResponse } from '../src/api/volunteer';
-import { VolunteerRoute } from '../src/routes/VolunteerRoute';
+import type { ApproverApi, ApproverSessionResponse } from '../src/api/approver';
+import { ApproverRoute } from '../src/routes/ApproverRoute';
 import { normalizeQrScannerError } from '../src/routes/qrScanner';
 
 const scannerTestState = vi.hoisted(() => ({
@@ -40,15 +40,15 @@ const programMetadata = {
     urls: {
         listenerUrl: '/patna-event-2026',
         translatorUrl: '/patna-event-2026/translate',
-        volunteerUrl: '/patna-event-2026/volunteer',
+        approverUrl: '/patna-event-2026/approver',
     },
 };
 
-function authError(code = 'volunteer_auth_required', status = 401) {
+function authError(code = 'approver_auth_required', status = 401) {
     return new ApiError({ status, code, body: { error: code } });
 }
 
-function session(approvedCount = 7): VolunteerSessionResponse {
+function session(approvedCount = 7): ApproverSessionResponse {
     return {
         program: { slug: 'patna-event-2026', name: 'Patna Event 2026' },
         approvedCount,
@@ -62,7 +62,7 @@ function publicApi(): PublicApi {
     } as PublicApi;
 }
 
-function volunteerApi(overrides: Partial<VolunteerApi> = {}): VolunteerApi {
+function approverApi(overrides: Partial<ApproverApi> = {}): ApproverApi {
     return {
         login: vi.fn(async () => ({ ok: true as const })),
         logout: vi.fn(async () => ({ ok: true as const })),
@@ -75,12 +75,12 @@ function volunteerApi(overrides: Partial<VolunteerApi> = {}): VolunteerApi {
     };
 }
 
-function renderRoute(api: VolunteerApi) {
+function renderRoute(api: ApproverApi) {
     return render(
-        <VolunteerRoute
+        <ApproverRoute
             programSlug="patna-event-2026"
             publicApi={publicApi()}
-            volunteerApi={api}
+            approverApi={api}
         />,
     );
 }
@@ -91,9 +91,9 @@ async function submitManualCode(code: string) {
     fireEvent.click(screen.getByRole('button', { name: 'Approve code' }));
 }
 
-describe('VolunteerRoute', () => {
+describe('ApproverRoute', () => {
     beforeEach(() => {
-        window.history.replaceState(null, '', '/patna-event-2026/volunteer');
+        window.history.replaceState(null, '', '/patna-event-2026/approver');
         scannerTestState.onScan = null;
         scannerTestState.start.mockReset().mockResolvedValue(undefined);
         scannerTestState.destroy.mockReset();
@@ -112,7 +112,7 @@ describe('VolunteerRoute', () => {
             .mockRejectedValueOnce(authError())
             .mockResolvedValueOnce(session(4));
         const login = vi.fn(async () => ({ ok: true as const }));
-        const api = volunteerApi({ login, session: sessionMock });
+        const api = approverApi({ login, session: sessionMock });
         renderRoute(api);
 
         expect(await screen.findByText('Patna Event 2026')).toBeInTheDocument();
@@ -145,11 +145,11 @@ describe('VolunteerRoute', () => {
             'Too many attempts right now — try again in a minute.',
         ],
         [
-            authError('volunteer_not_configured', 409),
-            "Volunteer access isn't set up for this program. Check with the event organiser.",
+            authError('approver_not_configured', 409),
+            "Approver access isn't set up for this program. Check with the event organiser.",
         ],
     ])('shows a friendly login error for %s', async (error, message) => {
-        const api = volunteerApi({
+        const api = approverApi({
             session: vi.fn(async () => {
                 throw authError();
             }),
@@ -175,7 +175,7 @@ describe('VolunteerRoute', () => {
             .fn()
             .mockResolvedValueOnce({ status: 'approved', already: false })
             .mockResolvedValueOnce({ status: 'approved', already: true });
-        renderRoute(volunteerApi({ approve }));
+        renderRoute(approverApi({ approve }));
 
         const input = await screen.findByRole('textbox', { name: 'Short code' });
         fireEvent.change(input, { target: { value: 'abci-lou234' } });
@@ -196,7 +196,7 @@ describe('VolunteerRoute', () => {
         ['claim_revoked', 409, 'Revoked:'],
         ['too_many_attempts', 429, 'Too many tries — wait a minute.'],
     ])('shows non-blocking %s feedback', async (code, status, copy) => {
-        const api = volunteerApi({
+        const api = approverApi({
             approve: vi.fn(async () => {
                 throw authError(code, status);
             }),
@@ -216,11 +216,11 @@ describe('VolunteerRoute', () => {
             status: 'approved' as const,
             already: false,
         }));
-        renderRoute(volunteerApi({ approve }));
+        renderRoute(approverApi({ approve }));
         await screen.findByRole('heading', { name: 'Approve listener access' });
 
-        scannerTestState.onScan?.('https://bhasha.test/patna-event-2026/volunteer#claim=claim_123');
-        scannerTestState.onScan?.('https://bhasha.test/patna-event-2026/volunteer#claim=claim_123');
+        scannerTestState.onScan?.('https://bhasha.test/patna-event-2026/approver#claim=claim_123');
+        scannerTestState.onScan?.('https://bhasha.test/patna-event-2026/approver#claim=claim_123');
 
         await waitFor(() => {
             expect(approve).toHaveBeenCalledTimes(1);
@@ -235,7 +235,7 @@ describe('VolunteerRoute', () => {
     });
 
     it('preserves a claim hash through login and requires one confirmation tap', async () => {
-        window.history.replaceState(null, '', '/patna-event-2026/volunteer#claim=claim_ABC234');
+        window.history.replaceState(null, '', '/patna-event-2026/approver#claim=claim_ABC234');
         const sessionMock = vi
             .fn()
             .mockRejectedValueOnce(authError())
@@ -244,7 +244,7 @@ describe('VolunteerRoute', () => {
             status: 'approved' as const,
             already: false,
         }));
-        const api = volunteerApi({ session: sessionMock, approve });
+        const api = approverApi({ session: sessionMock, approve });
         renderRoute(api);
 
         fireEvent.change(await screen.findByRole('textbox', { name: 'Login ID' }), {
@@ -273,7 +273,7 @@ describe('VolunteerRoute', () => {
             status: 'approved' as const,
             already: false,
         }));
-        renderRoute(volunteerApi({ approve }));
+        renderRoute(approverApi({ approve }));
         await screen.findByRole('heading', { name: 'Approve listener access' });
 
         window.location.hash = '#claim=claim_LATE42';
@@ -300,7 +300,7 @@ describe('VolunteerRoute', () => {
             resolveLogout = resolve;
         });
         const logout = vi.fn(() => pendingLogout);
-        renderRoute(volunteerApi({ logout }));
+        renderRoute(approverApi({ logout }));
 
         await screen.findByRole('heading', { name: 'Approve listener access' });
         await waitFor(() => expect(request).toHaveBeenCalledWith('screen'));
@@ -322,7 +322,7 @@ describe('VolunteerRoute', () => {
             new DOMException('Permission denied', 'NotAllowedError'),
         );
         scannerTestState.start.mockRejectedValueOnce(permissionError);
-        renderRoute(volunteerApi());
+        renderRoute(approverApi());
 
         expect(
             await screen.findByText('Camera access was denied. Enter the short code instead.'),
@@ -331,7 +331,7 @@ describe('VolunteerRoute', () => {
             screen.getByText('Open this page in Safari or Chrome to use the camera'),
         ).toBeInTheDocument();
         expect(screen.queryByText(/phone's Camera app/)).not.toBeInTheDocument();
-        expect(screen.getByTestId('manual-code-panel')).toHaveClass('volunteer-manual-primary');
+        expect(screen.getByTestId('manual-code-panel')).toHaveClass('approver-manual-primary');
     });
 
     it('shows the generic camera hint outside an in-app browser', async () => {
@@ -344,7 +344,7 @@ describe('VolunteerRoute', () => {
                 new DOMException('Requested device not found', 'NotFoundError'),
             ),
         );
-        renderRoute(volunteerApi());
+        renderRoute(approverApi());
 
         expect(
             await screen.findByText("A camera isn't available. Enter the short code instead."),

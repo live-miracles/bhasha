@@ -277,7 +277,7 @@ test('management workspace smoke with mocked APIs', async ({ page }) => {
         });
     });
 
-    await page.route('**/api/admin/programs/program_1/volunteer-access', async (route) => {
+    await page.route('**/api/admin/programs/program_1/approver-access', async (route) => {
         await route.fulfill({
             contentType: 'application/json',
             json: {

@@ -1212,7 +1212,7 @@ describe('program and stream admin API', () => {
             urls: {
                 listenerUrl: 'https://bhasha.test/patna-event-2026',
                 translatorUrl: 'https://bhasha.test/patna-event-2026/translate',
-                volunteerUrl: 'https://bhasha.test/patna-event-2026/volunteer',
+                approverUrl: 'https://bhasha.test/patna-event-2026/approver',
             },
             qrPayload: 'https://bhasha.test/patna-event-2026',
             suggestedQrFilename: 'patna-event-2026-listener-qr.png',
@@ -1387,7 +1387,7 @@ describe('program and stream admin API', () => {
             urls: {
                 listenerUrl: 'https://bhasha.test/patna-event-2026',
                 translatorUrl: 'https://bhasha.test/patna-event-2026/translate',
-                volunteerUrl: 'https://bhasha.test/patna-event-2026/volunteer',
+                approverUrl: 'https://bhasha.test/patna-event-2026/approver',
             },
             qrPayload: 'https://bhasha.test/patna-event-2026',
             suggestedQrFilename: 'patna-event-2026-listener-qr.png',

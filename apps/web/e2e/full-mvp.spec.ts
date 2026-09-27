@@ -261,7 +261,7 @@ async function installAdminMocks(page: Page): Promise<void> {
         });
     });
 
-    await page.route('**/api/admin/programs/program_1/volunteer-access', async (route) => {
+    await page.route('**/api/admin/programs/program_1/approver-access', async (route) => {
         await route.fulfill({
             contentType: 'application/json',
             json: {

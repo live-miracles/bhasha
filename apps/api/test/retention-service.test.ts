@@ -14,9 +14,9 @@ type SeededProgram = {
 
 async function resetDb(): Promise<void> {
     await testEnv.DB.exec('DELETE FROM listener_access');
-    await testEnv.DB.exec('DELETE FROM volunteer_sessions');
-    await testEnv.DB.exec('DELETE FROM volunteer_login_attempts');
-    await testEnv.DB.exec('DELETE FROM volunteer_accounts');
+    await testEnv.DB.exec('DELETE FROM approver_sessions');
+    await testEnv.DB.exec('DELETE FROM approver_login_attempts');
+    await testEnv.DB.exec('DELETE FROM approver_accounts');
     await testEnv.DB.exec('DELETE FROM listener_realtime_cleanup_targets');
     await testEnv.DB.exec('DELETE FROM realtime_publish_sessions');
     await testEnv.DB.exec('DELETE FROM translator_sessions');

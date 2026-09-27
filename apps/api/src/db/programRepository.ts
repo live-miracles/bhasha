@@ -204,7 +204,7 @@ export class ProgramRepository {
                     `INSERT INTO programs
           (id, slug, name, start_date, end_date, status,
            access_control_enabled, created_at, updated_at, created_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 )
                 .run(
                     program.id,

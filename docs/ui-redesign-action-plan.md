@@ -9,7 +9,7 @@ Rebuild the frontend around one React/Vite/TypeScript application with:
 - Mantine as the shared component system and theme layer.
 - TanStack Query for API/server state, cache invalidation, and polling.
 - React Router as the single routing system for admin, listener, translator, and
-  volunteer routes.
+  approver routes.
 - The existing Hono API contracts and LiveKit realtime clients kept behind the
   existing API and realtime modules.
 
@@ -60,7 +60,7 @@ apps/web/src/
     translator/
       components/
       hooks/
-    volunteer/
+    approver/
   api/                    existing typed HTTP clients remain here
   realtime/               existing LiveKit clients remain here
 ```
@@ -80,7 +80,7 @@ Use TanStack Query for server state:
 - readiness
 - listener reports and event feeds
 - translator sessions
-- volunteer access
+- approver access
 
 Use local React state or reducers for transient UI state:
 
@@ -104,7 +104,7 @@ Preserve these public URLs:
 - `/manage/programs/:slug/:section`
 - `/:programSlug`
 - `/:programSlug/translate`
-- `/:programSlug/volunteer`
+- `/:programSlug/approver`
 
 Move the current custom public route parsing and the admin-only BrowserRouter to
 one application-level React Router tree. Keep route behavior and not-found

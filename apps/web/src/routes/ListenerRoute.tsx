@@ -423,7 +423,7 @@ export function ListenerRoute({
                 return mintWaitingAccessState(
                     storageDegraded,
                     response.state === 'revoked'
-                        ? 'Your access was removed. Ask a volunteer to approve you again.'
+                        ? 'Your access was removed. Ask an approver to approve you again.'
                         : undefined,
                     accessGeneration,
                 );
@@ -531,7 +531,7 @@ export function ListenerRoute({
                     const waiting = await mintWaitingAccessState(
                         storageDegraded || accessState.storageDegraded,
                         response.state === 'revoked'
-                            ? 'Your access was removed. Ask a volunteer to approve you again.'
+                            ? 'Your access was removed. Ask an approver to approve you again.'
                             : undefined,
                         accessGeneration,
                     );
@@ -550,7 +550,7 @@ export function ListenerRoute({
             setWaitingCheckState(
                 claim,
                 false,
-                showPendingMessage ? 'Not yet — ask a volunteer nearby for access.' : undefined,
+                showPendingMessage ? 'Not yet — ask an approver nearby for access.' : undefined,
             );
         })().finally(() => {
             if (accessRedemptionRef.current === redemption) {
@@ -1169,7 +1169,7 @@ export function ListenerRoute({
         try {
             const waiting = await mintWaitingAccessState(
                 tokenClearDegraded || claimClearDegraded,
-                'Your access was removed. Ask a volunteer to approve you again.',
+                'Your access was removed. Ask an approver to approve you again.',
                 accessGeneration,
             );
             if (waiting && isAccessGenerationCurrent(accessGeneration)) {

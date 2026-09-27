@@ -5,15 +5,15 @@ const CROCKFORD_BASE32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const GENERATED_PASSWORD_LENGTH = 10;
 const MINIMUM_PASSWORD_LENGTH = 8;
 const SESSION_TOKEN_BYTES = 32;
-const VOLUNTEER_SESSION_ABSOLUTE_SECONDS = 8 * 60 * 60;
-const VOLUNTEER_SESSION_IDLE_SECONDS = 30 * 60;
+const APPROVER_SESSION_ABSOLUTE_SECONDS = 8 * 60 * 60;
+const APPROVER_SESSION_IDLE_SECONDS = 30 * 60;
 const LOGIN_WINDOW_MILLISECONDS = 5 * 60 * 1000;
 const PER_IP_FAILURE_THRESHOLD = 30;
 const PER_PROGRAM_FAILURE_THRESHOLD = 100;
 const PASSWORD_HASH_PREFIX = 'sha256:';
 const DUMMY_PASSWORD_HASH = '0'.repeat(64);
 
-export interface VolunteerAccountRecord {
+export interface ApproverAccountRecord {
     programId: string;
     loginId: string;
     passwordUpdatedAt: string;
@@ -21,7 +21,7 @@ export interface VolunteerAccountRecord {
     updatedAt: string;
 }
 
-export interface VolunteerSessionRecord {
+export interface ApproverSessionRecord {
     id: string;
     programId: string;
     absoluteExpiresAt: string;
@@ -30,14 +30,14 @@ export interface VolunteerSessionRecord {
     createdAt: string;
 }
 
-export class VolunteerPasswordTooShortError extends Error {
+export class ApproverPasswordTooShortError extends Error {
     constructor() {
-        super('volunteer password must contain at least eight characters');
-        this.name = 'VolunteerPasswordTooShortError';
+        super('approver password must contain at least eight characters');
+        this.name = 'ApproverPasswordTooShortError';
     }
 }
 
-interface VolunteerAccountRow extends VolunteerAccountRecord {
+interface ApproverAccountRow extends ApproverAccountRecord {
     passwordHash: string;
 }
 
@@ -65,7 +65,7 @@ interface LoginAttemptReservation {
     rollbackLockedUntil: string | null;
 }
 
-export interface VolunteerLoginReservation {
+export interface ApproverLoginReservation {
     attempts: LoginAttemptReservation[];
 }
 
@@ -119,7 +119,7 @@ async function timingSafeEqualPasswordHash(candidate: string, expected: string):
     return timingSafeEqualHex(candidate, expected);
 }
 
-export class VolunteerRepository {
+export class ApproverRepository {
     constructor(
         private readonly db: Database,
         private readonly passwordPepper: string,
@@ -130,7 +130,7 @@ export class VolunteerRepository {
         loginId: string,
         password?: string,
     ): Promise<{
-        account: VolunteerAccountRecord;
+        account: ApproverAccountRecord;
         generatedPassword?: string;
     }> {
         const change = await this.buildCredentialChange(loginId, password);
@@ -143,20 +143,20 @@ export class VolunteerRepository {
         loginId: string,
         password?: string,
     ): Promise<{
-        account: VolunteerAccountRecord;
+        account: ApproverAccountRecord;
         generatedPassword?: string;
     }> {
         const change = await this.buildCredentialChange(loginId, password);
         const runRotation = this.db.transaction(() => {
             const upserted = this.credentialUpsert(programId, change);
-            this.db.prepare('DELETE FROM volunteer_sessions WHERE program_id = ?').run(programId);
+            this.db.prepare('DELETE FROM approver_sessions WHERE program_id = ?').run(programId);
             return upserted;
         });
         const account = runRotation();
         return this.credentialChangeResult(account, change.generatedPassword);
     }
 
-    async getAccount(programId: string): Promise<VolunteerAccountRecord | null> {
+    async getAccount(programId: string): Promise<ApproverAccountRecord | null> {
         const row = await this.getAccountWithPassword(programId);
         if (!row) {
             return null;
@@ -172,7 +172,7 @@ export class VolunteerRepository {
 
     async authenticate(programId: string, loginId: string, password: string): Promise<boolean> {
         if (!this.passwordPepper) {
-            throw new Error('volunteer password pepper is not configured');
+            throw new Error('approver password pepper is not configured');
         }
 
         const account = await this.getAccountWithPasswordForLogin(
@@ -191,21 +191,21 @@ export class VolunteerRepository {
     async createSession(
         programId: string,
         sessionSecret: string,
-    ): Promise<{ token: string; session: VolunteerSessionRecord }> {
+    ): Promise<{ token: string; session: ApproverSessionRecord }> {
         const token = randomToken();
         const sessionHash = await sha256Hex(token + sessionSecret);
         const timestamp = new Date();
         const now = timestamp.toISOString();
-        const sessionId = id('volunteer_session');
+        const sessionId = id('approver_session');
         const absoluteExpiresAt = addSeconds(
             timestamp,
-            VOLUNTEER_SESSION_ABSOLUTE_SECONDS,
+            APPROVER_SESSION_ABSOLUTE_SECONDS,
         ).toISOString();
-        const expiresAt = addSeconds(timestamp, VOLUNTEER_SESSION_IDLE_SECONDS).toISOString();
+        const expiresAt = addSeconds(timestamp, APPROVER_SESSION_IDLE_SECONDS).toISOString();
 
         this.db
             .prepare(
-                `INSERT INTO volunteer_sessions
+                `INSERT INTO approver_sessions
         (id, session_hash, program_id, absolute_expires_at, expires_at,
          last_seen_at, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -214,31 +214,31 @@ export class VolunteerRepository {
 
         const session = await this.getSessionById(sessionId);
         if (!session) {
-            throw new Error('created volunteer session could not be loaded');
+            throw new Error('created approver session could not be loaded');
         }
         return { token, session };
     }
 
-    async getSession(token: string, sessionSecret: string): Promise<VolunteerSessionRecord | null> {
+    async getSession(token: string, sessionSecret: string): Promise<ApproverSessionRecord | null> {
         const sessionHash = await sha256Hex(token + sessionSecret);
         const now = new Date().toISOString();
         return (
             (this.db
                 .prepare(
-                    `${VOLUNTEER_SESSION_SELECT}
+                    `${APPROVER_SESSION_SELECT}
         WHERE session_hash = ? AND expires_at > ? AND absolute_expires_at > ?`,
                 )
-                .get(sessionHash, now, now) as VolunteerSessionRecord | undefined) ?? null
+                .get(sessionHash, now, now) as ApproverSessionRecord | undefined) ?? null
         );
     }
 
-    async touchSession(sessionId: string): Promise<VolunteerSessionRecord | null> {
+    async touchSession(sessionId: string): Promise<ApproverSessionRecord | null> {
         const timestamp = new Date();
         const now = timestamp.toISOString();
         const existing = this.db
             .prepare(
                 `SELECT absolute_expires_at as absoluteExpiresAt
-        FROM volunteer_sessions
+        FROM approver_sessions
         WHERE id = ? AND expires_at > ? AND absolute_expires_at > ?`,
             )
             .get(sessionId, now, now) as { absoluteExpiresAt: string } | undefined;
@@ -247,12 +247,12 @@ export class VolunteerRepository {
         }
 
         const expiresAt = minIso(
-            addSeconds(timestamp, VOLUNTEER_SESSION_IDLE_SECONDS),
+            addSeconds(timestamp, APPROVER_SESSION_IDLE_SECONDS),
             existing.absoluteExpiresAt,
         );
         this.db
             .prepare(
-                `UPDATE volunteer_sessions
+                `UPDATE approver_sessions
         SET expires_at = ?, last_seen_at = ?
         WHERE id = ? AND expires_at > ? AND absolute_expires_at > ?`,
             )
@@ -261,11 +261,11 @@ export class VolunteerRepository {
     }
 
     async deleteSession(sessionId: string): Promise<void> {
-        this.db.prepare('DELETE FROM volunteer_sessions WHERE id = ?').run(sessionId);
+        this.db.prepare('DELETE FROM approver_sessions WHERE id = ?').run(sessionId);
     }
 
     async deleteSessionsForProgram(programId: string): Promise<void> {
-        this.db.prepare('DELETE FROM volunteer_sessions WHERE program_id = ?').run(programId);
+        this.db.prepare('DELETE FROM approver_sessions WHERE program_id = ?').run(programId);
     }
 
     async countActiveSessions(programId: string): Promise<number> {
@@ -273,7 +273,7 @@ export class VolunteerRepository {
         const row = this.db
             .prepare(
                 `SELECT COUNT(*) as count
-        FROM volunteer_sessions
+        FROM approver_sessions
         WHERE program_id = ? AND expires_at > ? AND absolute_expires_at > ?`,
             )
             .get(programId, now, now) as { count: number | string } | undefined;
@@ -287,7 +287,7 @@ export class VolunteerRepository {
         locked: boolean;
         lockedUntil: string | null;
         firstThresholdBreach: boolean;
-        reservation: VolunteerLoginReservation;
+        reservation: ApproverLoginReservation;
     }> {
         const now = new Date();
         const attempts: LoginAttemptRow[] = [];
@@ -330,7 +330,7 @@ export class VolunteerRepository {
                 ? this.db
                       .prepare(
                           `SELECT 1 as locked
-              FROM volunteer_login_attempts
+              FROM approver_login_attempts
               WHERE program_id = ? AND ip_hash = ''
                 AND locked_until IS NOT NULL AND locked_until > ?
               LIMIT 1`,
@@ -339,7 +339,7 @@ export class VolunteerRepository {
                 : this.db
                       .prepare(
                           `SELECT 1 as locked
-              FROM volunteer_login_attempts
+              FROM approver_login_attempts
               WHERE program_id = ? AND ip_hash IN (?, '')
                 AND locked_until IS NOT NULL AND locked_until > ?
               LIMIT 1`,
@@ -348,7 +348,7 @@ export class VolunteerRepository {
         return row !== undefined;
     }
 
-    async clearOnSuccess(programId: string, reservation: VolunteerLoginReservation): Promise<void> {
+    async clearOnSuccess(programId: string, reservation: ApproverLoginReservation): Promise<void> {
         if (reservation.attempts.length === 0) {
             return;
         }
@@ -360,7 +360,7 @@ export class VolunteerRepository {
                     : PER_PROGRAM_FAILURE_THRESHOLD;
                 this.db
                     .prepare(
-                        `UPDATE volunteer_login_attempts
+                        `UPDATE approver_login_attempts
             SET attempt_count = MAX(attempt_count - 1, 0),
               locked_until = CASE
                 WHEN attempt_count - 1 < ? THEN NULL
@@ -379,13 +379,13 @@ export class VolunteerRepository {
         password?: string,
     ): Promise<CredentialChange> {
         if (!this.passwordPepper) {
-            throw new Error('volunteer password pepper is not configured');
+            throw new Error('approver password pepper is not configured');
         }
 
         const nextGeneratedPassword = password === undefined ? generatedPassword() : undefined;
         const nextPassword = nextGeneratedPassword ?? password;
         if (typeof nextPassword !== 'string' || nextPassword.length < MINIMUM_PASSWORD_LENGTH) {
-            throw new VolunteerPasswordTooShortError();
+            throw new ApproverPasswordTooShortError();
         }
 
         return {
@@ -399,10 +399,10 @@ export class VolunteerRepository {
     private credentialUpsert(
         programId: string,
         change: CredentialChange,
-    ): VolunteerAccountRecord | undefined {
+    ): ApproverAccountRecord | undefined {
         return this.db
             .prepare(
-                `INSERT INTO volunteer_accounts
+                `INSERT INTO approver_accounts
         (program_id, login_id, password_hash, password_updated_at, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(program_id) DO UPDATE SET
@@ -421,18 +421,18 @@ export class VolunteerRepository {
                 change.timestamp,
                 change.timestamp,
                 change.timestamp,
-            ) as VolunteerAccountRecord | undefined;
+            ) as ApproverAccountRecord | undefined;
     }
 
     private credentialChangeResult(
-        account: VolunteerAccountRecord | undefined | null,
+        account: ApproverAccountRecord | undefined | null,
         nextGeneratedPassword?: string,
     ): {
-        account: VolunteerAccountRecord;
+        account: ApproverAccountRecord;
         generatedPassword?: string;
     } {
         if (!account) {
-            throw new Error('created volunteer account could not be loaded');
+            throw new Error('created approver account could not be loaded');
         }
         return {
             account,
@@ -440,7 +440,7 @@ export class VolunteerRepository {
         };
     }
 
-    private async getAccountWithPassword(programId: string): Promise<VolunteerAccountRow | null> {
+    private async getAccountWithPassword(programId: string): Promise<ApproverAccountRow | null> {
         return (
             (this.db
                 .prepare(
@@ -448,16 +448,16 @@ export class VolunteerRepository {
           password_hash as passwordHash,
           password_updated_at as passwordUpdatedAt,
           created_at as createdAt, updated_at as updatedAt
-        FROM volunteer_accounts WHERE program_id = ?`,
+        FROM approver_accounts WHERE program_id = ?`,
                 )
-                .get(programId) as VolunteerAccountRow | undefined) ?? null
+                .get(programId) as ApproverAccountRow | undefined) ?? null
         );
     }
 
     private async getAccountWithPasswordForLogin(
         programId: string,
         loginId: string,
-    ): Promise<VolunteerAccountRow | null> {
+    ): Promise<ApproverAccountRow | null> {
         return (
             (this.db
                 .prepare(
@@ -465,16 +465,16 @@ export class VolunteerRepository {
           password_hash as passwordHash,
           password_updated_at as passwordUpdatedAt,
           created_at as createdAt, updated_at as updatedAt
-        FROM volunteer_accounts WHERE program_id = ? AND login_id = ?`,
+        FROM approver_accounts WHERE program_id = ? AND login_id = ?`,
                 )
-                .get(programId, loginId) as VolunteerAccountRow | undefined) ?? null
+                .get(programId, loginId) as ApproverAccountRow | undefined) ?? null
         );
     }
 
-    private async getSessionById(sessionId: string): Promise<VolunteerSessionRecord | null> {
+    private async getSessionById(sessionId: string): Promise<ApproverSessionRecord | null> {
         return (
-            (this.db.prepare(`${VOLUNTEER_SESSION_SELECT} WHERE id = ?`).get(sessionId) as
-                VolunteerSessionRecord | undefined) ?? null
+            (this.db.prepare(`${APPROVER_SESSION_SELECT} WHERE id = ?`).get(sessionId) as
+                ApproverSessionRecord | undefined) ?? null
         );
     }
 
@@ -496,32 +496,32 @@ export class VolunteerRepository {
                 .prepare(
                     `SELECT ip_hash as ipHash, window_start as windowStart,
             attempt_count as attemptCount, locked_until as lockedUntil
-          FROM volunteer_login_attempts
+          FROM approver_login_attempts
           WHERE program_id = ? AND ip_hash = ?`,
                 )
                 .get(programId, ipHash) as LoginAttemptRow | undefined;
 
             const row = this.db
                 .prepare(
-                    `INSERT INTO volunteer_login_attempts
+                    `INSERT INTO approver_login_attempts
           (program_id, ip_hash, window_start, attempt_count, locked_until)
           VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(program_id, ip_hash) DO UPDATE SET
             window_start = CASE
-              WHEN volunteer_login_attempts.window_start <= ?
+              WHEN approver_login_attempts.window_start <= ?
                 THEN excluded.window_start
-              ELSE volunteer_login_attempts.window_start
+              ELSE approver_login_attempts.window_start
             END,
             attempt_count = CASE
-              WHEN volunteer_login_attempts.window_start <= ? THEN 1
-              ELSE volunteer_login_attempts.attempt_count + 1
+              WHEN approver_login_attempts.window_start <= ? THEN 1
+              ELSE approver_login_attempts.attempt_count + 1
             END,
             locked_until = CASE
-              WHEN volunteer_login_attempts.window_start <= ? THEN NULL
-              WHEN volunteer_login_attempts.attempt_count + 1 <= ? THEN NULL
-              WHEN volunteer_login_attempts.attempt_count + 1 = ? THEN ?
-              WHEN volunteer_login_attempts.attempt_count + 1 = ? THEN ?
-              WHEN volunteer_login_attempts.attempt_count + 1 = ? THEN ?
+              WHEN approver_login_attempts.window_start <= ? THEN NULL
+              WHEN approver_login_attempts.attempt_count + 1 <= ? THEN NULL
+              WHEN approver_login_attempts.attempt_count + 1 = ? THEN ?
+              WHEN approver_login_attempts.attempt_count + 1 = ? THEN ?
+              WHEN approver_login_attempts.attempt_count + 1 = ? THEN ?
               ELSE ?
             END
           RETURNING ip_hash as ipHash, window_start as windowStart,
@@ -547,7 +547,7 @@ export class VolunteerRepository {
                 ) as LoginAttemptRow | undefined;
 
             if (!row) {
-                throw new Error('volunteer login failure could not be recorded');
+                throw new Error('approver login failure could not be recorded');
             }
 
             const previousWindowIsCurrent = previous !== undefined && previous.windowStart > cutoff;
@@ -572,7 +572,7 @@ function laterIso(first: string | null, second: string | null): string | null {
     return first >= second ? first : second;
 }
 
-const VOLUNTEER_SESSION_SELECT = `SELECT id, program_id as programId,
+const APPROVER_SESSION_SELECT = `SELECT id, program_id as programId,
   absolute_expires_at as absoluteExpiresAt, expires_at as expiresAt,
   last_seen_at as lastSeenAt, created_at as createdAt
-FROM volunteer_sessions`;
+FROM approver_sessions`;

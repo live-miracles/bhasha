@@ -36,7 +36,7 @@ import {
     TranslatorNotFoundError,
     TranslatorRepository,
 } from '../db/translatorRepository';
-import { VolunteerPasswordTooShortError, VolunteerRepository } from '../db/volunteerRepository';
+import { ApproverPasswordTooShortError, ApproverRepository } from '../db/approverRepository';
 import {
     parseCreateProgramInput,
     parseCreateStreamInput,
@@ -349,7 +349,7 @@ async function parseBody<T>(request: Request, parse: (input: unknown) => T): Pro
     }
 }
 
-async function parseVolunteerAccessBody(request: Request): Promise<
+async function parseApproverAccessBody(request: Request): Promise<
     | {
           loginId: string;
           password?: string;
@@ -402,7 +402,7 @@ async function parseListenerAccessRevokeBody(request: Request): Promise<
     return { clientId };
 }
 
-function volunteerAccessResponse(response: Response): Response {
+function approverAccessResponse(response: Response): Response {
     response.headers.set('cache-control', 'no-store');
     response.headers.set('vary', 'Cookie');
     return response;
@@ -551,7 +551,7 @@ function adminProgramPayload(detail: AdminProgramDetail, origin: string) {
         urls: {
             listenerUrl,
             translatorUrl,
-            volunteerUrl: `${listenerUrl}/volunteer`,
+            approverUrl: `${listenerUrl}/approver`,
         },
         qrPayload: listenerUrl,
         suggestedQrFilename: `${detail.program.slug}-listener-qr.png`,
@@ -662,7 +662,7 @@ export async function handleAdminRoutes(
     const listeners = new ListenerRepository(env.DB);
     const listenerAccess = new ListenerAccessRepository(env.DB);
     const translators = new TranslatorRepository(env.DB);
-    const volunteers = new VolunteerRepository(env.DB, env.TRANSLATOR_PASSWORD_PEPPER);
+    const approvers = new ApproverRepository(env.DB, env.TRANSLATOR_PASSWORD_PEPPER);
     const users = new UsersRepository(env.DB);
     let auth: UserAuth | null = null;
 
@@ -684,11 +684,11 @@ export async function handleAdminRoutes(
         auth = authResult;
     }
 
-    const volunteerAccessMatch = url.pathname.match(
-        /^\/api\/admin\/programs\/([^/]+)\/volunteer-access$/,
+    const approverAccessMatch = url.pathname.match(
+        /^\/api\/admin\/programs\/([^/]+)\/approver-access$/,
     );
-    if (volunteerAccessMatch) {
-        const programId = volunteerAccessMatch[1];
+    if (approverAccessMatch) {
+        const programId = approverAccessMatch[1];
         if (!programId) {
             return null;
         }
@@ -699,15 +699,15 @@ export async function handleAdminRoutes(
                 includeDeleted: false,
             });
             if (access instanceof Response) {
-                return volunteerAccessResponse(access);
+                return approverAccessResponse(access);
             }
 
             try {
                 const [account, activeSessionCount] = await Promise.all([
-                    volunteers.getAccount(programId),
-                    volunteers.countActiveSessions(programId),
+                    approvers.getAccount(programId),
+                    approvers.countActiveSessions(programId),
                 ]);
-                return volunteerAccessResponse(
+                return approverAccessResponse(
                     json({
                         configured: account !== null,
                         loginId: account?.loginId ?? null,
@@ -716,7 +716,7 @@ export async function handleAdminRoutes(
                     }),
                 );
             } catch (error) {
-                return volunteerAccessResponse(repositoryErrorResponse(error));
+                return approverAccessResponse(repositoryErrorResponse(error));
             }
         }
 
@@ -726,21 +726,21 @@ export async function handleAdminRoutes(
                 includeDeleted: false,
             });
             if (access instanceof Response) {
-                return volunteerAccessResponse(access);
+                return approverAccessResponse(access);
             }
 
-            const input = await parseVolunteerAccessBody(request);
+            const input = await parseApproverAccessBody(request);
             if (input instanceof Response) {
-                return volunteerAccessResponse(input);
+                return approverAccessResponse(input);
             }
 
             try {
-                const result = await volunteers.rotateCredential(
+                const result = await approvers.rotateCredential(
                     programId,
                     input.loginId,
                     input.password,
                 );
-                return volunteerAccessResponse(
+                return approverAccessResponse(
                     json({
                         configured: true,
                         loginId: result.account.loginId,
@@ -752,12 +752,12 @@ export async function handleAdminRoutes(
                     }),
                 );
             } catch (error) {
-                if (error instanceof VolunteerPasswordTooShortError) {
-                    return volunteerAccessResponse(
+                if (error instanceof ApproverPasswordTooShortError) {
+                    return approverAccessResponse(
                         json({ error: 'validation_error' }, { status: 400 }),
                     );
                 }
-                return volunteerAccessResponse(repositoryErrorResponse(error));
+                return approverAccessResponse(repositoryErrorResponse(error));
             }
         }
     }

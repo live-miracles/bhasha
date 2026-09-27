@@ -11,7 +11,7 @@ import type {
     AdminListenerReport,
     AdminProgram,
     AdminProgramDetail,
-    AdminProgramVolunteerAccess,
+    AdminProgramApproverAccess,
     AdminProgramList,
     AdminProgramStatus,
     AdminReadiness,
@@ -154,7 +154,7 @@ function programDetail(): AdminProgramDetail {
         urls: {
             listenerUrl: 'https://api.example.invalid/ignored',
             translatorUrl: 'https://api.example.invalid/ignored/translate',
-            volunteerUrl: 'https://api.example.invalid/ignored/volunteer',
+            approverUrl: 'https://api.example.invalid/ignored/approver',
         },
         qrPayload: 'https://bhasha.test/patna-event-2026',
         suggestedQrFilename: 'patna-event-2026-listener-qr.png',
@@ -368,12 +368,12 @@ function retentionRun(): AdminRetentionRun {
     };
 }
 
-function volunteerAccess(
-    overrides: Partial<AdminProgramVolunteerAccess> = {},
-): AdminProgramVolunteerAccess {
+function approverAccess(
+    overrides: Partial<AdminProgramApproverAccess> = {},
+): AdminProgramApproverAccess {
     return {
         configured: true,
-        loginId: 'volunteer@example.com',
+        loginId: 'approver@example.com',
         passwordUpdatedAt: '2026-08-26T12:00:00.000Z',
         activeSessionCount: 3,
         ...overrides,
@@ -422,7 +422,7 @@ function makeApi(overrides: Partial<AdminApi> = {}): AdminApi {
         })),
         revokeListenerAccess: vi.fn(async () => ({ revoked: 1 })),
         getProgramDetail: vi.fn(async () => programDetail()),
-        getVolunteerAccess: vi.fn(async () => volunteerAccess()),
+        getApproverAccess: vi.fn(async () => approverAccess()),
         getProgramStatus: vi.fn(async () => status()),
         getReadiness: vi.fn(async () => readiness()),
         confirmReadiness: vi.fn(async () => readinessConfirmed()),
@@ -441,7 +441,7 @@ function makeApi(overrides: Partial<AdminApi> = {}): AdminApi {
         revokeAllSessions: vi.fn(async () => ({ ok: true })),
         runRetention: vi.fn(async () => retentionRun()),
         kickPublisher: vi.fn(async () => ({ freed: true })),
-        updateVolunteerAccess: vi.fn(async () => volunteerAccess()),
+        updateApproverAccess: vi.fn(async () => approverAccess()),
         updateProgram: vi.fn(async () => programDetail()),
         updateStream: vi.fn(async () => programDetail().streams[0]!),
         updateTranslator: vi.fn(async () => programDetail().translators[0]!),
@@ -744,13 +744,13 @@ describe('AdminScreen', () => {
             target: { value: '2026-09-01' },
         });
         expect(
-            screen.getByText('Listeners must be approved by a volunteer before they can listen'),
+            screen.getByText('Listeners must be approved by a approver before they can listen'),
         ).toBeInTheDocument();
         const accessToggle = screen.getByRole('checkbox', {
             name: /Require listener approval.*before they can listen/i,
         });
         expect(accessToggle).toHaveAccessibleDescription(
-            'Listeners must be approved by a volunteer before they can listen',
+            'Listeners must be approved by a approver before they can listen',
         );
         fireEvent.click(accessToggle);
         fireEvent.click(screen.getByRole('button', { name: 'Create program' }));
@@ -780,18 +780,18 @@ describe('AdminScreen', () => {
         expect(screen.getByText('Listener counts')).toBeInTheDocument();
     });
 
-    it('renders volunteer access in Overview and renders the QR panel only in Share', async () => {
+    it('renders approver access in Overview and renders the QR panel only in Share', async () => {
         const api = makeApi();
 
         renderAdmin(<AdminScreen adminApi={api} />);
         await openFirstProgram();
 
         const programNameInput = await screen.findByLabelText('Detail program name');
-        const volunteerHeading = await screen.findByRole('heading', {
-            name: 'Volunteer access',
+        const approverHeading = await screen.findByRole('heading', {
+            name: 'Approver access',
         });
         expect(
-            programNameInput.compareDocumentPosition(volunteerHeading) &
+            programNameInput.compareDocumentPosition(approverHeading) &
                 Node.DOCUMENT_POSITION_FOLLOWING,
         ).toBeTruthy();
         expect(screen.queryByRole('heading', { name: 'Share / QR' })).not.toBeInTheDocument();
@@ -802,66 +802,66 @@ describe('AdminScreen', () => {
         expect(screen.getAllByRole('img', { name: 'Listener QR' })).toHaveLength(1);
     });
 
-    it('shows the submitted custom volunteer password in the password-once dialog', async () => {
-        const updateVolunteerAccess = vi.fn<AdminApi['updateVolunteerAccess']>(async () => ({
+    it('shows the submitted custom approver password in the password-once dialog', async () => {
+        const updateApproverAccess = vi.fn<AdminApi['updateApproverAccess']>(async () => ({
             configured: true,
             loginId: 'desk-team@example.com',
             passwordUpdatedAt: '2026-08-26T12:30:00.000Z',
             activeSessionCount: 0,
         }));
-        const api = makeApi({ updateVolunteerAccess });
+        const api = makeApi({ updateApproverAccess });
 
         renderAdmin(<AdminScreen adminApi={api} />);
         await openFirstProgram();
 
-        fireEvent.change(await screen.findByLabelText('Volunteer login ID'), {
+        fireEvent.change(await screen.findByLabelText('Approver login ID'), {
             target: { value: 'desk-team@example.com' },
         });
-        fireEvent.change(screen.getByLabelText('Volunteer password'), {
+        fireEvent.change(screen.getByLabelText('Approver password'), {
             target: { value: 'custom-pass-1' },
         });
-        fireEvent.click(screen.getByRole('button', { name: 'Save volunteer access' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save approver access' }));
 
         await waitFor(() => {
-            expect(updateVolunteerAccess).toHaveBeenCalledWith('program_1', {
+            expect(updateApproverAccess).toHaveBeenCalledWith('program_1', {
                 loginId: 'desk-team@example.com',
                 password: 'custom-pass-1',
             });
         });
         expect(await screen.findByText('custom-pass-1')).toBeInTheDocument();
-        expect(screen.getByRole('dialog', { name: 'Volunteer password' })).toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: 'Approver password' })).toBeInTheDocument();
     });
 
-    it('shows a server-generated volunteer password when the password is omitted', async () => {
+    it('shows a server-generated approver password when the password is omitted', async () => {
         const writeText = vi.fn(async () => undefined);
         Object.defineProperty(navigator, 'clipboard', {
             configurable: true,
             value: { writeText },
         });
-        const updateVolunteerAccess = vi.fn<AdminApi['updateVolunteerAccess']>(async () => ({
+        const updateApproverAccess = vi.fn<AdminApi['updateApproverAccess']>(async () => ({
             configured: true,
             loginId: 'desk-team@example.com',
             passwordUpdatedAt: '2026-08-26T12:30:00.000Z',
             activeSessionCount: 0,
             generatedPassword: 'ABCD2345EF',
         }));
-        const api = makeApi({ updateVolunteerAccess });
+        const api = makeApi({ updateApproverAccess });
 
         renderAdmin(<AdminScreen adminApi={api} />);
         await openFirstProgram();
 
         expect(await screen.findByText('3 active sessions')).toBeInTheDocument();
         expect(
-            screen.getByText('Saving changes resets all volunteer sessions.'),
+            screen.getByText('Saving changes resets all approver sessions.'),
         ).toBeInTheDocument();
 
-        fireEvent.change(screen.getByLabelText('Volunteer login ID'), {
+        fireEvent.change(screen.getByLabelText('Approver login ID'), {
             target: { value: 'desk-team@example.com' },
         });
-        fireEvent.click(screen.getByRole('button', { name: 'Save volunteer access' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save approver access' }));
 
         await waitFor(() => {
-            expect(updateVolunteerAccess).toHaveBeenCalledWith('program_1', {
+            expect(updateApproverAccess).toHaveBeenCalledWith('program_1', {
                 loginId: 'desk-team@example.com',
             });
         });
@@ -875,15 +875,15 @@ describe('AdminScreen', () => {
         expect(screen.getByRole('status')).toHaveTextContent('Copied');
     });
 
-    it('clears a shown-once volunteer password when the selected program changes', async () => {
+    it('clears a shown-once approver password when the selected program changes', async () => {
         const secondProgram: AdminProgram = {
             ...firstProgram(),
             id: 'program_2',
             slug: 'delhi-event-2026',
             name: 'Delhi Event 2026',
         };
-        const getVolunteerAccess = vi.fn(async (programId: string) =>
-            volunteerAccess({
+        const getApproverAccess = vi.fn(async (programId: string) =>
+            approverAccess({
                 loginId: programId === 'program_2' ? 'delhi-team' : 'patna-team',
             }),
         );
@@ -895,9 +895,9 @@ describe('AdminScreen', () => {
                 ...programDetail(),
                 program: programId === 'program_2' ? secondProgram : firstProgram(),
             })),
-            getVolunteerAccess,
-            updateVolunteerAccess: vi.fn(async () => ({
-                ...volunteerAccess({ loginId: 'patna-team', activeSessionCount: 0 }),
+            getApproverAccess,
+            updateApproverAccess: vi.fn(async () => ({
+                ...approverAccess({ loginId: 'patna-team', activeSessionCount: 0 }),
                 generatedPassword: 'PATNA2345A',
             })),
         });
@@ -912,16 +912,16 @@ describe('AdminScreen', () => {
         );
 
         await screen.findByDisplayValue('patna-team');
-        fireEvent.click(screen.getByRole('button', { name: 'Save volunteer access' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save approver access' }));
         expect(await screen.findByText('PATNA2345A')).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('link', { name: 'Switch to Delhi' }));
         await waitFor(() => {
-            expect(getVolunteerAccess).toHaveBeenCalledWith('program_2');
+            expect(getApproverAccess).toHaveBeenCalledWith('program_2');
         });
         expect(screen.queryByText('PATNA2345A')).not.toBeInTheDocument();
         expect(
-            screen.queryByRole('dialog', { name: 'Volunteer password' }),
+            screen.queryByRole('dialog', { name: 'Approver password' }),
         ).not.toBeInTheDocument();
     });
 
@@ -2223,10 +2223,10 @@ describe('AdminScreen', () => {
         expect(
             screen.getAllByText('https://api.example.invalid/ignored/translate').length,
         ).toBeGreaterThan(0);
-        const volunteerQr = screen.getByRole('img', { name: 'Volunteer QR' });
-        expect(volunteerQr).toHaveAttribute(
+        const approverQr = screen.getByRole('img', { name: 'Approver QR' });
+        expect(approverQr).toHaveAttribute(
             'data-qr-value',
-            'https://api.example.invalid/ignored/volunteer',
+            'https://api.example.invalid/ignored/approver',
         );
 
         const createdAnchors: HTMLAnchorElement[] = [];
@@ -3084,7 +3084,7 @@ describe('AdminScreen', () => {
             name: /Require listener approval.*before they can listen/i,
         });
         expect(toggle).toHaveAccessibleDescription(
-            'Listeners must be approved by a volunteer before they can listen',
+            'Listeners must be approved by a approver before they can listen',
         );
         fireEvent.click(toggle);
         fireEvent.click(screen.getByRole('button', { name: 'Update program' }));

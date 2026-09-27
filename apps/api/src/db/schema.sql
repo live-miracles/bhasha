@@ -190,7 +190,7 @@ CREATE TABLE program_readiness_checks (
   FOREIGN KEY (program_id) REFERENCES programs(id) ON DELETE CASCADE
 );
 
-CREATE TABLE volunteer_accounts (
+CREATE TABLE approver_accounts (
   program_id TEXT PRIMARY KEY,
   login_id TEXT NOT NULL,
   password_hash TEXT NOT NULL,
@@ -198,7 +198,7 @@ CREATE TABLE volunteer_accounts (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
-CREATE TABLE volunteer_sessions (
+CREATE TABLE approver_sessions (
   id TEXT PRIMARY KEY,
   session_hash TEXT NOT NULL UNIQUE,
   program_id TEXT NOT NULL,
@@ -207,8 +207,8 @@ CREATE TABLE volunteer_sessions (
   last_seen_at TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
-CREATE INDEX idx_volunteer_sessions_program ON volunteer_sessions(program_id);
-CREATE TABLE volunteer_login_attempts (
+CREATE INDEX idx_approver_sessions_program ON approver_sessions(program_id);
+CREATE TABLE approver_login_attempts (
   program_id TEXT NOT NULL,
   ip_hash TEXT NOT NULL,
   window_start TEXT NOT NULL,

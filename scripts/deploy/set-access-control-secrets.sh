@@ -6,10 +6,10 @@
 # needs, BEFORE `gh workflow run Deploy` (multi-tenant rollout runbook §2 + the
 # access-control S6.6 step).
 #
-#   1. VOLUNTEER_SESSION_SECRET  (NEW — this feature)
-#         HMAC salt for volunteer_session cookies. Fail-closed: every volunteer
+#   1. APPROVER_SESSION_SECRET  (NEW — this feature)
+#         HMAC salt for approver_session cookies. Fail-closed: every approver
 #         route returns 503 until this is set. The value is a server-side salt —
-#         no human ever needs to know it. Rotating it just logs out volunteers.
+#         no human ever needs to know it. Rotating it just logs out approvers.
 #         Generated here with a CSPRNG; never printed, never stored.
 #
 #   2. PLATFORM_ADMIN_EMAIL      (multi-tenant rollout, runbook §2)
@@ -20,8 +20,8 @@
 #   - Touches PRODUCTION secrets. Prompts for explicit confirmation first.
 #   - Does NOT deploy, migrate, or bootstrap — only sets the two secrets.
 #   - Idempotent: re-running overwrites the same secrets (a new
-#     VOLUNTEER_SESSION_SECRET logs out any volunteers; fine pre-go-live).
-#   - Never echoes the volunteer secret; passes it via stdin, not argv.
+#     APPROVER_SESSION_SECRET logs out any approvers; fine pre-go-live).
+#   - Never echoes the approver secret; passes it via stdin, not argv.
 #
 # USAGE:
 #   ./scripts/deploy/set-access-control-secrets.sh
@@ -55,7 +55,7 @@ fi
 cat <<EOF
 
 About to set TWO production Worker secrets on config: $CONFIG
-  • VOLUNTEER_SESSION_SECRET  = <freshly generated 48-byte random, not shown>
+  • APPROVER_SESSION_SECRET  = <freshly generated 48-byte random, not shown>
   • PLATFORM_ADMIN_EMAIL      = $ADMIN_EMAIL
 
 This does NOT deploy or migrate — it only stages the secrets.
@@ -66,19 +66,19 @@ if [[ "${CONFIRM,,}" != "y" && "${CONFIRM,,}" != "yes" ]]; then
   exit 0
 fi
 
-# --- generate the volunteer session secret with a CSPRNG -------------------
+# --- generate the approver session secret with a CSPRNG -------------------
 if command -v openssl >/dev/null 2>&1; then
-  VOLUNTEER_SESSION_SECRET="$(openssl rand -hex 48)"
+  APPROVER_SESSION_SECRET="$(openssl rand -hex 48)"
 else
   # Node is always available in this repo; fall back to its CSPRNG.
-  VOLUNTEER_SESSION_SECRET="$(node -e 'process.stdout.write(require("crypto").randomBytes(48).toString("hex"))')"
+  APPROVER_SESSION_SECRET="$(node -e 'process.stdout.write(require("crypto").randomBytes(48).toString("hex"))')"
 fi
 
 # --- set the secrets (values via stdin, never argv/logs) -------------------
 echo
-echo "→ Setting VOLUNTEER_SESSION_SECRET ..."
-printf '%s' "$VOLUNTEER_SESSION_SECRET" | npx wrangler secret put VOLUNTEER_SESSION_SECRET --config "$CONFIG"
-unset VOLUNTEER_SESSION_SECRET
+echo "→ Setting APPROVER_SESSION_SECRET ..."
+printf '%s' "$APPROVER_SESSION_SECRET" | npx wrangler secret put APPROVER_SESSION_SECRET --config "$CONFIG"
+unset APPROVER_SESSION_SECRET
 
 echo
 echo "→ Setting PLATFORM_ADMIN_EMAIL ..."
@@ -87,7 +87,7 @@ printf '%s' "$ADMIN_EMAIL" | npx wrangler secret put PLATFORM_ADMIN_EMAIL --conf
 # --- verify ----------------------------------------------------------------
 echo
 echo "→ Current secrets on the prod Worker:"
-npx wrangler secret list --config "$CONFIG" | grep -E "VOLUNTEER_SESSION_SECRET|PLATFORM_ADMIN_EMAIL|ADMIN_PASSWORD_HASH|ADMIN_SESSION_SECRET|TRANSLATOR_" || true
+npx wrangler secret list --config "$CONFIG" | grep -E "APPROVER_SESSION_SECRET|PLATFORM_ADMIN_EMAIL|ADMIN_PASSWORD_HASH|ADMIN_SESSION_SECRET|TRANSLATOR_" || true
 
 cat <<'EOF'
 

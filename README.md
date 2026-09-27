@@ -17,8 +17,8 @@ clients never request audio/video publishing permission.
 - **Program manager** — manages owned programs, language streams, translator
   access, QR codes, stream status, and listener counts. Admin users can manage
   all programs and user accounts. (`apps/api/src/routes/admin.ts`)
-- **Volunteer** — approves/manages listener access at the event.
-  (`apps/api/src/routes/volunteer.ts`)
+- **Approver** — approves/manages listener access at the event.
+  (`apps/api/src/routes/approver.ts`)
 
 ## Architecture & stack
 
@@ -60,7 +60,7 @@ See **[docs/architecture.md](docs/architecture.md)** for the full topology.
   `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` at any LiveKit server (including
   LiveKit Cloud) for local development.
 
-> Secrets: admin/translator/volunteer session secrets and LiveKit API
+> Secrets: admin/translator/approver session secrets and LiveKit API
 > credentials are provided via environment variables (see `.env.example`) and
 > are **not** committed. Do not add credentials to this repo.
 

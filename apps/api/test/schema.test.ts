@@ -28,9 +28,9 @@ describe('fresh database schema', () => {
                 'translator_stream_assignments',
                 'translators',
                 'users',
-                'volunteer_accounts',
-                'volunteer_login_attempts',
-                'volunteer_sessions',
+                'approver_accounts',
+                'approver_login_attempts',
+                'approver_sessions',
             ]),
         );
 

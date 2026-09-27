@@ -46,13 +46,13 @@ export class RetentionRepository {
             chunkSize,
         );
         this.deleteDailyAccessInChunks(
-            'volunteer_sessions',
+            'approver_sessions',
             'expires_at <= ? OR absolute_expires_at <= ?',
             [nowIso, nowIso],
             chunkSize,
         );
         this.deleteDailyAccessInChunks(
-            'volunteer_login_attempts',
+            'approver_login_attempts',
             `window_start < ?
         AND (locked_until IS NULL OR locked_until <= ?)`,
             [before24HoursIso, nowIso],
@@ -82,11 +82,11 @@ export class RetentionRepository {
         // remaining deletes on the next cron.
         this.db.transaction(() => {
             this.db.prepare('DELETE FROM listener_access WHERE program_id = ?').run(programId);
-            this.db.prepare('DELETE FROM volunteer_sessions WHERE program_id = ?').run(programId);
+            this.db.prepare('DELETE FROM approver_sessions WHERE program_id = ?').run(programId);
             this.db
-                .prepare('DELETE FROM volunteer_login_attempts WHERE program_id = ?')
+                .prepare('DELETE FROM approver_login_attempts WHERE program_id = ?')
                 .run(programId);
-            this.db.prepare('DELETE FROM volunteer_accounts WHERE program_id = ?').run(programId);
+            this.db.prepare('DELETE FROM approver_accounts WHERE program_id = ?').run(programId);
         })();
 
         this.db
@@ -160,7 +160,7 @@ export class RetentionRepository {
      * intentionally left for the next daily run.
      */
     private deleteDailyAccessInChunks(
-        table: 'listener_access' | 'volunteer_sessions' | 'volunteer_login_attempts',
+        table: 'listener_access' | 'approver_sessions' | 'approver_login_attempts',
         predicate: string,
         bindings: string[],
         chunkSize: number,

@@ -61,9 +61,9 @@ type D1PragmaTableRow = {
 
 const CASCADE_TABLES_IN_ORDER = [
     'listener_access',
-    'volunteer_sessions',
-    'volunteer_login_attempts',
-    'volunteer_accounts',
+    'approver_sessions',
+    'approver_login_attempts',
+    'approver_accounts',
     'listener_realtime_cleanup_targets',
     'realtime_publish_sessions',
     'translator_sessions',
@@ -80,9 +80,9 @@ const CASCADE_CHILD_TABLES = CASCADE_TABLES_IN_ORDER.filter((table) => table !==
 
 async function resetDb(): Promise<void> {
     await testEnv.DB.exec('DELETE FROM listener_access');
-    await testEnv.DB.exec('DELETE FROM volunteer_sessions');
-    await testEnv.DB.exec('DELETE FROM volunteer_login_attempts');
-    await testEnv.DB.exec('DELETE FROM volunteer_accounts');
+    await testEnv.DB.exec('DELETE FROM approver_sessions');
+    await testEnv.DB.exec('DELETE FROM approver_login_attempts');
+    await testEnv.DB.exec('DELETE FROM approver_accounts');
     await testEnv.DB.exec('DELETE FROM listener_realtime_cleanup_targets');
     await testEnv.DB.exec('DELETE FROM realtime_publish_sessions');
     await testEnv.DB.exec('DELETE FROM translator_sessions');
@@ -126,18 +126,18 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
     );
 
     await testEnv.DB.prepare(
-        `INSERT INTO volunteer_accounts
+        `INSERT INTO approver_accounts
     (program_id, login_id, password_hash, password_updated_at, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(programId, `${programId}@example.com`, 'sha256:volunteer-placeholder', now, now, now);
+    ).run(programId, `${programId}@example.com`, 'sha256:approver-placeholder', now, now, now);
 
     await testEnv.DB.prepare(
-        `INSERT INTO volunteer_sessions
+        `INSERT INTO approver_sessions
     (id, session_hash, program_id, absolute_expires_at, expires_at, last_seen_at, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
-        `volunteer_session_${crypto.randomUUID()}`,
-        `volunteer_hash_${crypto.randomUUID()}`,
+        `approver_session_${crypto.randomUUID()}`,
+        `approver_hash_${crypto.randomUUID()}`,
         programId,
         now,
         now,
@@ -146,7 +146,7 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
     );
 
     await testEnv.DB.prepare(
-        `INSERT INTO volunteer_login_attempts
+        `INSERT INTO approver_login_attempts
     (program_id, ip_hash, window_start, attempt_count, locked_until)
     VALUES (?, ?, ?, ?, ?)`,
     ).run(programId, `ip_hash_${crypto.randomUUID()}`, now, 1, null);
@@ -580,7 +580,7 @@ describe('retention prune behavior', () => {
                 stale,
             );
             await testEnv.DB.prepare(
-                `INSERT INTO volunteer_sessions
+                `INSERT INTO approver_sessions
         (id, session_hash, program_id, absolute_expires_at, expires_at, last_seen_at, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`,
             ).run(
@@ -593,7 +593,7 @@ describe('retention prune behavior', () => {
                 stale,
             );
             await testEnv.DB.prepare(
-                `INSERT INTO volunteer_login_attempts
+                `INSERT INTO approver_login_attempts
         (program_id, ip_hash, window_start, attempt_count, locked_until)
         VALUES (?, ?, ?, 1, NULL)`,
             ).run(programId, `ip_${index}`, stale);
@@ -605,7 +605,7 @@ describe('retention prune behavior', () => {
             chunkSize: 2,
         });
 
-        for (const table of ['listener_access', 'volunteer_sessions', 'volunteer_login_attempts']) {
+        for (const table of ['listener_access', 'approver_sessions', 'approver_login_attempts']) {
             expect(await countForProgram(table, programId)).toBe(0);
             let chunkRunCalls = 0;
             for (const [sql, count] of runCallCounts()) {
@@ -621,7 +621,7 @@ describe('retention prune behavior', () => {
         }
     });
 
-    it('daily-prunes volunteer sessions expired by idle or absolute expiry', async () => {
+    it('daily-prunes approver sessions expired by idle or absolute expiry', async () => {
         const programId = `program_daily_sessions_${crypto.randomUUID()}`;
         const past = '2026-08-26T11:59:59.999Z';
         const boundary = '2026-08-26T12:00:00.000Z';
@@ -635,7 +635,7 @@ describe('retention prune behavior', () => {
 
         for (const [suffix, expiresAt, absoluteExpiresAt] of rows) {
             await testEnv.DB.prepare(
-                `INSERT INTO volunteer_sessions
+                `INSERT INTO approver_sessions
         (id, session_hash, program_id, absolute_expires_at, expires_at, last_seen_at, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`,
             ).run(
@@ -653,12 +653,12 @@ describe('retention prune behavior', () => {
         await retention.pruneDailyAccessData(new Date('2026-08-26T12:00:00.000Z'));
 
         const results = testEnv.DB.prepare(
-            'SELECT id FROM volunteer_sessions WHERE program_id = ? ORDER BY id',
+            'SELECT id FROM approver_sessions WHERE program_id = ? ORDER BY id',
         ).all(programId) as { id: string }[];
         expect(results.map((row) => row.id)).toEqual([`${programId}_future`]);
     });
 
-    it('daily-prunes stale unlocked or expired-lock volunteer login attempts', async () => {
+    it('daily-prunes stale unlocked or expired-lock approver login attempts', async () => {
         const programId = `program_daily_attempts_${crypto.randomUUID()}`;
         const oldWindow = '2026-08-25T11:59:59.999Z';
         const boundaryWindow = '2026-08-25T12:00:00.000Z';
@@ -677,7 +677,7 @@ describe('retention prune behavior', () => {
 
         for (const [ipHash, windowStart, lockedUntil] of rows) {
             await testEnv.DB.prepare(
-                `INSERT INTO volunteer_login_attempts
+                `INSERT INTO approver_login_attempts
         (program_id, ip_hash, window_start, attempt_count, locked_until)
         VALUES (?, ?, ?, 1, ?)`,
             ).run(programId, ipHash, windowStart, lockedUntil);
@@ -687,7 +687,7 @@ describe('retention prune behavior', () => {
         await retention.pruneDailyAccessData(new Date('2026-08-26T12:00:00.000Z'));
 
         const results = testEnv.DB.prepare(
-            'SELECT ip_hash as ipHash FROM volunteer_login_attempts WHERE program_id = ? ORDER BY ip_hash',
+            'SELECT ip_hash as ipHash FROM approver_login_attempts WHERE program_id = ? ORDER BY ip_hash',
         ).all(programId) as { ipHash: string }[];
         expect(results.map((row) => row.ipHash)).toEqual([
             'boundary_unlocked',

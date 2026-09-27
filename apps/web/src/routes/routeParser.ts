@@ -3,7 +3,7 @@ export type AppRoute =
     | { type: 'manage' }
     | { type: 'listener'; programSlug: string }
     | { type: 'translator'; programSlug: string }
-    | { type: 'volunteer'; programSlug: string }
+    | { type: 'approver'; programSlug: string }
     | { type: 'notFound' };
 
 export function parseRoute(pathname: string): AppRoute {
@@ -26,9 +26,9 @@ export function parseRoute(pathname: string): AppRoute {
         return programSlug === null ? { type: 'notFound' } : { type: 'translator', programSlug };
     }
 
-    if (segments.length === 2 && segments[1] === 'volunteer') {
+    if (segments.length === 2 && segments[1] === 'approver') {
         const programSlug = decodeSegment(segments[0]);
-        return programSlug === null ? { type: 'notFound' } : { type: 'volunteer', programSlug };
+        return programSlug === null ? { type: 'notFound' } : { type: 'approver', programSlug };
     }
 
     if (segments.length === 1) {

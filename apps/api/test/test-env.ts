@@ -14,7 +14,7 @@ const adminSessionSecret = `test-admin-session-secret-${randomUUID()}`;
 const testPassword = `test-password-${randomUUID()}`;
 const translatorPasswordPepper = `test-translator-password-pepper-${randomUUID()}`;
 const translatorSessionSecret = `test-translator-session-secret-${randomUUID()}`;
-const volunteerSessionSecret = `test-volunteer-session-secret-${randomUUID()}`;
+const approverSessionSecret = `test-approver-session-secret-${randomUUID()}`;
 
 /**
  * Holds the CURRENT test file's database (set by test/apply-migrations.ts's
@@ -40,7 +40,7 @@ class TestEnvHandle {
     readonly TEST_PASSWORD = testPassword;
     readonly TRANSLATOR_PASSWORD_PEPPER = translatorPasswordPepper;
     readonly TRANSLATOR_SESSION_SECRET = translatorSessionSecret;
-    readonly VOLUNTEER_SESSION_SECRET = volunteerSessionSecret;
+    readonly APPROVER_SESSION_SECRET = approverSessionSecret;
 
     __setDatabase(db: Database): void {
         this._db = db;
@@ -90,7 +90,7 @@ export function buildTestEnv(overrides: TestEnvOverrides = {}): Env {
         ADMIN_SESSION_SECRET: testEnv.ADMIN_SESSION_SECRET,
         TRANSLATOR_PASSWORD_PEPPER: testEnv.TRANSLATOR_PASSWORD_PEPPER,
         TRANSLATOR_SESSION_SECRET: testEnv.TRANSLATOR_SESSION_SECRET,
-        VOLUNTEER_SESSION_SECRET: testEnv.VOLUNTEER_SESSION_SECRET,
+        APPROVER_SESSION_SECRET: testEnv.APPROVER_SESSION_SECRET,
         LIVEKIT_URL: DEFAULT_LIVEKIT_URL,
         LIVEKIT_API_KEY: DEFAULT_LIVEKIT_API_KEY,
         LIVEKIT_API_SECRET: DEFAULT_LIVEKIT_API_SECRET,

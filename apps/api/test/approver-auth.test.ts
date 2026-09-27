@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Env } from '../src/env';
 import { createApp } from '../src/index';
 import { sha256Hex } from '../src/auth/crypto';
-import { VolunteerRepository } from '../src/db/volunteerRepository';
+import { ApproverRepository } from '../src/db/approverRepository';
 import { ListenerAccessRepository } from '../src/db/listenerAccessRepository';
 import { buildTestEnv, adminCookie, seedAdmin, seedProgram, testEnv } from './test-env';
 
@@ -17,9 +17,9 @@ async function request(
 }
 
 function resetDb(): void {
-    testEnv.DB.exec('DELETE FROM volunteer_login_attempts');
-    testEnv.DB.exec('DELETE FROM volunteer_sessions');
-    testEnv.DB.exec('DELETE FROM volunteer_accounts');
+    testEnv.DB.exec('DELETE FROM approver_login_attempts');
+    testEnv.DB.exec('DELETE FROM approver_sessions');
+    testEnv.DB.exec('DELETE FROM approver_accounts');
     testEnv.DB.exec('DELETE FROM listener_access');
     testEnv.DB.exec('DELETE FROM translator_stream_assignments');
     testEnv.DB.exec('DELETE FROM translators');
@@ -28,26 +28,26 @@ function resetDb(): void {
     testEnv.DB.exec('DELETE FROM admin_sessions');
 }
 
-async function seedVolunteerProgram(
-    slug = `volunteer-${crypto.randomUUID()}`,
+async function seedApproverProgram(
+    slug = `approver-${crypto.randomUUID()}`,
 ): Promise<{ id: string; slug: string; name: string }> {
     const program = await seedProgram(buildTestEnv(), {
         slug,
-        name: 'Volunteer Test Program',
+        name: 'Approver Test Program',
     });
     return { id: program.id, slug: program.slug, name: program.name };
 }
 
-async function configureVolunteer(
+async function configureApprover(
     programId: string,
-    loginId = 'volunteer@example.com',
+    loginId = 'approver@example.com',
     password?: string,
-): Promise<Awaited<ReturnType<VolunteerRepository['upsertAccount']>>> {
-    const repo = new VolunteerRepository(testEnv.DB, testEnv.TRANSLATOR_PASSWORD_PEPPER);
+): Promise<Awaited<ReturnType<ApproverRepository['upsertAccount']>>> {
+    const repo = new ApproverRepository(testEnv.DB, testEnv.TRANSLATOR_PASSWORD_PEPPER);
     return repo.upsertAccount(programId, loginId, password);
 }
 
-async function volunteerLogin(
+async function approverLogin(
     input: {
         programSlug: string;
         loginId: string;
@@ -63,7 +63,7 @@ async function volunteerLogin(
         headers['CF-Connecting-IP'] = ip;
     }
     return request(
-        '/api/volunteer/login',
+        '/api/approver/login',
         {
             method: 'POST',
             headers,
@@ -73,9 +73,9 @@ async function volunteerLogin(
     );
 }
 
-async function volunteerSession(cookie: string, env: Env = buildTestEnv()): Promise<Response> {
+async function approverSession(cookie: string, env: Env = buildTestEnv()): Promise<Response> {
     return request(
-        '/api/volunteer/session',
+        '/api/approver/session',
         {
             method: 'GET',
             headers: { Cookie: cookie },
@@ -105,15 +105,15 @@ async function createClaim(
     }>;
 }
 
-describe('volunteer auth and admin volunteer access', () => {
+describe('approver auth and admin approver access', () => {
     beforeEach(async () => {
         resetDb();
         await seedAdmin(buildTestEnv());
     });
 
-    it('logs in with a configured volunteer account, sets a cookie, and returns bootstrap session data', async () => {
-        const program = await seedVolunteerProgram('patna-volunteer-login');
-        await configureVolunteer(program.id, ' Volunteer@Example.com ', 'custom-pass-1');
+    it('logs in with a configured approver account, sets a cookie, and returns bootstrap session data', async () => {
+        const program = await seedApproverProgram('patna-approver-login');
+        await configureApprover(program.id, ' Approver@Example.com ', 'custom-pass-1');
         testEnv.DB.prepare(
             `INSERT INTO listener_access
         (id, program_id, client_id, short_code, claim_secret_hash, status,
@@ -129,17 +129,17 @@ describe('volunteer auth and admin volunteer access', () => {
             new Date().toISOString(),
         );
 
-        const response = await volunteerLogin({
+        const response = await approverLogin({
             programSlug: program.slug,
-            loginId: 'volunteer@example.com',
+            loginId: 'approver@example.com',
             password: 'custom-pass-1',
         });
 
         expect(response.status).toBe(200);
-        expect(response.headers.get('set-cookie')).toContain('volunteer_session=');
+        expect(response.headers.get('set-cookie')).toContain('approver_session=');
 
         const cookie = response.headers.get('set-cookie')?.split(';')[0] ?? '';
-        const sessionResponse = await volunteerSession(cookie);
+        const sessionResponse = await approverSession(cookie);
         expect(sessionResponse.status).toBe(200);
         expect(await sessionResponse.json()).toEqual({
             program: {
@@ -150,33 +150,33 @@ describe('volunteer auth and admin volunteer access', () => {
         });
     });
 
-    it('rejects missing volunteer configuration, invalid credentials, and missing secret', async () => {
-        const program = await seedVolunteerProgram('patna-volunteer-errors');
+    it('rejects missing approver configuration, invalid credentials, and missing secret', async () => {
+        const program = await seedApproverProgram('patna-approver-errors');
 
-        const unconfigured = await volunteerLogin({
+        const unconfigured = await approverLogin({
             programSlug: program.slug,
             loginId: 'missing@example.com',
             password: 'wrong-pass-1',
         });
         expect(unconfigured.status).toBe(409);
         expect(await unconfigured.json()).toEqual({
-            error: 'volunteer_not_configured',
+            error: 'approver_not_configured',
         });
 
-        await configureVolunteer(program.id, 'volunteer@example.com', 'correct-pass-1');
-        const invalid = await volunteerLogin({
+        await configureApprover(program.id, 'approver@example.com', 'correct-pass-1');
+        const invalid = await approverLogin({
             programSlug: program.slug,
-            loginId: 'volunteer@example.com',
+            loginId: 'approver@example.com',
             password: 'wrong-pass-1',
         });
         expect(invalid.status).toBe(401);
         expect(await invalid.json()).toEqual({ error: 'invalid_credentials' });
 
-        const noSecretEnv = buildTestEnv({ VOLUNTEER_SESSION_SECRET: undefined });
-        const unavailable = await volunteerLogin(
+        const noSecretEnv = buildTestEnv({ APPROVER_SESSION_SECRET: undefined });
+        const unavailable = await approverLogin(
             {
                 programSlug: program.slug,
-                loginId: 'volunteer@example.com',
+                loginId: 'approver@example.com',
                 password: 'correct-pass-1',
             },
             noSecretEnv,
@@ -186,45 +186,45 @@ describe('volunteer auth and admin volunteer access', () => {
     });
 
     it('logs out by deleting the current session and clearing the cookie', async () => {
-        const program = await seedVolunteerProgram('patna-volunteer-logout');
-        await configureVolunteer(program.id, 'volunteer@example.com', 'correct-pass-1');
-        const login = await volunteerLogin({
+        const program = await seedApproverProgram('patna-approver-logout');
+        await configureApprover(program.id, 'approver@example.com', 'correct-pass-1');
+        const login = await approverLogin({
             programSlug: program.slug,
-            loginId: 'volunteer@example.com',
+            loginId: 'approver@example.com',
             password: 'correct-pass-1',
         });
         const cookie = login.headers.get('set-cookie')?.split(';')[0] ?? '';
 
-        const logout = await request('/api/volunteer/logout', {
+        const logout = await request('/api/approver/logout', {
             method: 'POST',
             headers: { Cookie: cookie },
         });
         expect(logout.status).toBe(200);
-        expect(logout.headers.get('set-cookie')).toContain('volunteer_session=; Path=/; Max-Age=0');
+        expect(logout.headers.get('set-cookie')).toContain('approver_session=; Path=/; Max-Age=0');
 
-        const expiredSession = await volunteerSession(cookie);
+        const expiredSession = await approverSession(cookie);
         expect(expiredSession.status).toBe(401);
         expect(await expiredSession.json()).toEqual({
-            error: 'volunteer_auth_required',
+            error: 'approver_auth_required',
         });
     });
 
     it('rate limits on the 31st failed attempt for an IP, honors lock expiry, and does not count successful logins', async () => {
-        const program = await seedVolunteerProgram('patna-volunteer-limit');
-        await configureVolunteer(program.id, 'volunteer@example.com', 'correct-pass-1');
+        const program = await seedApproverProgram('patna-approver-limit');
+        await configureApprover(program.id, 'approver@example.com', 'correct-pass-1');
 
         for (let attempt = 1; attempt <= 30; attempt += 1) {
-            const response = await volunteerLogin({
+            const response = await approverLogin({
                 programSlug: program.slug,
-                loginId: 'volunteer@example.com',
+                loginId: 'approver@example.com',
                 password: 'wrong-pass-1',
             });
             expect(response.status).toBe(401);
         }
 
-        const thresholdFailure = await volunteerLogin({
+        const thresholdFailure = await approverLogin({
             programSlug: program.slug,
-            loginId: 'volunteer@example.com',
+            loginId: 'approver@example.com',
             password: 'wrong-pass-1',
         });
         expect(thresholdFailure.status).toBe(429);
@@ -232,9 +232,9 @@ describe('volunteer auth and admin volunteer access', () => {
             error: 'too_many_attempts',
         });
 
-        const locked = await volunteerLogin({
+        const locked = await approverLogin({
             programSlug: program.slug,
-            loginId: 'volunteer@example.com',
+            loginId: 'approver@example.com',
             password: 'wrong-pass-1',
         });
         expect(locked.status).toBe(429);
@@ -242,14 +242,14 @@ describe('volunteer auth and admin volunteer access', () => {
 
         const row = testEnv.DB.prepare(
             `SELECT locked_until as lockedUntil, attempt_count as attemptCount
-      FROM volunteer_login_attempts
+      FROM approver_login_attempts
       WHERE program_id = ? AND ip_hash = ?`,
         ).get(program.id, await sha256Hex('198.51.100.7')) as
             { lockedUntil: string; attemptCount: number } | undefined;
         expect(row?.attemptCount).toBe(31);
 
         testEnv.DB.prepare(
-            `UPDATE volunteer_login_attempts
+            `UPDATE approver_login_attempts
         SET attempt_count = 29, locked_until = ?
         WHERE program_id = ? AND ip_hash = ?`,
         ).run(
@@ -258,23 +258,23 @@ describe('volunteer auth and admin volunteer access', () => {
             await sha256Hex('198.51.100.7'),
         );
 
-        const afterExpiry = await volunteerLogin({
+        const afterExpiry = await approverLogin({
             programSlug: program.slug,
-            loginId: 'volunteer@example.com',
+            loginId: 'approver@example.com',
             password: 'correct-pass-1',
         });
         expect(afterExpiry.status).toBe(200);
 
-        const backAtThreshold = await volunteerLogin({
+        const backAtThreshold = await approverLogin({
             programSlug: program.slug,
-            loginId: 'volunteer@example.com',
+            loginId: 'approver@example.com',
             password: 'wrong-pass-1',
         });
         expect(backAtThreshold.status).toBe(401);
 
-        const overThresholdAfterExpiry = await volunteerLogin({
+        const overThresholdAfterExpiry = await approverLogin({
             programSlug: program.slug,
-            loginId: 'volunteer@example.com',
+            loginId: 'approver@example.com',
             password: 'wrong-pass-1',
         });
         expect(overThresholdAfterExpiry.status).toBe(429);
@@ -282,10 +282,10 @@ describe('volunteer auth and admin volunteer access', () => {
             error: 'too_many_attempts',
         });
 
-        const freshProgram = await seedVolunteerProgram('patna-volunteer-shared-nat');
-        await configureVolunteer(freshProgram.id, 'sharednat@example.com', 'correct-pass-2');
+        const freshProgram = await seedApproverProgram('patna-approver-shared-nat');
+        await configureApprover(freshProgram.id, 'sharednat@example.com', 'correct-pass-2');
         for (let attempt = 0; attempt < 10; attempt += 1) {
-            const fail = await volunteerLogin(
+            const fail = await approverLogin(
                 {
                     programSlug: freshProgram.slug,
                     loginId: 'sharednat@example.com',
@@ -296,7 +296,7 @@ describe('volunteer auth and admin volunteer access', () => {
             );
             expect(fail.status).toBe(401);
         }
-        const success = await volunteerLogin(
+        const success = await approverLogin(
             {
                 programSlug: freshProgram.slug,
                 loginId: 'sharednat@example.com',
@@ -309,7 +309,7 @@ describe('volunteer auth and admin volunteer access', () => {
 
         const successCountRow = testEnv.DB.prepare(
             `SELECT attempt_count as attemptCount
-      FROM volunteer_login_attempts
+      FROM approver_login_attempts
       WHERE program_id = ? AND ip_hash = ?`,
         ).get(freshProgram.id, await sha256Hex('203.0.113.99')) as
             { attemptCount: number } | undefined;
@@ -317,30 +317,30 @@ describe('volunteer auth and admin volunteer access', () => {
     });
 
     it('clears the per-IP lock after two concurrent successful reservations', async () => {
-        const program = await seedVolunteerProgram('patna-volunteer-concurrent-success');
-        await configureVolunteer(program.id, 'volunteer@example.com', 'correct-pass-1');
+        const program = await seedApproverProgram('patna-approver-concurrent-success');
+        await configureApprover(program.id, 'approver@example.com', 'correct-pass-1');
         const clientIp = '203.0.113.29';
         const ipHash = await sha256Hex(clientIp);
         testEnv.DB.prepare(
-            `INSERT INTO volunteer_login_attempts
+            `INSERT INTO approver_login_attempts
        (program_id, ip_hash, window_start, attempt_count, locked_until)
        VALUES (?, ?, ?, 29, NULL)`,
         ).run(program.id, ipHash, new Date().toISOString());
 
         const responses = await Promise.all([
-            volunteerLogin(
+            approverLogin(
                 {
                     programSlug: program.slug,
-                    loginId: 'volunteer@example.com',
+                    loginId: 'approver@example.com',
                     password: 'correct-pass-1',
                 },
                 buildTestEnv(),
                 clientIp,
             ),
-            volunteerLogin(
+            approverLogin(
                 {
                     programSlug: program.slug,
-                    loginId: 'volunteer@example.com',
+                    loginId: 'approver@example.com',
                     password: 'correct-pass-1',
                 },
                 buildTestEnv(),
@@ -386,7 +386,7 @@ describe('volunteer auth and admin volunteer access', () => {
         // this port; flagged for follow-up rather than silently patched here.
         const row = testEnv.DB.prepare(
             `SELECT attempt_count as attemptCount, locked_until as lockedUntil
-       FROM volunteer_login_attempts
+       FROM approver_login_attempts
        WHERE program_id = ? AND ip_hash = ?`,
         ).get(program.id, ipHash) as
             { attemptCount: number; lockedUntil: string | null } | undefined;
@@ -394,14 +394,14 @@ describe('volunteer auth and admin volunteer access', () => {
     });
 
     it('uses only the program aggregate limiter when CF-Connecting-IP is missing', async () => {
-        const program = await seedVolunteerProgram('patna-volunteer-headerless');
-        await configureVolunteer(program.id, 'volunteer@example.com', 'correct-pass-1');
+        const program = await seedApproverProgram('patna-approver-headerless');
+        await configureApprover(program.id, 'approver@example.com', 'correct-pass-1');
 
         for (let attempt = 1; attempt <= 31; attempt += 1) {
-            const response = await volunteerLogin(
+            const response = await approverLogin(
                 {
                     programSlug: program.slug,
-                    loginId: 'volunteer@example.com',
+                    loginId: 'approver@example.com',
                     password: 'wrong-pass-1',
                 },
                 buildTestEnv(),
@@ -412,14 +412,14 @@ describe('volunteer auth and admin volunteer access', () => {
 
         const rows = testEnv.DB.prepare(
             `SELECT ip_hash as ipHash, attempt_count as attemptCount
-       FROM volunteer_login_attempts WHERE program_id = ?`,
+       FROM approver_login_attempts WHERE program_id = ?`,
         ).all(program.id) as Array<{ ipHash: string; attemptCount: number }>;
         expect(rows).toEqual([{ ipHash: '', attemptCount: 31 }]);
 
-        const success = await volunteerLogin(
+        const success = await approverLogin(
             {
                 programSlug: program.slug,
-                loginId: 'volunteer@example.com',
+                loginId: 'approver@example.com',
                 password: 'correct-pass-1',
             },
             buildTestEnv(),
@@ -429,14 +429,14 @@ describe('volunteer auth and admin volunteer access', () => {
     });
 
     it('rejects a correct credential that arrives beyond a concurrent program burst cap', async () => {
-        const program = await seedVolunteerProgram('patna-volunteer-burst');
-        await configureVolunteer(program.id, 'volunteer@example.com', 'correct-pass-1');
+        const program = await seedApproverProgram('patna-approver-burst');
+        await configureApprover(program.id, 'approver@example.com', 'correct-pass-1');
 
         const attempts = Array.from({ length: 100 }, (_, attempt) =>
-            volunteerLogin(
+            approverLogin(
                 {
                     programSlug: program.slug,
-                    loginId: 'volunteer@example.com',
+                    loginId: 'approver@example.com',
                     password: 'wrong-pass-1',
                 },
                 buildTestEnv(),
@@ -447,23 +447,23 @@ describe('volunteer auth and admin volunteer access', () => {
         expect(initialResponses.every((response) => response.status === 401)).toBe(true);
         const aggregateBeforeCap = testEnv.DB.prepare(
             `SELECT attempt_count as attemptCount
-       FROM volunteer_login_attempts WHERE program_id = ? AND ip_hash = ''`,
+       FROM approver_login_attempts WHERE program_id = ? AND ip_hash = ''`,
         ).get(program.id) as { attemptCount: number } | undefined;
         expect(aggregateBeforeCap?.attemptCount).toBe(100);
 
-        const thresholdFailure = volunteerLogin(
+        const thresholdFailure = approverLogin(
             {
                 programSlug: program.slug,
-                loginId: 'volunteer@example.com',
+                loginId: 'approver@example.com',
                 password: 'wrong-pass-1',
             },
             buildTestEnv(),
             '203.0.113.199',
         );
-        const correct = volunteerLogin(
+        const correct = approverLogin(
             {
                 programSlug: program.slug,
-                loginId: 'volunteer@example.com',
+                loginId: 'approver@example.com',
                 password: 'correct-pass-1',
             },
             buildTestEnv(),
@@ -476,16 +476,16 @@ describe('volunteer auth and admin volunteer access', () => {
             error: 'too_many_attempts',
         });
 
-        const volunteers = new VolunteerRepository(testEnv.DB, testEnv.TRANSLATOR_PASSWORD_PEPPER);
-        expect(await volunteers.countActiveSessions(program.id)).toBe(0);
+        const approvers = new ApproverRepository(testEnv.DB, testEnv.TRANSLATOR_PASSWORD_PEPPER);
+        expect(await approvers.countActiveSessions(program.id)).toBe(0);
     });
 
     it('supports generated and custom passwords, rejects short passwords, and invalidates sessions on reset', async () => {
-        const program = await seedVolunteerProgram('patna-volunteer-admin-reset');
+        const program = await seedApproverProgram('patna-approver-admin-reset');
         const cookie = await adminCookie();
 
         const generateResponse = await request(
-            `/api/admin/programs/${program.id}/volunteer-access`,
+            `/api/admin/programs/${program.id}/approver-access`,
             {
                 method: 'PUT',
                 headers: {
@@ -506,14 +506,14 @@ describe('volunteer auth and admin volunteer access', () => {
         expect(generated.loginId).toBe('generated@example.com');
         expect(generated.generatedPassword).toMatch(/^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{10}$/);
 
-        const generatedLogin = await volunteerLogin({
+        const generatedLogin = await approverLogin({
             programSlug: program.slug,
             loginId: generated.loginId,
             password: generated.generatedPassword ?? '',
         });
         expect(generatedLogin.status).toBe(200);
 
-        const shortPassword = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const shortPassword = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'PUT',
             headers: {
                 Cookie: cookie,
@@ -527,7 +527,7 @@ describe('volunteer auth and admin volunteer access', () => {
         expect(shortPassword.status).toBe(400);
         expect(await shortPassword.json()).toEqual({ error: 'validation_error' });
 
-        const customResponse = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const customResponse = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'PUT',
             headers: {
                 Cookie: cookie,
@@ -546,7 +546,7 @@ describe('volunteer auth and admin volunteer access', () => {
             activeSessionCount: 0,
         });
 
-        const customLogin = await volunteerLogin({
+        const customLogin = await approverLogin({
             programSlug: program.slug,
             loginId: 'custom@example.com',
             password: 'custom-pass-2',
@@ -554,7 +554,7 @@ describe('volunteer auth and admin volunteer access', () => {
         expect(customLogin.status).toBe(200);
         const oldCookie = customLogin.headers.get('set-cookie')?.split(';')[0] ?? '';
 
-        const getConfigured = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const getConfigured = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'GET',
             headers: { Cookie: cookie },
         });
@@ -566,7 +566,7 @@ describe('volunteer auth and admin volunteer access', () => {
             activeSessionCount: 1,
         });
 
-        const reset = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const reset = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'PUT',
             headers: {
                 Cookie: cookie,
@@ -579,34 +579,34 @@ describe('volunteer auth and admin volunteer access', () => {
         });
         expect(reset.status).toBe(200);
 
-        const oldSession = await volunteerSession(oldCookie);
+        const oldSession = await approverSession(oldCookie);
         expect(oldSession.status).toBe(401);
         expect(await oldSession.json()).toEqual({
-            error: 'volunteer_auth_required',
+            error: 'approver_auth_required',
         });
     });
 
-    it('slides idle expiry, enforces absolute expiry, and hashes session tokens with the volunteer secret', async () => {
-        const program = await seedVolunteerProgram('patna-volunteer-session');
-        const repo = new VolunteerRepository(testEnv.DB, testEnv.TRANSLATOR_PASSWORD_PEPPER);
-        await repo.upsertAccount(program.id, 'volunteer@example.com', 'correct-pass-1');
+    it('slides idle expiry, enforces absolute expiry, and hashes session tokens with the approver secret', async () => {
+        const program = await seedApproverProgram('patna-approver-session');
+        const repo = new ApproverRepository(testEnv.DB, testEnv.TRANSLATOR_PASSWORD_PEPPER);
+        await repo.upsertAccount(program.id, 'approver@example.com', 'correct-pass-1');
 
         const { token, session } = await repo.createSession(
             program.id,
-            testEnv.VOLUNTEER_SESSION_SECRET!,
+            testEnv.APPROVER_SESSION_SECRET!,
         );
         const stored = testEnv.DB.prepare(
             `SELECT session_hash as sessionHash, expires_at as expiresAt, absolute_expires_at as absoluteExpiresAt
-      FROM volunteer_sessions
+      FROM approver_sessions
       WHERE id = ?`,
         ).get(session.id) as
             { sessionHash: string; expiresAt: string; absoluteExpiresAt: string } | undefined;
         expect(stored?.sessionHash).toBe(
-            await sha256Hex(token + testEnv.VOLUNTEER_SESSION_SECRET!),
+            await sha256Hex(token + testEnv.APPROVER_SESSION_SECRET!),
         );
 
         testEnv.DB.prepare(
-            `UPDATE volunteer_sessions
+            `UPDATE approver_sessions
         SET expires_at = ?, absolute_expires_at = ?
         WHERE id = ?`,
         ).run(
@@ -616,19 +616,19 @@ describe('volunteer auth and admin volunteer access', () => {
         );
 
         const beforeTouch = testEnv.DB.prepare(
-            `SELECT expires_at as expiresAt FROM volunteer_sessions WHERE id = ?`,
+            `SELECT expires_at as expiresAt FROM approver_sessions WHERE id = ?`,
         ).get(session.id) as { expiresAt: string } | undefined;
         const touched = await repo.touchSession(session.id);
         expect(touched).not.toBeNull();
         const afterTouch = testEnv.DB.prepare(
-            `SELECT expires_at as expiresAt FROM volunteer_sessions WHERE id = ?`,
+            `SELECT expires_at as expiresAt FROM approver_sessions WHERE id = ?`,
         ).get(session.id) as { expiresAt: string } | undefined;
         expect(Date.parse(afterTouch?.expiresAt ?? '')).toBeGreaterThan(
             Date.parse(beforeTouch?.expiresAt ?? ''),
         );
 
         testEnv.DB.prepare(
-            `UPDATE volunteer_sessions
+            `UPDATE approver_sessions
         SET absolute_expires_at = ?, expires_at = ?
         WHERE id = ?`,
         ).run(
@@ -636,24 +636,24 @@ describe('volunteer auth and admin volunteer access', () => {
             new Date(Date.now() + 60_000).toISOString(),
             session.id,
         );
-        expect(await repo.getSession(token, testEnv.VOLUNTEER_SESSION_SECRET!)).toBeNull();
+        expect(await repo.getSession(token, testEnv.APPROVER_SESSION_SECRET!)).toBeNull();
     });
 
     it('approves listener claims by claimId or shortCode and maps superseded, revoked, and cross-program cases', async () => {
-        const program = await seedVolunteerProgram('patna-volunteer-approve');
-        const otherProgram = await seedVolunteerProgram('delhi-volunteer-approve');
-        await configureVolunteer(program.id, 'volunteer@example.com', 'correct-pass-1');
-        await configureVolunteer(otherProgram.id, 'other@example.com', 'correct-pass-2');
+        const program = await seedApproverProgram('patna-approver-approve');
+        const otherProgram = await seedApproverProgram('delhi-approver-approve');
+        await configureApprover(program.id, 'approver@example.com', 'correct-pass-1');
+        await configureApprover(otherProgram.id, 'other@example.com', 'correct-pass-2');
 
-        const login = await volunteerLogin({
+        const login = await approverLogin({
             programSlug: program.slug,
-            loginId: 'volunteer@example.com',
+            loginId: 'approver@example.com',
             password: 'correct-pass-1',
         });
         const cookie = login.headers.get('set-cookie')?.split(';')[0] ?? '';
 
         const claimById = await createClaim(program.slug, 'client-by-id');
-        const approveById = await request('/api/volunteer/approve', {
+        const approveById = await request('/api/approver/approve', {
             method: 'POST',
             headers: {
                 Cookie: cookie,
@@ -667,7 +667,7 @@ describe('volunteer auth and admin volunteer access', () => {
             already: false,
         });
 
-        const approveAlready = await request('/api/volunteer/approve', {
+        const approveAlready = await request('/api/approver/approve', {
             method: 'POST',
             headers: {
                 Cookie: cookie,
@@ -682,7 +682,7 @@ describe('volunteer auth and admin volunteer access', () => {
         });
 
         const claimByCode = await createClaim(program.slug, 'client-by-code');
-        const approveByCode = await request('/api/volunteer/approve', {
+        const approveByCode = await request('/api/approver/approve', {
             method: 'POST',
             headers: {
                 Cookie: cookie,
@@ -699,7 +699,7 @@ describe('volunteer auth and admin volunteer access', () => {
         const repo = new ListenerAccessRepository(testEnv.DB);
         const supersededFirst = await createClaim(program.slug, 'client-superseded');
         await createClaim(program.slug, 'client-superseded');
-        const superseded = await request('/api/volunteer/approve', {
+        const superseded = await request('/api/approver/approve', {
             method: 'POST',
             headers: {
                 Cookie: cookie,
@@ -713,7 +713,7 @@ describe('volunteer auth and admin volunteer access', () => {
         const revokedClaim = await createClaim(program.slug, 'client-revoked');
         await repo.approveClaim(program.id, { claimId: revokedClaim.claimId }, 'scan');
         await repo.revokeForClient(program.id, 'client-revoked');
-        const revoked = await request('/api/volunteer/approve', {
+        const revoked = await request('/api/approver/approve', {
             method: 'POST',
             headers: {
                 Cookie: cookie,
@@ -725,7 +725,7 @@ describe('volunteer auth and admin volunteer access', () => {
         expect(await revoked.json()).toEqual({ error: 'claim_revoked' });
 
         const otherProgramClaim = await createClaim(otherProgram.slug, 'client-other');
-        const crossProgram = await request('/api/volunteer/approve', {
+        const crossProgram = await request('/api/approver/approve', {
             method: 'POST',
             headers: {
                 Cookie: cookie,

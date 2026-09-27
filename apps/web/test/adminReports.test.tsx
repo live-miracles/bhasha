@@ -106,7 +106,7 @@ function eventDetail(): AdminProgramDetail {
         urls: {
             listenerUrl: '/test',
             translatorUrl: '/translator/test',
-            volunteerUrl: '/test/volunteer',
+            approverUrl: '/test/approver',
         },
         qrPayload: '{}',
         suggestedQrFilename: 'qrcode.svg',
@@ -849,7 +849,7 @@ describe('ListenerReportPanel', () => {
         urls: {
             listenerUrl: '/test',
             translatorUrl: '/translator/test',
-            volunteerUrl: '/test/volunteer',
+            approverUrl: '/test/approver',
         },
         qrPayload: '{}',
         suggestedQrFilename: 'qrcode.svg',
@@ -1200,12 +1200,12 @@ describe('ListenerReportPanel', () => {
         expect(screen.getByRole('columnheader', { name: 'Approval status' })).toBeInTheDocument();
         expect(screen.getByRole('columnheader', { name: 'Approved at' })).toBeInTheDocument();
         expect(screen.getByRole('columnheader', { name: 'Approved via' })).toBeInTheDocument();
-        expect(screen.getByText(/volunteer/)).toBeInTheDocument();
+        expect(screen.getByText(/approver/)).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
         expect(
             screen.getByText(
-                "Revoke access for this device? They'll need a volunteer to re-approve them.",
+                "Revoke access for this device? They'll need a approver to re-approve them.",
             ),
         ).toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Revoke access' }));

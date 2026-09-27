@@ -84,12 +84,12 @@ describe('ApiClient', () => {
         const client = new ApiClient({ fetch });
 
         await expect(
-            client.put('/api/admin/programs/program_1/volunteer-access', {
+            client.put('/api/admin/programs/program_1/approver-access', {
                 loginId: 'desk-team',
             }),
         ).resolves.toEqual({ ok: true });
 
-        expect(fetch).toHaveBeenCalledWith('/api/admin/programs/program_1/volunteer-access', {
+        expect(fetch).toHaveBeenCalledWith('/api/admin/programs/program_1/approver-access', {
             body: JSON.stringify({ loginId: 'desk-team' }),
             credentials: 'same-origin',
             headers: {

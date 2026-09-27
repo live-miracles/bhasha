@@ -76,7 +76,7 @@ export function ListenerAccessGate({
                     <>
                         <h2 className="lp-gate-status">Almost there</h2>
                         <p className="lp-gate-subtext listener-access-instruction">
-                            Show this screen to a volunteer, or have them scan your code.
+                            Show this screen to an approver, or have them scan your code.
                         </p>
                         <div className="listener-access-qr-card">
                             <QRCodeSVG
@@ -84,8 +84,8 @@ export function ListenerAccessGate({
                                 className="listener-access-qr"
                                 marginSize={4}
                                 size={260}
-                                title="Volunteer approval code"
-                                value={`${metadata.urls.volunteerUrl}#claim=${claim.claimId}`}
+                                title="Approver approval code"
+                                value={`${metadata.urls.approverUrl}#claim=${claim.claimId}`}
                             />
                         </div>
                         <p
@@ -109,7 +109,7 @@ export function ListenerAccessGate({
                         ) : null}
                         <p className="listener-access-waiting" role="status" aria-live="polite">
                             <span aria-hidden="true" className="listener-access-pulse" />
-                            Waiting for a volunteer…
+                            Waiting for an approver…
                         </p>
                         {storageDegraded ? (
                             <p className="listener-alert" role="status">

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { VolunteerRepository } from '../src/db/volunteerRepository';
+import { ApproverRepository } from '../src/db/approverRepository';
 import { createApp } from '../src/index';
 import { adminCookie, buildTestEnv, seedAdmin, seedProgram, seedUser, testEnv } from './test-env';
 
@@ -9,11 +9,11 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
     return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
-describe('admin volunteer credential management', () => {
+describe('admin approver credential management', () => {
     beforeEach(async () => {
-        await testEnv.DB.exec('DELETE FROM volunteer_sessions');
-        await testEnv.DB.exec('DELETE FROM volunteer_login_attempts');
-        await testEnv.DB.exec('DELETE FROM volunteer_accounts');
+        await testEnv.DB.exec('DELETE FROM approver_sessions');
+        await testEnv.DB.exec('DELETE FROM approver_login_attempts');
+        await testEnv.DB.exec('DELETE FROM approver_accounts');
         await testEnv.DB.exec('DELETE FROM admin_sessions');
         await testEnv.DB.exec('DELETE FROM programs');
         await testEnv.DB.exec('DELETE FROM users');
@@ -24,7 +24,7 @@ describe('admin volunteer credential management', () => {
         const program = await seedProgram(testEnv);
         const cookie = await adminCookie();
 
-        const response = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const response = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'GET',
             headers: { Cookie: cookie },
         });
@@ -45,7 +45,7 @@ describe('admin volunteer credential management', () => {
         const program = await seedProgram(testEnv);
         const cookie = await adminCookie();
 
-        const response = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const response = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'PUT',
             headers: { Cookie: cookie },
             body: JSON.stringify({ loginId: '  Gate.Team ' }),
@@ -66,13 +66,13 @@ describe('admin volunteer credential management', () => {
         });
         expect(body.generatedPassword).toMatch(/^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{10}$/);
         expect(
-            await new VolunteerRepository(
+            await new ApproverRepository(
                 testEnv.DB,
                 testEnv.TRANSLATOR_PASSWORD_PEPPER,
             ).authenticate(program.id, 'gate.team', body.generatedPassword),
         ).toBe(true);
 
-        const getResponse = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const getResponse = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'GET',
             headers: { Cookie: cookie },
         });
@@ -86,7 +86,7 @@ describe('admin volunteer credential management', () => {
         const program = await seedProgram(testEnv);
         const cookie = await adminCookie();
 
-        const custom = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const custom = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'PUT',
             headers: { Cookie: cookie },
             body: JSON.stringify({ loginId: 'gate', password: 'custom-pass' }),
@@ -96,7 +96,7 @@ describe('admin volunteer credential management', () => {
         expect(customBody).not.toHaveProperty('generatedPassword');
         expect(JSON.stringify(customBody)).not.toContain('custom-pass');
 
-        const tooShort = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const tooShort = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'PUT',
             headers: { Cookie: cookie },
             body: JSON.stringify({ loginId: 'gate', password: 'short' }),
@@ -109,20 +109,20 @@ describe('admin volunteer credential management', () => {
         await seedAdmin(testEnv);
         const program = await seedProgram(testEnv);
         const cookie = await adminCookie();
-        const volunteers = new VolunteerRepository(testEnv.DB, testEnv.TRANSLATOR_PASSWORD_PEPPER);
-        await volunteers.upsertAccount(program.id, 'gate', 'old-password');
-        const oldSession = await volunteers.createSession(
+        const approvers = new ApproverRepository(testEnv.DB, testEnv.TRANSLATOR_PASSWORD_PEPPER);
+        await approvers.upsertAccount(program.id, 'gate', 'old-password');
+        const oldSession = await approvers.createSession(
             program.id,
-            testEnv.VOLUNTEER_SESSION_SECRET ?? '',
+            testEnv.APPROVER_SESSION_SECRET ?? '',
         );
 
-        const before = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const before = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'GET',
             headers: { Cookie: cookie },
         });
         expect(await before.json()).toMatchObject({ activeSessionCount: 1 });
 
-        const reset = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const reset = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'PUT',
             headers: { Cookie: cookie },
             body: JSON.stringify({ loginId: 'gate', password: 'new-password' }),
@@ -130,17 +130,17 @@ describe('admin volunteer credential management', () => {
         expect(reset.status).toBe(200);
         expect(await reset.json()).toMatchObject({ activeSessionCount: 0 });
 
-        const oldCookie = `volunteer_session=${oldSession.token}`;
-        const oldSessionResponse = await request('/api/volunteer/session', {
+        const oldCookie = `approver_session=${oldSession.token}`;
+        const oldSessionResponse = await request('/api/approver/session', {
             method: 'GET',
             headers: { Cookie: oldCookie },
         });
         expect(oldSessionResponse.status).toBe(401);
         expect(await oldSessionResponse.json()).toEqual({
-            error: 'volunteer_auth_required',
+            error: 'approver_auth_required',
         });
-        expect(await volunteers.authenticate(program.id, 'gate', 'old-password')).toBe(false);
-        expect(await volunteers.authenticate(program.id, 'gate', 'new-password')).toBe(true);
+        expect(await approvers.authenticate(program.id, 'gate', 'old-password')).toBe(false);
+        expect(await approvers.authenticate(program.id, 'gate', 'new-password')).toBe(true);
     });
 
     it('lets the owning user read and update, but a non-owning user gets 404 on both', async () => {
@@ -150,26 +150,26 @@ describe('admin volunteer credential management', () => {
         const ownerCookie = await adminCookie('owner_user');
         const otherCookie = await adminCookie('other_user');
 
-        const ownerRead = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const ownerRead = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'GET',
             headers: { Cookie: ownerCookie },
         });
         expect(ownerRead.status).toBe(200);
 
-        const ownerWrite = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const ownerWrite = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'PUT',
             headers: { Cookie: ownerCookie },
             body: JSON.stringify({ loginId: 'gate' }),
         });
         expect(ownerWrite.status).toBe(200);
 
-        const otherRead = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const otherRead = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'GET',
             headers: { Cookie: otherCookie },
         });
         expect(otherRead.status).toBe(404);
 
-        const otherWrite = await request(`/api/admin/programs/${program.id}/volunteer-access`, {
+        const otherWrite = await request(`/api/admin/programs/${program.id}/approver-access`, {
             method: 'PUT',
             headers: { Cookie: otherCookie },
             body: JSON.stringify({ loginId: 'gate' }),

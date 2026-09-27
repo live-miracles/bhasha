@@ -56,7 +56,7 @@ apps/
                               RoomServiceClient/WebhookReceiver (client.ts), webhook
                               handler (webhook.ts)
       presence/              in-process presence manager and stream-state derivation
-      auth/                  admin/translator/volunteer cookie auth
+      auth/                  admin/translator/approver cookie auth
       domain/                validation, readiness, reports, retention service
     test/                    API tests using Vitest against a real temp-file/in-memory
                               better-sqlite3 DB
@@ -140,7 +140,7 @@ Dispatch order:
 4. public routes: `apps/api/src/routes/public.ts`
 5. admin routes: `apps/api/src/routes/admin.ts`
 6. translator routes: `apps/api/src/routes/translator.ts`
-7. volunteer routes: `apps/api/src/routes/volunteer.ts`
+7. approver routes: `apps/api/src/routes/approver.ts`
 8. listener routes: `apps/api/src/routes/listeners.ts`
 9. an unmatched `/api/*` path is a hard 404; anything else falls through to
    static-file serving from `WEB_DIST_PATH`, then the `index.html` SPA fallback
@@ -446,7 +446,7 @@ Important env vars (see `.env.example` for full descriptions of each):
 - `ADMIN_SESSION_SECRET`
 - `TRANSLATOR_PASSWORD_PEPPER`
 - `TRANSLATOR_SESSION_SECRET`
-- `VOLUNTEER_SESSION_SECRET`
+- `APPROVER_SESSION_SECRET`
 - `LIVEKIT_URL`
 - `LIVEKIT_API_KEY`
 - `LIVEKIT_API_SECRET`

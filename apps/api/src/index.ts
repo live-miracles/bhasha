@@ -13,7 +13,7 @@ import { handleAdminRoutes } from './routes/admin';
 import { handleListenerRoutes } from './routes/listeners';
 import { handlePublicRoutes } from './routes/public';
 import { handleTranslatorRoutes } from './routes/translator';
-import { handleVolunteerRoutes } from './routes/volunteer';
+import { handleApproverRoutes } from './routes/approver';
 import { handleLiveKitWebhook } from './livekit/webhook';
 import { ListenerRepository } from './db/listenerRepository';
 import { ProgramRepository } from './db/programRepository';
@@ -126,9 +126,9 @@ export function createApp(env: Env): Hono {
                 return translatorResponse;
             }
 
-            const volunteerResponse = await handleVolunteerRoutes(request, env, url, ctx);
-            if (volunteerResponse) {
-                return volunteerResponse;
+            const approverResponse = await handleApproverRoutes(request, env, url, ctx);
+            if (approverResponse) {
+                return approverResponse;
             }
 
             const listenerResponse = await handleListenerRoutes(request, env, url, ctx);
@@ -229,7 +229,7 @@ export async function buildEnvFromProcess(): Promise<Env> {
         ADMIN_SESSION_SECRET: requireEnvVar('ADMIN_SESSION_SECRET'),
         TRANSLATOR_PASSWORD_PEPPER: requireEnvVar('TRANSLATOR_PASSWORD_PEPPER'),
         TRANSLATOR_SESSION_SECRET: requireEnvVar('TRANSLATOR_SESSION_SECRET'),
-        VOLUNTEER_SESSION_SECRET: process.env.VOLUNTEER_SESSION_SECRET,
+        APPROVER_SESSION_SECRET: process.env.APPROVER_SESSION_SECRET,
         ...(process.env.REALTIME_SMOKE_ENABLED !== undefined
             ? { REALTIME_SMOKE_ENABLED: process.env.REALTIME_SMOKE_ENABLED }
             : {}),

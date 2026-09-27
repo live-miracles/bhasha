@@ -5,7 +5,7 @@ export type WorkerEnv = {
     ADMIN_SESSION_SECRET: string;
     TRANSLATOR_PASSWORD_PEPPER: string;
     TRANSLATOR_SESSION_SECRET: string;
-    VOLUNTEER_SESSION_SECRET?: string | undefined;
+    APPROVER_SESSION_SECRET?: string | undefined;
     REALTIME_SMOKE_ENABLED?: string;
     PRESENCE_LIVE_COUNT?: string;
     // Path to the better-sqlite3 database file. Defaults to ./data/bhasha.sqlite;

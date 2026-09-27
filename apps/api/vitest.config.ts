@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
     test: {
         setupFiles: ['./test/apply-migrations.ts'],
-        // Several admin/translator/volunteer auth suites run real PBKDF2-HMAC-
+        // Several admin/translator/approver auth suites run real PBKDF2-HMAC-
         // SHA-256 (100,000 iterations) derivations per login/seed call. Running
         // many test files in parallel (Vitest's default) puts real CPU
         // contention on those derivations, which can push a single test well

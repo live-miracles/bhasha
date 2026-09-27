@@ -83,7 +83,7 @@ function metadata(
         urls: {
             listenerUrl: 'https://bhasha.test/patna-event-2026',
             translatorUrl: 'https://bhasha.test/patna-event-2026/translate',
-            volunteerUrl: 'https://bhasha.test/patna-event-2026/volunteer',
+            approverUrl: 'https://bhasha.test/patna-event-2026/approver',
         },
     };
 
@@ -364,7 +364,7 @@ describe('ListenerRoute', () => {
         expect(screen.queryByText(/open this page in Safari or Chrome/i)).not.toBeInTheDocument();
     });
 
-    it('renders the access gate and server volunteer QR when access control is on with no token', async () => {
+    it('renders the access gate and server approver QR when access control is on with no token', async () => {
         const api = listenerApi();
         const realtime = realtimeClient();
 
@@ -390,7 +390,7 @@ describe('ListenerRoute', () => {
         const qr = screen.getByRole('img', { name: 'Listener access QR' });
         expect(qr).toHaveAttribute(
             'data-qr-value',
-            'https://bhasha.test/patna-event-2026/volunteer#claim=claim_1',
+            'https://bhasha.test/patna-event-2026/approver#claim=claim_1',
         );
         expect(qr).toHaveAttribute('data-margin-size', '4');
         expect(qr).toHaveAttribute('data-size', '260');
@@ -399,7 +399,7 @@ describe('ListenerRoute', () => {
             'aria-label',
             'Access code K 7 X Q A F',
         );
-        expect(screen.getByText('Waiting for a volunteer…')).toBeInTheDocument();
+        expect(screen.getByText('Waiting for a approver…')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Listen to/ })).not.toBeInTheDocument();
         expect(api.claimAccess).toHaveBeenCalledWith({
             programSlug: 'patna-event-2026',
@@ -524,7 +524,7 @@ describe('ListenerRoute', () => {
         pendingStatus.resolve({ state: 'pending' });
 
         expect(
-            await screen.findByText('Not yet — ask a volunteer nearby for access.'),
+            await screen.findByText('Not yet — ask a approver nearby for access.'),
         ).toBeInTheDocument();
         expect(publicClient.fetchProgram).toHaveBeenCalledTimes(2);
         expect(accessStatus).toHaveBeenCalledWith({
@@ -904,7 +904,7 @@ describe('ListenerRoute', () => {
 
         expect(await screen.findByRole('heading', { name: 'Almost there' })).toBeInTheDocument();
         expect(
-            screen.getByText('Your access was removed. Ask a volunteer to approve you again.'),
+            screen.getByText('Your access was removed. Ask a approver to approve you again.'),
         ).toBeInTheDocument();
         expect(realtime.subscribe).toHaveBeenCalledTimes(1);
         expect(realtime.subscribe).toHaveBeenCalledWith(

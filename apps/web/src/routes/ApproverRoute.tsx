@@ -4,11 +4,11 @@ import { Button, MantineProvider, Paper, Stack, TextInput, Title } from '@mantin
 import { ApiError } from '../api/client';
 import { createPublicApi, type PublicApi } from '../api/public';
 import {
-    createVolunteerApi,
-    isVolunteerApiError,
-    type VolunteerApi,
-    type VolunteerApproveInput,
-} from '../api/volunteer';
+    createApproverApi,
+    isApproverApiError,
+    type ApproverApi,
+    type ApproverApproveInput,
+} from '../api/approver';
 import { detectInAppBrowser } from './inAppBrowser';
 import { createQrScanner, normalizeQrScannerError } from './qrScanner';
 import { bhashaTheme } from '../app/theme';
@@ -36,26 +36,26 @@ type ApprovalOutcome = {
     kind: 'approved' | 'already' | 'not_found' | 'revoked' | 'rate_limited' | 'error';
 };
 
-interface VolunteerFeedback {
+interface ApproverFeedback {
     kind: FeedbackKind;
     message: string;
 }
 
-export interface VolunteerRouteProps {
+export interface ApproverRouteProps {
     programSlug: string;
     publicApi?: PublicApi;
-    volunteerApi?: VolunteerApi;
+    approverApi?: ApproverApi;
 }
 
-export function VolunteerRoute({
+export function ApproverRoute({
     programSlug,
     publicApi: publicApiProp,
-    volunteerApi: volunteerApiProp,
-}: VolunteerRouteProps) {
+    approverApi: approverApiProp,
+}: ApproverRouteProps) {
     const publicApi = useMemo(() => publicApiProp ?? createPublicApi(), [publicApiProp]);
-    const volunteerApi = useMemo(
-        () => volunteerApiProp ?? createVolunteerApi(),
-        [volunteerApiProp],
+    const approverApi = useMemo(
+        () => approverApiProp ?? createApproverApi(),
+        [approverApiProp],
     );
     const inAppBrowser = useMemo(() => detectInAppBrowser(), []);
     const [auth, setAuth] = useState<AuthState>('checking');
@@ -68,7 +68,7 @@ export function VolunteerRoute({
     const [manualCode, setManualCode] = useState('');
     const [manualPending, setManualPending] = useState(false);
     const [cameraError, setCameraError] = useState<'denied' | 'unavailable' | null>(null);
-    const [feedback, setFeedback] = useState<VolunteerFeedback | null>(null);
+    const [feedback, setFeedback] = useState<ApproverFeedback | null>(null);
     const [flashKind, setFlashKind] = useState<FeedbackKind | null>(null);
     const [pendingDeepLink, setPendingDeepLink] = useState(() =>
         claimFromHash(window.location.hash),
@@ -112,7 +112,7 @@ export function VolunteerRoute({
             }
 
             try {
-                const currentSession = await volunteerApi.session();
+                const currentSession = await approverApi.session();
                 if (!active) {
                     return;
                 }
@@ -129,7 +129,7 @@ export function VolunteerRoute({
         return () => {
             active = false;
         };
-    }, [programSlug, publicApi, volunteerApi]);
+    }, [programSlug, publicApi, approverApi]);
 
     useEffect(() => {
         return () => {
@@ -148,7 +148,7 @@ export function VolunteerRoute({
         }
 
         let active = true;
-        void volunteerApi
+        void approverApi
             .logout()
             .catch(() => undefined)
             .finally(() => {
@@ -160,9 +160,9 @@ export function VolunteerRoute({
         return () => {
             active = false;
         };
-    }, [auth, volunteerApi]);
+    }, [auth, approverApi]);
 
-    const showFeedback = useCallback((next: VolunteerFeedback) => {
+    const showFeedback = useCallback((next: ApproverFeedback) => {
         if (flashTimerRef.current) {
             clearTimeout(flashTimerRef.current);
         }
@@ -183,9 +183,9 @@ export function VolunteerRoute({
     }, []);
 
     const approve = useCallback(
-        async (input: VolunteerApproveInput, displayCode: string): Promise<ApprovalOutcome> => {
+        async (input: ApproverApproveInput, displayCode: string): Promise<ApprovalOutcome> => {
             try {
-                const result = await volunteerApi.approve(input);
+                const result = await approverApi.approve(input);
                 if (result.already) {
                     showFeedback({
                         kind: 'already',
@@ -202,7 +202,7 @@ export function VolunteerRoute({
                 navigator.vibrate?.(50);
                 return { kind: 'approved' };
             } catch (error) {
-                if (isVolunteerApiError(error)) {
+                if (isApproverApiError(error)) {
                     if (error.code === 'claim_not_found') {
                         showFeedback({
                             kind: 'notFound',
@@ -224,10 +224,10 @@ export function VolunteerRoute({
                         });
                         return { kind: 'rate_limited' };
                     }
-                    if (error.code === 'volunteer_auth_required') {
+                    if (error.code === 'approver_auth_required') {
                         setAuth('loggedOut');
                         setPassword('');
-                        setLoginError('Your volunteer session ended. Log in again.');
+                        setLoginError('Your approver session ended. Log in again.');
                         return { kind: 'error' };
                     }
                 }
@@ -239,7 +239,7 @@ export function VolunteerRoute({
                 return { kind: 'error' };
             }
         },
-        [showFeedback, volunteerApi],
+        [showFeedback, approverApi],
     );
 
     const handleScan = useCallback(
@@ -282,12 +282,12 @@ export function VolunteerRoute({
         setLoginError(null);
         setLoginPending(true);
         try {
-            await volunteerApi.login({
+            await approverApi.login({
                 programSlug,
                 loginId: loginId.trim(),
                 password,
             });
-            const currentSession = await volunteerApi.session();
+            const currentSession = await approverApi.session();
             setProgramName(currentSession.program.name);
             setApprovedCount(currentSession.approvedCount);
             setPassword('');
@@ -343,10 +343,10 @@ export function VolunteerRoute({
 
     return (
         <MantineProvider theme={bhashaTheme} defaultColorScheme="dark">
-            <main aria-label="Volunteer shell" className="shell shell-volunteer">
-                <section className="volunteer-screen">
+            <main aria-label="Approver shell" className="shell shell-approver">
+                <section className="approver-screen">
                     {auth === 'checking' ? (
-                        <p className="translator-checking">Checking volunteer access...</p>
+                        <p className="translator-checking">Checking approver access...</p>
                     ) : null}
 
                     {auth === 'loggingOut' ? (
@@ -361,7 +361,7 @@ export function VolunteerRoute({
 
                     {auth === 'loggedOut' ? (
                         <LoginPage
-                            eyebrow="Volunteer access"
+                            eyebrow="Approver access"
                             heading={programName}
                             identityLabel="Login ID"
                             identityValue={loginId}
@@ -369,14 +369,15 @@ export function VolunteerRoute({
                             onPasswordChange={setPassword}
                             onSubmit={submitLogin}
                             passwordValue={password}
+                            error={loginError}
                             pending={loginPending}
-                            title="Volunteer login"
+                            title="Approver login"
                         />
                     ) : null}
 
                     {auth === 'loggedIn' ? (
                         <>
-                            <header className="volunteer-topbar">
+                            <header className="approver-topbar">
                                 <strong>{approvedCount} approved</strong>
                                 <Button
                                     onClick={() => void logout()}
@@ -387,14 +388,14 @@ export function VolunteerRoute({
                                 </Button>
                             </header>
 
-                            <div className="volunteer-heading">
+                            <div className="approver-heading">
                                 <p className="eyebrow">{programName}</p>
                                 <h1>Approve listener access</h1>
                             </div>
 
                             {pendingDeepLink ? (
                                 <section
-                                    className="volunteer-deep-link-confirm"
+                                    className="approver-deep-link-confirm"
                                     aria-label="Confirm approval"
                                 >
                                     <strong>
@@ -410,7 +411,7 @@ export function VolunteerRoute({
                                             Approve {shortDisplayCode(pendingDeepLink)}
                                         </button>
                                         <button
-                                            className="volunteer-cancel-btn"
+                                            className="approver-cancel-btn"
                                             onClick={dismissDeepLink}
                                             type="button"
                                         >
@@ -422,7 +423,7 @@ export function VolunteerRoute({
 
                             {feedback ? (
                                 <p
-                                    className={`volunteer-result-banner volunteer-result-${feedback.kind}`}
+                                    className={`approver-result-banner approver-result-${feedback.kind}`}
                                     role="status"
                                     aria-live="polite"
                                 >
@@ -431,16 +432,16 @@ export function VolunteerRoute({
                             ) : null}
 
                             <section
-                                className="volunteer-scanner-panel"
+                                className="approver-scanner-panel"
                                 aria-label="Camera scanner"
                             >
                                 <h2>Scan a listener QR code</h2>
-                                <VolunteerScanner
+                                <ApproverScanner
                                     onCameraError={handleCameraError}
                                     onScan={handleScan}
                                 />
                                 {cameraError ? (
-                                    <div className="volunteer-camera-help">
+                                    <div className="approver-camera-help">
                                         <strong>
                                             {cameraError === 'denied'
                                                 ? 'Camera access was denied. Enter the short code instead.'
@@ -449,15 +450,15 @@ export function VolunteerRoute({
                                         <p>
                                             {inAppBrowser.isInApp
                                                 ? 'Open this page in Safari or Chrome to use the camera'
-                                                : "You can also use your phone's Camera app to open the volunteer link."}
+                                                : "You can also use your phone's Camera app to open the approver link."}
                                         </p>
                                     </div>
                                 ) : null}
                             </section>
 
                             <Paper
-                                className={`volunteer-manual-panel${
-                                    cameraError ? ' volunteer-manual-primary' : ''
+                                className={`approver-manual-panel${
+                                    cameraError ? ' approver-manual-primary' : ''
                                 }`}
                                 data-testid="manual-code-panel"
                                 p="md"
@@ -471,8 +472,8 @@ export function VolunteerRoute({
                                         label="Short code"
                                         autoCapitalize="characters"
                                         autoComplete="off"
-                                        className="volunteer-code-input"
-                                        id="volunteer-short-code"
+                                        className="approver-code-input"
+                                        id="approver-short-code"
                                         inputMode="text"
                                         maxLength={12}
                                         onChange={(event) => changeManualCode(event.target.value)}
@@ -494,7 +495,7 @@ export function VolunteerRoute({
                             {flashKind ? (
                                 <div
                                     aria-hidden="true"
-                                    className={`volunteer-result-flash volunteer-result-${flashKind}`}
+                                    className={`approver-result-flash approver-result-${flashKind}`}
                                 />
                             ) : null}
                         </>
@@ -505,7 +506,7 @@ export function VolunteerRoute({
     );
 }
 
-function VolunteerScanner({
+function ApproverScanner({
     onScan,
     onCameraError,
 }: {
@@ -535,7 +536,7 @@ function VolunteerScanner({
     }, [onCameraError, onScan]);
 
     return (
-        <div className="volunteer-video-frame">
+        <div className="approver-video-frame">
             <video
                 aria-label="Scan a listener access QR code"
                 autoPlay
@@ -607,18 +608,18 @@ function useScreenWakeLock(active: boolean) {
 }
 
 function messageForLoginError(error: unknown): string {
-    if (isVolunteerApiError(error)) {
+    if (isApproverApiError(error)) {
         if (error.code === 'invalid_credentials') {
             return "That login or password isn't right. Check with the event organiser.";
         }
         if (error.code === 'too_many_attempts') {
             return 'Too many attempts right now — try again in a minute.';
         }
-        if (error.code === 'volunteer_not_configured') {
-            return "Volunteer access isn't set up for this program. Check with the event organiser.";
+        if (error.code === 'approver_not_configured') {
+            return "Approver access isn't set up for this program. Check with the event organiser.";
         }
         if (error.code === 'service_unavailable') {
-            return 'Volunteer access is unavailable right now. Please try again.';
+            return 'Approver access is unavailable right now. Please try again.';
         }
     }
 

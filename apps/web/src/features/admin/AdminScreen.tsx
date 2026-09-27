@@ -28,7 +28,7 @@ import {
     type ListenerApprovalStatus,
     type AdminProgram,
     type AdminProgramDetail,
-    type AdminProgramVolunteerAccess,
+    type AdminProgramApproverAccess,
     type AdminProgramStatus,
     type AdminReadiness,
     type AdminReportSummary,
@@ -394,8 +394,8 @@ function translatorSvgFilename(filename: string): string {
     return svgFilename(filename).replace(/\.svg$/, '-translator.svg');
 }
 
-function volunteerSvgFilename(filename: string): string {
-    return svgFilename(filename).replace(/\.svg$/, '-volunteer.svg');
+function approverSvgFilename(filename: string): string {
+    return svgFilename(filename).replace(/\.svg$/, '-approver.svg');
 }
 
 function editFormFromProgram(program: AdminProgram) {
@@ -1171,7 +1171,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                     onDelete={() => void deleteSelectedProgram()}
                     onSubmit={updateSelectedProgram}
                 />
-                <VolunteerAccessPanel
+                <ApproverAccessPanel
                     adminApi={adminApi}
                     onAuthExpired={handleAuthExpired}
                     programId={detail.program.id}
@@ -1863,7 +1863,7 @@ function ProgramCreateForm({
                 <Checkbox
                     aria-label="Require listener approval before they can listen"
                     checked={form.accessControlEnabled}
-                    description="Listeners must be approved by a volunteer before they can listen"
+                    description="Listeners must be approved by a approver before they can listen"
                     label="Require listener approval"
                     onChange={(event) =>
                         onChange({
@@ -2041,7 +2041,7 @@ function ProgramDetailForm({
                     <Checkbox
                         aria-label="Require listener approval before they can listen"
                         checked={form.accessControlEnabled}
-                        description="Listeners must be approved by a volunteer before they can listen"
+                        description="Listeners must be approved by a approver before they can listen"
                         disabled={readOnly}
                         label="Require listener approval"
                         onChange={(event) =>
@@ -2129,15 +2129,15 @@ function ProgramDetailForm({
     );
 }
 
-const VOLUNTEER_PASSWORD_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const APPROVER_PASSWORD_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
-function generatedVolunteerPassword(): string {
+function generatedApproverPassword(): string {
     const bytes = new Uint8Array(10);
     crypto.getRandomValues(bytes);
-    return [...bytes].map((byte) => VOLUNTEER_PASSWORD_ALPHABET[byte & 31]).join('');
+    return [...bytes].map((byte) => APPROVER_PASSWORD_ALPHABET[byte & 31]).join('');
 }
 
-function VolunteerAccessPanel({
+function ApproverAccessPanel({
     adminApi,
     programId,
     readOnly,
@@ -2148,7 +2148,7 @@ function VolunteerAccessPanel({
     readOnly: boolean;
     onAuthExpired: () => void;
 }) {
-    const [access, setAccess] = useState<AdminProgramVolunteerAccess | null>(null);
+    const [access, setAccess] = useState<AdminProgramApproverAccess | null>(null);
     const [loginId, setLoginId] = useState('');
     const [password, setPassword] = useState('');
     const [pending, setPending] = useState(false);
@@ -2167,7 +2167,7 @@ function VolunteerAccessPanel({
         setShownPassword(null);
 
         void adminApi
-            .getVolunteerAccess(programId)
+            .getApproverAccess(programId)
             .then((response) => {
                 if (cancelled) return;
                 setAccess(response);
@@ -2196,7 +2196,7 @@ function VolunteerAccessPanel({
         setPending(true);
         setPanelError(null);
         try {
-            const response = await adminApi.updateVolunteerAccess(programId, {
+            const response = await adminApi.updateApproverAccess(programId, {
                 loginId: loginId.trim(),
                 ...(submittedPassword ? { password: submittedPassword } : {}),
             });
@@ -2223,36 +2223,36 @@ function VolunteerAccessPanel({
     }
 
     return (
-        <section aria-label="Volunteer access" className="admin-subsection">
+        <section aria-label="Approver access" className="admin-subsection">
             <Stack gap="xs">
-                <Title order={2}>Volunteer access</Title>
+                <Title order={2}>Approver access</Title>
                 <Text c="dimmed" size="sm">
-                    Shared credentials for event volunteers who approve listener access.
+                    Shared credentials for event approvers who approve listener access.
                 </Text>
             </Stack>
             {access ? (
                 <Paper component="form" mt="md" onSubmit={save} p="md" radius="md" withBorder>
                     <Stack gap="md">
-                        <Paper aria-label="Active volunteer sessions" p="sm" radius="md" withBorder>
+                        <Paper aria-label="Active approver sessions" p="sm" radius="md" withBorder>
                             <Text fw={700}>{access.activeSessionCount} active sessions</Text>
                             <Text c="dimmed" size="sm">
-                                Volunteer sessions
+                                Approver sessions
                             </Text>
                         </Paper>
                         <TextInput
-                            aria-label="Volunteer login ID"
+                            aria-label="Approver login ID"
                             autoComplete="username"
                             disabled={readOnly || pending}
-                            label="Volunteer login ID"
+                            label="Approver login ID"
                             onChange={(event) => setLoginId(event.target.value)}
                             required
                             value={loginId}
                         />
                         <TextInput
-                            aria-label="Volunteer password"
+                            aria-label="Approver password"
                             autoComplete="new-password"
                             disabled={readOnly || pending}
-                            label="Volunteer password"
+                            label="Approver password"
                             minLength={8}
                             onChange={(event) => setPassword(event.target.value)}
                             placeholder={
@@ -2269,20 +2269,20 @@ function VolunteerAccessPanel({
                                 Password last updated {formatISTDateTime(access.passwordUpdatedAt)}
                             </Text>
                         ) : null}
-                        <Alert color="yellow">Saving changes resets all volunteer sessions.</Alert>
+                        <Alert color="yellow">Saving changes resets all approver sessions.</Alert>
                         {panelError ? <Alert color="red">{panelError}</Alert> : null}
                         {readOnly ? null : (
                             <Group>
                                 <Button
                                     disabled={pending}
-                                    onClick={() => setPassword(generatedVolunteerPassword())}
+                                    onClick={() => setPassword(generatedApproverPassword())}
                                     type="button"
                                     variant="default"
                                 >
                                     Generate
                                 </Button>
                                 <Button disabled={pending} loading={pending} type="submit">
-                                    Save volunteer access
+                                    Save approver access
                                 </Button>
                             </Group>
                         )}
@@ -2293,9 +2293,9 @@ function VolunteerAccessPanel({
                     {panelError}
                 </Alert>
             ) : (
-                <Text mt="md">Loading volunteer access…</Text>
+                <Text mt="md">Loading approver access…</Text>
             )}
-            <VolunteerPasswordOnceDialog
+            <ApproverPasswordOnceDialog
                 onClose={() => setShownPassword(null)}
                 password={shownPassword}
             />
@@ -2303,7 +2303,7 @@ function VolunteerAccessPanel({
     );
 }
 
-function VolunteerPasswordOnceDialog({
+function ApproverPasswordOnceDialog({
     password,
     onClose,
 }: {
@@ -2325,7 +2325,7 @@ function VolunteerPasswordOnceDialog({
     }
 
     return (
-        <AdminDialog onClose={onClose} open title="Volunteer password">
+        <AdminDialog onClose={onClose} open title="Approver password">
             <Stack gap="md">
                 <Text>You won't be able to see it again.</Text>
                 <Paper component="code" p="sm" withBorder>
@@ -2423,9 +2423,9 @@ function QrPanel({ detail }: { detail: AdminProgramDetail }) {
                     value={detail.urls.translatorUrl}
                 />
                 <QrCard
-                    filename={volunteerSvgFilename(detail.suggestedQrFilename)}
-                    title="Volunteer QR"
-                    value={detail.urls.volunteerUrl}
+                    filename={approverSvgFilename(detail.suggestedQrFilename)}
+                    title="Approver QR"
+                    value={detail.urls.approverUrl}
                 />
             </SimpleGrid>
         </section>
@@ -3587,7 +3587,7 @@ export function ListenerReportPanel({
                                                     </td>
                                                     <td>
                                                         {connection.approvedAt
-                                                            ? `${connection.approvedVia ?? '—'} · volunteer`
+                                                            ? `${connection.approvedVia ?? '—'} · approver`
                                                             : '—'}
                                                     </td>
                                                     {readOnly ? null : (
@@ -3651,7 +3651,7 @@ export function ListenerReportPanel({
                     }}
                     onConfirm={() => void confirmRevoke()}
                     title="Revoke listener access"
-                    message="Revoke access for this device? They'll need a volunteer to re-approve them."
+                    message="Revoke access for this device? They'll need a approver to re-approve them."
                     confirmLabel="Revoke access"
                     pending={revokePending}
                     error={revokeError}

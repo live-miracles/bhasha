@@ -177,7 +177,7 @@ export async function handlePublicRoutes(
                 urls: {
                     listenerUrl: `${url.origin}${publicPath}`,
                     translatorUrl: `${url.origin}${publicPath}/translate`,
-                    volunteerUrl: `${url.origin}${publicPath}/volunteer`,
+                    approverUrl: `${url.origin}${publicPath}/approver`,
                 },
             },
             {

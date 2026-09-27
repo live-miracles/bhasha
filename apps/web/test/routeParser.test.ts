@@ -29,21 +29,21 @@ describe('parseRoute', () => {
         });
     });
 
-    it('matches volunteer routes with a decoded program slug', () => {
-        expect(parseRoute('/patna-event-2026/volunteer')).toEqual({
-            type: 'volunteer',
+    it('matches approver routes with a decoded program slug', () => {
+        expect(parseRoute('/patna-event-2026/approver')).toEqual({
+            type: 'approver',
             programSlug: 'patna-event-2026',
         });
-        expect(parseRoute('/patna%20event%202026/volunteer')).toEqual({
-            type: 'volunteer',
+        expect(parseRoute('/patna%20event%202026/approver')).toEqual({
+            type: 'approver',
             programSlug: 'patna event 2026',
         });
     });
 
-    it('keeps the one-segment volunteer path as a listener slug', () => {
-        expect(parseRoute('/volunteer')).toEqual({
+    it('keeps the one-segment approver path as a listener slug', () => {
+        expect(parseRoute('/approver')).toEqual({
             type: 'listener',
-            programSlug: 'volunteer',
+            programSlug: 'approver',
         });
     });
 

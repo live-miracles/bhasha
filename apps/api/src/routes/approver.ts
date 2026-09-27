@@ -1,151 +1,151 @@
 import { sha256Hex } from '../auth/crypto';
 import {
-    clearVolunteerSessionCookie,
-    requireVolunteerService,
-    requireVolunteerSession,
-    volunteerSessionCookie,
-} from '../auth/volunteerAuth';
+    clearApproverSessionCookie,
+    requireApproverService,
+    requireApproverSession,
+    approverSessionCookie,
+} from '../auth/approverAuth';
 import { ListenerAccessRepository } from '../db/listenerAccessRepository';
 import { ProgramRepository } from '../db/programRepository';
-import { VolunteerRepository } from '../db/volunteerRepository';
+import { ApproverRepository } from '../db/approverRepository';
 import type { Env } from '../env';
 import { json, readJson, type WaitUntilCtx } from '../http';
 
-interface VolunteerLoginInput {
+interface ApproverLoginInput {
     programSlug: string;
     loginId: string;
     password: string;
 }
 
-type VolunteerApprovalInput = { claimId: string } | { shortCode: string };
+type ApproverApprovalInput = { claimId: string } | { shortCode: string };
 
-export async function handleVolunteerRoutes(
+export async function handleApproverRoutes(
     request: Request,
     env: Env,
     url: URL,
     _ctx: WaitUntilCtx,
 ): Promise<Response | null> {
-    if (!url.pathname.startsWith('/api/volunteer/')) {
+    if (!url.pathname.startsWith('/api/approver/')) {
         return null;
     }
 
-    const service = requireVolunteerService(env);
+    const service = requireApproverService(env);
     if (service instanceof Response) {
-        return volunteerResponse(service);
+        return approverResponse(service);
     }
 
-    const volunteers = new VolunteerRepository(env.DB, env.TRANSLATOR_PASSWORD_PEPPER);
+    const approvers = new ApproverRepository(env.DB, env.TRANSLATOR_PASSWORD_PEPPER);
     const programs = new ProgramRepository(env.DB);
     const listenerAccess = new ListenerAccessRepository(env.DB);
 
-    if (request.method === 'POST' && url.pathname === '/api/volunteer/login') {
-        const input = await parseBody(request, parseVolunteerLoginInput);
+    if (request.method === 'POST' && url.pathname === '/api/approver/login') {
+        const input = await parseBody(request, parseApproverLoginInput);
         if (input instanceof Response) {
-            return volunteerResponse(input);
+            return approverResponse(input);
         }
 
         try {
             const program = await programs.getProgramBySlug(input.programSlug);
-            if (!program || !(await volunteers.getAccount(program.id))) {
-                return volunteerResponse(
-                    json({ error: 'volunteer_not_configured' }, { status: 409 }),
+            if (!program || !(await approvers.getAccount(program.id))) {
+                return approverResponse(
+                    json({ error: 'approver_not_configured' }, { status: 409 }),
                 );
             }
 
             // TODO(slice-5): `CF-Connecting-IP` was set by Cloudflare's edge; on the
             // new Caddy-fronted deploy this needs to become `X-Forwarded-For` (or
             // whatever header Caddy is configured to set). Until then this always
-            // reads null, so per-IP volunteer login throttling is a no-op (the
+            // reads null, so per-IP approver login throttling is a no-op (the
             // per-program-wide threshold in recordFailure still applies).
             const clientIp = request.headers.get('CF-Connecting-IP');
             const ipHash = clientIp === null ? null : await sha256Hex(clientIp);
-            if (await volunteers.isLocked(program.id, ipHash)) {
-                return volunteerResponse(json({ error: 'too_many_attempts' }, { status: 429 }));
+            if (await approvers.isLocked(program.id, ipHash)) {
+                return approverResponse(json({ error: 'too_many_attempts' }, { status: 429 }));
             }
 
             // Reserve both limiter counters before password verification so a D1-
             // serialized write burst cannot all pass the unlocked read together.
             // Full request serialization with a Durable Object is deferred to the WP
             // follow-up; successful authentication rolls this reservation back.
-            const failure = await volunteers.recordFailure(program.id, ipHash);
-            const authenticated = await volunteers.authenticate(
+            const failure = await approvers.recordFailure(program.id, ipHash);
+            const authenticated = await approvers.authenticate(
                 program.id,
                 input.loginId,
                 input.password,
             );
             if (!authenticated) {
-                return volunteerResponse(
+                return approverResponse(
                     failure.locked
                         ? json({ error: 'too_many_attempts' }, { status: 429 })
                         : json({ error: 'invalid_credentials' }, { status: 401 }),
                 );
             }
 
-            await volunteers.clearOnSuccess(program.id, failure.reservation);
-            const lockedAfterSuccess = await volunteers.isLocked(program.id, ipHash);
+            await approvers.clearOnSuccess(program.id, failure.reservation);
+            const lockedAfterSuccess = await approvers.isLocked(program.id, ipHash);
             if (failure.firstThresholdBreach || lockedAfterSuccess) {
-                return volunteerResponse(json({ error: 'too_many_attempts' }, { status: 429 }));
+                return approverResponse(json({ error: 'too_many_attempts' }, { status: 429 }));
             }
-            const { token } = await volunteers.createSession(program.id, service.sessionSecret);
+            const { token } = await approvers.createSession(program.id, service.sessionSecret);
             const response = json({ ok: true });
-            response.headers.set('set-cookie', volunteerSessionCookie(token));
-            return volunteerResponse(response);
+            response.headers.set('set-cookie', approverSessionCookie(token));
+            return approverResponse(response);
         } catch (_error) {
-            return volunteerResponse(json({ error: 'database_error' }, { status: 500 }));
+            return approverResponse(json({ error: 'database_error' }, { status: 500 }));
         }
     }
 
-    if (request.method === 'POST' && url.pathname === '/api/volunteer/logout') {
+    if (request.method === 'POST' && url.pathname === '/api/approver/logout') {
         try {
-            const auth = await requireVolunteerSession(request, env, volunteers);
+            const auth = await requireApproverSession(request, env, approvers);
             if (auth instanceof Response) {
-                return volunteerResponse(auth);
+                return approverResponse(auth);
             }
 
-            await volunteers.deleteSession(auth.session.id);
+            await approvers.deleteSession(auth.session.id);
             const response = json({ ok: true });
-            response.headers.set('set-cookie', clearVolunteerSessionCookie());
-            return volunteerResponse(response);
+            response.headers.set('set-cookie', clearApproverSessionCookie());
+            return approverResponse(response);
         } catch (_error) {
-            return volunteerResponse(json({ error: 'database_error' }, { status: 500 }));
+            return approverResponse(json({ error: 'database_error' }, { status: 500 }));
         }
     }
 
-    if (request.method === 'GET' && url.pathname === '/api/volunteer/session') {
+    if (request.method === 'GET' && url.pathname === '/api/approver/session') {
         try {
-            const auth = await requireVolunteerSession(request, env, volunteers);
+            const auth = await requireApproverSession(request, env, approvers);
             if (auth instanceof Response) {
-                return volunteerResponse(auth);
+                return approverResponse(auth);
             }
 
             const program = await programs.getProgramById(auth.session.programId);
             if (!program) {
-                return volunteerResponse(
-                    json({ error: 'volunteer_auth_required' }, { status: 401 }),
+                return approverResponse(
+                    json({ error: 'approver_auth_required' }, { status: 401 }),
                 );
             }
             const counts = await listenerAccess.countByStatus(program.id);
-            return volunteerResponse(
+            return approverResponse(
                 json({
                     program: { slug: program.slug, name: program.name },
                     approvedCount: counts.approved,
                 }),
             );
         } catch (_error) {
-            return volunteerResponse(json({ error: 'database_error' }, { status: 500 }));
+            return approverResponse(json({ error: 'database_error' }, { status: 500 }));
         }
     }
 
-    if (request.method === 'POST' && url.pathname === '/api/volunteer/approve') {
-        const input = await parseBody(request, parseVolunteerApprovalInput);
+    if (request.method === 'POST' && url.pathname === '/api/approver/approve') {
+        const input = await parseBody(request, parseApproverApprovalInput);
         if (input instanceof Response) {
-            return volunteerResponse(input);
+            return approverResponse(input);
         }
 
         try {
-            const auth = await requireVolunteerSession(request, env, volunteers);
+            const auth = await requireApproverSession(request, env, approvers);
             if (auth instanceof Response) {
-                return volunteerResponse(auth);
+                return approverResponse(auth);
             }
 
             const result = await listenerAccess.approveClaim(
@@ -154,14 +154,14 @@ export async function handleVolunteerRoutes(
                 'claimId' in input ? 'scan' : 'code',
             );
             if (result.status === 'approved') {
-                return volunteerResponse(json(result));
+                return approverResponse(json(result));
             }
             if (result.status === 'revoked') {
-                return volunteerResponse(json({ error: 'claim_revoked' }, { status: 409 }));
+                return approverResponse(json({ error: 'claim_revoked' }, { status: 409 }));
             }
-            return volunteerResponse(json({ error: 'claim_not_found' }, { status: 404 }));
+            return approverResponse(json({ error: 'claim_not_found' }, { status: 404 }));
         } catch (_error) {
-            return volunteerResponse(json({ error: 'database_error' }, { status: 500 }));
+            return approverResponse(json({ error: 'database_error' }, { status: 500 }));
         }
     }
 
@@ -183,7 +183,7 @@ async function parseBody<T>(request: Request, parse: (body: unknown) => T): Prom
     }
 }
 
-function parseVolunteerLoginInput(body: unknown): VolunteerLoginInput {
+function parseApproverLoginInput(body: unknown): ApproverLoginInput {
     return {
         programSlug: requiredString(body, 'programSlug'),
         loginId: requiredString(body, 'loginId'),
@@ -191,7 +191,7 @@ function parseVolunteerLoginInput(body: unknown): VolunteerLoginInput {
     };
 }
 
-function parseVolunteerApprovalInput(body: unknown): VolunteerApprovalInput {
+function parseApproverApprovalInput(body: unknown): ApproverApprovalInput {
     const claimId = optionalString(body, 'claimId');
     const shortCode = optionalString(body, 'shortCode');
     if (claimId && !shortCode) {
@@ -230,7 +230,7 @@ function optionalString(body: unknown, key: string): string | null {
     return value.length > 0 ? value : null;
 }
 
-function volunteerResponse(response: Response): Response {
+function approverResponse(response: Response): Response {
     response.headers.set('cache-control', 'no-store');
     response.headers.set('vary', 'Cookie');
     return response;

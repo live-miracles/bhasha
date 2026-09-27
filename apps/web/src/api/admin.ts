@@ -80,20 +80,20 @@ export interface AdminProgramDetail {
     urls: {
         listenerUrl: string;
         translatorUrl: string;
-        volunteerUrl: string;
+        approverUrl: string;
     };
     qrPayload: string;
     suggestedQrFilename: string;
 }
 
-export interface AdminProgramVolunteerAccess {
+export interface AdminProgramApproverAccess {
     configured: boolean;
     loginId: string | null;
     passwordUpdatedAt: string | null;
     activeSessionCount: number;
 }
 
-export interface AdminProgramVolunteerAccessUpdate extends AdminProgramVolunteerAccess {
+export interface AdminProgramApproverAccessUpdate extends AdminProgramApproverAccess {
     generatedPassword?: string;
 }
 
@@ -339,11 +339,11 @@ export interface AdminApi {
     deleteProgram(programId: string): Promise<void>;
     restoreProgram(programId: string): Promise<void>;
     getProgramDetail(programId: string): Promise<AdminProgramDetail>;
-    getVolunteerAccess(programId: string): Promise<AdminProgramVolunteerAccess>;
-    updateVolunteerAccess(
+    getApproverAccess(programId: string): Promise<AdminProgramApproverAccess>;
+    updateApproverAccess(
         programId: string,
         payload: { loginId: string; password?: string },
-    ): Promise<AdminProgramVolunteerAccessUpdate>;
+    ): Promise<AdminProgramApproverAccessUpdate>;
     getProgramStatus(programId: string): Promise<AdminProgramStatus>;
     getListenerReport(programId: string, query?: ListenerReportQuery): Promise<AdminListenerReport>;
     getListenerAccessSummary(programId: string): Promise<AdminListenerAccessSummary>;
@@ -486,14 +486,14 @@ export function createAdminApi(client: AdminHttpClient = apiClient): AdminApi {
         getProgramDetail(programId: string) {
             return client.get<AdminProgramDetail>(programPath(programId));
         },
-        getVolunteerAccess(programId: string) {
-            return client.get<AdminProgramVolunteerAccess>(
-                `${programPath(programId)}/volunteer-access`,
+        getApproverAccess(programId: string) {
+            return client.get<AdminProgramApproverAccess>(
+                `${programPath(programId)}/approver-access`,
             );
         },
-        updateVolunteerAccess(programId: string, payload: { loginId: string; password?: string }) {
-            return client.put<AdminProgramVolunteerAccessUpdate>(
-                `${programPath(programId)}/volunteer-access`,
+        updateApproverAccess(programId: string, payload: { loginId: string; password?: string }) {
+            return client.put<AdminProgramApproverAccessUpdate>(
+                `${programPath(programId)}/approver-access`,
                 payload,
             );
         },

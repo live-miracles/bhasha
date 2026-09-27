@@ -162,7 +162,7 @@ describe('public program contract', () => {
             urls: {
                 listenerUrl: 'https://bhasha.test/patna-event-2026',
                 translatorUrl: 'https://bhasha.test/patna-event-2026/translate',
-                volunteerUrl: 'https://bhasha.test/patna-event-2026/volunteer',
+                approverUrl: 'https://bhasha.test/patna-event-2026/approver',
             },
         });
 
@@ -221,7 +221,7 @@ describe('public program contract', () => {
             urls: {
                 listenerUrl: 'https://bhasha.test/patna-event-2026',
                 translatorUrl: 'https://bhasha.test/patna-event-2026/translate',
-                volunteerUrl: 'https://bhasha.test/patna-event-2026/volunteer',
+                approverUrl: 'https://bhasha.test/patna-event-2026/approver',
             },
         });
     });
@@ -265,7 +265,7 @@ describe('public program contract', () => {
             urls: {
                 listenerUrl: 'https://bhasha.test/patna-event-2026',
                 translatorUrl: 'https://bhasha.test/patna-event-2026/translate',
-                volunteerUrl: 'https://bhasha.test/patna-event-2026/volunteer',
+                approverUrl: 'https://bhasha.test/patna-event-2026/approver',
             },
         });
     });

@@ -367,12 +367,12 @@ describe('AdminApi', () => {
         );
     });
 
-    it('maps volunteer access fetch and put endpoints', async () => {
+    it('maps approver access fetch and put endpoints', async () => {
         const client = {
             delete: vi.fn(async () => undefined),
             get: vi.fn(async () => ({
                 configured: true,
-                loginId: 'volunteer@example.com',
+                loginId: 'approver@example.com',
                 passwordUpdatedAt: '2026-08-26T12:00:00.000Z',
                 activeSessionCount: 3,
             })),
@@ -380,7 +380,7 @@ describe('AdminApi', () => {
             post: vi.fn(),
             put: vi.fn(async () => ({
                 configured: true,
-                loginId: 'volunteer@example.com',
+                loginId: 'approver@example.com',
                 passwordUpdatedAt: '2026-08-26T12:00:00.000Z',
                 activeSessionCount: 0,
                 generatedPassword: 'ABCDEFGHJK',
@@ -388,14 +388,14 @@ describe('AdminApi', () => {
         };
         const api = createAdminApi(client as unknown as AdminHttpClient);
 
-        await api.getVolunteerAccess('program_1');
-        await api.updateVolunteerAccess('program_1', {
-            loginId: 'volunteer@example.com',
+        await api.getApproverAccess('program_1');
+        await api.updateApproverAccess('program_1', {
+            loginId: 'approver@example.com',
         });
 
-        expect(client.get).toHaveBeenCalledWith('/api/admin/programs/program_1/volunteer-access');
-        expect(client.put).toHaveBeenCalledWith('/api/admin/programs/program_1/volunteer-access', {
-            loginId: 'volunteer@example.com',
+        expect(client.get).toHaveBeenCalledWith('/api/admin/programs/program_1/approver-access');
+        expect(client.put).toHaveBeenCalledWith('/api/admin/programs/program_1/approver-access', {
+            loginId: 'approver@example.com',
         });
     });
 

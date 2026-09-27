@@ -6,7 +6,7 @@ import { AdminScreen } from './features/admin/AdminScreen';
 import { LandingRoute } from './routes/LandingRoute';
 import { ListenerRoute } from './routes/ListenerRoute';
 import { TranslatorRoute } from './routes/TranslatorRoute';
-import { VolunteerRoute } from './routes/VolunteerRoute';
+import { ApproverRoute } from './routes/ApproverRoute';
 import { NotFoundRoute } from './routes/NotFoundRoute';
 
 export interface AppProps {
@@ -24,9 +24,9 @@ function RoutedTranslator({ publicApi }: { publicApi: PublicApi }) {
     return <TranslatorRoute programSlug={programSlug ?? ''} publicApi={publicApi} />;
 }
 
-function RoutedVolunteer({ publicApi }: { publicApi: PublicApi }) {
+function RoutedApprover({ publicApi }: { publicApi: PublicApi }) {
     const { programSlug } = useParams<{ programSlug: string }>();
-    return <VolunteerRoute programSlug={programSlug ?? ''} publicApi={publicApi} />;
+    return <ApproverRoute programSlug={programSlug ?? ''} publicApi={publicApi} />;
 }
 
 function AppRoutes({ publicApi }: { publicApi: PublicApi }) {
@@ -43,8 +43,8 @@ function AppRoutes({ publicApi }: { publicApi: PublicApi }) {
                 path="/:programSlug/translate"
             />
             <Route
-                element={<RoutedVolunteer publicApi={publicApi} />}
-                path="/:programSlug/volunteer"
+                element={<RoutedApprover publicApi={publicApi} />}
+                path="/:programSlug/approver"
             />
             <Route element={<RoutedListener publicApi={publicApi} />} path="/:programSlug" />
             <Route element={<NotFoundRoute />} path="*" />
