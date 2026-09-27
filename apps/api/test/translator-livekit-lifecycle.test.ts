@@ -68,8 +68,8 @@ async function seedTranslatorWithAssignment(password: string): Promise<Graph> {
 
     testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
-    VALUES (?, ?, 'Lifecycle Event', 'Hall', '2026-08-01', 'draft', '', ?, ?)`,
+    (id, slug, name, start_date, end_date, created_at, updated_at)
+    VALUES (?, ?, 'Lifecycle Event', '2027-08-01', '2027-08-01', ?, ?)`,
     ).run(programId, `slug_${suffix}`, now, now);
 
     testEnv.DB.prepare(

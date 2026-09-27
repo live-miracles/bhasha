@@ -21,22 +21,20 @@ async function resetDb(): Promise<void> {
     await testEnv.DB.exec('DELETE FROM programs');
 }
 
-async function seedProgram(status: 'draft' | 'live' | 'archived'): Promise<SeededProgram> {
+async function seedProgram(label: 'draft' | 'live' | 'archived'): Promise<SeededProgram> {
     const id = `program_soft_delete_${crypto.randomUUID()}`;
-    const slug = `${status}-${id}`;
+    const slug = `${label}-${id}`;
     const now = new Date().toISOString();
     testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (id, slug, name, start_date, end_date, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         id,
         slug,
         `Program ${slug}`,
-        'Main Hall',
-        '2026-08-01',
-        status,
-        'test program notes',
+        '2027-08-01',
+        '2027-08-01',
         now,
         now,
     );

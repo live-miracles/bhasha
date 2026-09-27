@@ -14,16 +14,14 @@ async function seedTranslator(): Promise<{
 
     testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (id, slug, name, start_date, end_date, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         programId,
         `program-${suffix}`,
         'Device Test Event',
-        'Main Hall',
-        '2026-09-01',
-        'draft',
-        '',
+        '2027-09-01',
+        '2027-09-01',
         now,
         now,
     );

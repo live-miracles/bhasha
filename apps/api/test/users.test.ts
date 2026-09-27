@@ -146,31 +146,23 @@ describe('admin user management APIs', () => {
         expect(userListDenied.status).toBe(403);
     });
 
-    it('PATCH /api/admin/users/:id requires admin, 404s on the admin account, and role must stay user', async () => {
+    it('PATCH /api/admin/users/:id updates the username, rejects admin role changes, and requires admin', async () => {
         const adminId = await seedAdmin(buildTestEnv());
         const target = await seedUser(buildTestEnv(), 'target_user');
         const adminCookieValue = await adminCookie(ADMIN_TEST_USERNAME);
-        // Established BEFORE disabling: proves the disable revokes an
-        // already-active session, not just future logins.
-        const targetCookie = await adminCookie('target_user');
-
-        const disable = await request(`/api/admin/users/${target}`, {
+        const rename = await request(`/api/admin/users/${target}`, {
             method: 'PATCH',
             headers: { Cookie: adminCookieValue },
-            body: JSON.stringify({ isDisabled: true }),
+            body: JSON.stringify({ username: 'renamed_target' }),
         });
-        expect(disable.status).toBe(200);
-
-        const disabledSelf = await request('/api/admin/me', {
-            headers: { Cookie: targetCookie },
-        });
-        expect(disabledSelf.status).toBe(401);
+        expect(rename.status).toBe(200);
+        expect((await rename.json() as { username: string }).username).toBe('renamed_target');
 
         // Cannot PATCH the admin account itself.
         const patchAdmin = await request(`/api/admin/users/${adminId}`, {
             method: 'PATCH',
             headers: { Cookie: adminCookieValue },
-            body: JSON.stringify({ isDisabled: true }),
+            body: JSON.stringify({ username: 'renamed_admin' }),
         });
         expect(patchAdmin.status).toBe(404);
 
@@ -188,7 +180,7 @@ describe('admin user management APIs', () => {
         const userDenied = await request(`/api/admin/users/${target}`, {
             method: 'PATCH',
             headers: { Cookie: otherCookie },
-            body: JSON.stringify({ isDisabled: false }),
+            body: JSON.stringify({ username: 'should-not-work' }),
         });
         expect(userDenied.status).toBe(403);
     });

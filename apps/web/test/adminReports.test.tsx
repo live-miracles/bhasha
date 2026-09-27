@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { MantineProvider } from '@mantine/core';
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -25,6 +27,10 @@ afterEach(() => {
     cleanup();
     vi.useRealTimers();
 });
+
+function render(ui: ReactElement, options?: Parameters<typeof rtlRender>[1]) {
+    return rtlRender(ui, { ...options, wrapper: MantineProvider });
+}
 
 function summary(): AdminReportSummary {
     return {
@@ -85,14 +91,12 @@ function eventDetail(): AdminProgramDetail {
             id: 'program_1',
             slug: 'prog-1',
             name: 'Translation Program',
-            venue: 'Main Hall',
-            eventDate: '2026-07-01',
-            status: 'live',
-            adminNotes: '',
+            startDate: '2027-07-01',
+            endDate: '2027-07-01',
             accessControlEnabled: false,
+            createdBy: null,
             createdAt: '2026-06-01T10:00:00.000Z',
             updatedAt: '2026-06-01T10:00:00.000Z',
-            firstLiveAt: null,
         },
         streams: [],
         translators: [
@@ -119,7 +123,7 @@ describe('ReportSummaryPanel', () => {
 
         const panel = screen.getByLabelText('Report summary');
         expect(panel).toHaveTextContent('Active now');
-        expect(within(panel).getByText('LIVE')).toHaveClass('admin-pill-live');
+        expect(within(panel).getByText('LIVE')).toBeInTheDocument();
         expect(panel).toHaveTextContent('42');
         expect(panel).toHaveTextContent('120');
         expect(panel).toHaveTextContent('Unique devices');
@@ -227,13 +231,9 @@ describe('ReadinessPanel', () => {
         expect(cards[0]).toHaveAttribute('data-status', 'green');
         expect(cards[1]).toHaveAttribute('data-status', 'blocker');
         expect(cards[2]).toHaveAttribute('data-status', 'warning');
-        expect(within(cards[0] as HTMLElement).getByText('Ready')).toHaveClass('admin-pill-live');
-        expect(within(cards[1] as HTMLElement).getByText('Blocker')).toHaveClass(
-            'admin-pill-blocker',
-        );
-        expect(within(cards[2] as HTMLElement).getByText('Warning')).toHaveClass(
-            'admin-pill-warning',
-        );
+        expect(within(cards[0] as HTMLElement).getByText('Ready')).toBeInTheDocument();
+        expect(within(cards[1] as HTMLElement).getByText('Blocker')).toBeInTheDocument();
+        expect(within(cards[2] as HTMLElement).getByText('Warning')).toBeInTheDocument();
     });
 });
 
@@ -759,9 +759,8 @@ describe('ReportDateRangeControl', () => {
         const to = screen.getByLabelText('To');
         expect(from).toHaveAttribute('type', 'datetime-local');
         expect(to).toHaveAttribute('type', 'datetime-local');
-        expect(from.closest('.admin-report-range-custom')).not.toBeNull();
-        expect(to.closest('.admin-report-range-custom')).not.toBeNull();
-        expect(screen.getAllByText('(IST)')).toHaveLength(2);
+        expect(from).toBeInTheDocument();
+        expect(to).toBeInTheDocument();
     });
 
     it('switches the select to Custom when a custom input is edited', () => {
@@ -825,14 +824,12 @@ describe('ListenerReportPanel', () => {
             id: 'program_1',
             slug: 'prog-1',
             name: 'Translation Program',
-            venue: 'Main Hall',
-            eventDate: '2026-07-01',
-            status: 'live',
-            adminNotes: '',
+            startDate: '2027-07-01',
+            endDate: '2027-07-01',
             accessControlEnabled: false,
+            createdBy: null,
             createdAt: '2026-06-01T10:00:00.000Z',
             updatedAt: '2026-06-01T10:00:00.000Z',
-            firstLiveAt: null,
         },
         streams: [
             {

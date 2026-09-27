@@ -48,9 +48,9 @@ async function seedProgram(streamCount = 1): Promise<SeededProgram> {
 
     testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(programId, slug, 'Presence Event', 'Hall', '2026-08-01', 'live', '', now, now);
+    (id, slug, name, start_date, end_date, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(programId, slug, 'Presence Event', '2027-08-01', '2027-08-01', now, now);
 
     const streamIds: string[] = [];
     for (let index = 0; index < streamCount; index += 1) {

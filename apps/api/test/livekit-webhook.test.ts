@@ -115,8 +115,8 @@ async function seedReservedPublisher(input: {
     const now = new Date().toISOString();
     testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
-    VALUES (?, ?, 'Webhook Test', 'Hall', '2026-08-01', 'live', '', ?, ?)`,
+    (id, slug, name, start_date, end_date, created_at, updated_at)
+    VALUES (?, ?, 'Webhook Test', '2027-08-01', '2027-08-01', ?, ?)`,
     ).run(input.programId, `slug_${input.programId}`, now, now);
     testEnv.DB.prepare(
         `INSERT INTO language_streams

@@ -39,16 +39,14 @@ async function seedTranslatorGraph(): Promise<StreamGraph> {
 
     testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (id, slug, name, start_date, end_date, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         programId,
         `program-${suffix}`,
         'Relay Test Program',
-        'Main Hall',
-        '2026-08-01',
-        'live',
-        '',
+        '2027-08-01',
+        '2027-08-01',
         timestamp,
         timestamp,
     );
@@ -119,16 +117,14 @@ async function seedReserveGraph(): Promise<ReserveGraph> {
 
     testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (id, slug, name, start_date, end_date, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         programId,
         `program-${suffix}`,
         'Reserve Test Program',
-        'Main Hall',
-        '2026-09-01',
-        'live',
-        '',
+        '2027-09-01',
+        '2027-09-01',
         timestamp,
         timestamp,
     );
@@ -298,9 +294,7 @@ describe('RealtimeStreamRepository relay read helpers', () => {
         });
     });
 
-    it.each(['archived', 'draft'] as const)(
-        'throws StreamNotLiveError when preferRelay sees relay coords for program status %s',
-        async (status) => {
+    it('keeps relay publisher selection independent of program expiry', async () => {
             const graph = await seedTranslatorGraph();
             const repo = new RealtimeStreamRepository(testEnv.DB);
 
@@ -320,15 +314,14 @@ describe('RealtimeStreamRepository relay read helpers', () => {
         WHERE program_id = ? AND id = ?`,
             ).run(new Date().toISOString(), graph.programId, graph.streamId);
 
-            testEnv.DB.prepare(
-                `UPDATE programs
-        SET status = ?
-        WHERE id = ?`,
-            ).run(status, graph.programId);
+            testEnv.DB.prepare(`UPDATE programs SET end_date = ? WHERE id = ?`).run(
+                '2020-01-01',
+                graph.programId,
+            );
 
             await expect(
                 repo.getListenerPublisher(graph.programId, graph.streamId, true),
-            ).rejects.toThrow(StreamNotLiveError);
+            ).resolves.toMatchObject({ isRelay: true });
         },
     );
 

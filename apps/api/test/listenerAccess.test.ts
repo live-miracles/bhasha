@@ -54,15 +54,14 @@ async function seedProgramGraph(
 
     testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes,
-     access_control_enabled, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'live', '', ?, ?, ?)`,
+    (id, slug, name, start_date, end_date, access_control_enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         programId,
         programSlug,
         'Listener Access Test',
-        'Main Hall',
-        '2026-08-26',
+        '2027-08-26',
+        '2027-08-26',
         options.accessControlEnabled ? 1 : 0,
         now,
         now,

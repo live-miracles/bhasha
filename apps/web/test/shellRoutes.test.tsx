@@ -9,9 +9,10 @@ function metadata(streams: PublicProgramMetadata['streams']): PublicProgramMetad
         program: {
             slug: 'patna-event-2026',
             name: 'Patna Event 2026',
-            venue: 'Main Hall',
-            eventDate: '2026-07-01',
-            status: 'live',
+            startDate: '2027-07-01',
+            endDate: '2027-07-01',
+            listenable: true,
+            notListenableReason: null,
             accessControlEnabled: false,
         },
         streams,
@@ -25,7 +26,7 @@ function metadata(streams: PublicProgramMetadata['streams']): PublicProgramMetad
 
 function programStatus(streams: PublicProgramStatus['streams'] = []): PublicProgramStatus {
     return {
-        program: { slug: 'patna-event-2026' },
+        program: { slug: 'patna-event-2026', listenable: true, notListenableReason: null },
         streams,
         stale: false,
         degraded: false,

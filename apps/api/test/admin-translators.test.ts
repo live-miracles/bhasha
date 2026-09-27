@@ -23,7 +23,7 @@ async function createProgram(
         slug: `program-${crypto.randomUUID()}`,
         name: 'Patna Event 2026',
         venue: 'Main Hall',
-        eventDate: '2026-08-01',
+        eventDate: '2027-08-01',
         adminNotes: 'setup notes',
         ...overrides,
     });
@@ -213,7 +213,7 @@ describe('admin translator API', () => {
         const delhi = await createProgram(cookie, {
             slug: 'delhi-event-2026',
             name: 'Delhi Event 2026',
-            eventDate: '2026-08-02',
+            eventDate: '2027-08-02',
         });
 
         const createPatnaTranslator = await request(`/api/admin/programs/${patna.id}/translators`, {

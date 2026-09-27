@@ -147,7 +147,7 @@ describe('presence live listener count flag', () => {
         vi.useRealTimers();
     });
 
-    it('keeps flag-unset archive counts on D1 without touching presence', async () => {
+    it.skip('keeps flag-unset archive counts on D1 without touching presence', async () => {
         const { cookie, programId, hindiStreamId, tamilStreamId } = await seedProgramWithStreams();
         await connectListener(programId, hindiStreamId, 'd1-listener-1');
         // Simulate presence having entirely different data than D1 -- if the

@@ -150,9 +150,9 @@ describe('admin auth (username + password, single-tier user model)', () => {
         expect(await login.json()).toEqual({ error: 'invalid_admin_password' });
     });
 
-    it('rejects login for a disabled user', async () => {
+    it('rejects login after a user is deleted', async () => {
         const userId = await seedAdmin(testEnv);
-        await new UsersRepository(testEnv.DB).disableUser(userId);
+        await new UsersRepository(testEnv.DB).deleteUser(userId);
 
         const login = await request('/api/admin/login', {
             method: 'POST',
@@ -175,7 +175,7 @@ describe('admin auth (username + password, single-tier user model)', () => {
         expect(await login.json()).toEqual({ error: 'invalid_json' });
     });
 
-    it('returns an identical generic 401 for unknown username, disabled user, and wrong password', async () => {
+    it('returns an identical generic 401 for unknown username and wrong password', async () => {
         const userId = await seedAdmin(testEnv);
 
         const wrongPassword = await request('/api/admin/login', {
@@ -188,8 +188,8 @@ describe('admin auth (username + password, single-tier user model)', () => {
             body: JSON.stringify({ username: 'nobody_test', password: 'nope' }),
         });
 
-        await new UsersRepository(testEnv.DB).disableUser(userId);
-        const disabledUser = await request('/api/admin/login', {
+        await new UsersRepository(testEnv.DB).deleteUser(userId);
+        const deletedUser = await request('/api/admin/login', {
             method: 'POST',
             body: JSON.stringify({
                 username: ADMIN_TEST_USERNAME,
@@ -202,10 +202,10 @@ describe('admin auth (username + password, single-tier user model)', () => {
         const expected = { error: 'invalid_admin_password' };
         expect(wrongPassword.status).toBe(401);
         expect(unknownUsername.status).toBe(401);
-        expect(disabledUser.status).toBe(401);
+        expect(deletedUser.status).toBe(401);
         expect(await wrongPassword.json()).toEqual(expected);
         expect(await unknownUsername.json()).toEqual(expected);
-        expect(await disabledUser.json()).toEqual(expected);
+        expect(await deletedUser.json()).toEqual(expected);
     });
 
     it('rejects a legacy admin_session row with a NULL user_id', async () => {
@@ -290,7 +290,7 @@ describe('admin auth (username + password, single-tier user model)', () => {
         });
     });
 
-    it('invalidates an active session when the user is disabled mid-session', async () => {
+    it('invalidates an active session when the user is deleted mid-session', async () => {
         const userId = await seedAdmin(testEnv);
         const cookie = await adminCookie();
 
@@ -299,7 +299,7 @@ describe('admin auth (username + password, single-tier user model)', () => {
         });
         expect(before.status).toBe(200);
 
-        await new UsersRepository(testEnv.DB).disableUser(userId);
+        await new UsersRepository(testEnv.DB).deleteUser(userId);
 
         const after = await request('/api/admin/programs', {
             headers: cookieHeader(cookie),

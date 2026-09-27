@@ -9,7 +9,7 @@ async function request(path: string, init: RequestInit = {}) {
 }
 
 async function seedProgramWithStreams(
-    programStatus: 'live' | 'draft' | 'archived' = 'live',
+    expired = false,
 ): Promise<{
     programId: string;
     hindiStreamId: string;
@@ -24,17 +24,14 @@ async function seedProgramWithStreams(
 
     await testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, access_control_enabled,
-     created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    (id, slug, name, start_date, end_date, access_control_enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
     ).run(
         programId,
         'patna-event-2026',
         'Patna Event 2026',
-        'Main Hall',
-        '2026-07-01',
-        programStatus,
-        'admin-only notes',
+        '2027-07-01',
+        expired ? '2020-07-01' : '2027-07-01',
         now,
         now,
     );
@@ -134,9 +131,8 @@ describe('public program contract', () => {
             program: {
                 slug: 'patna-event-2026',
                 name: 'Patna Event 2026',
-                venue: 'Main Hall',
-                eventDate: '2026-07-01',
-                status: 'live',
+                startDate: '2027-07-01',
+                endDate: '2027-07-01',
                 accessControlEnabled: true,
                 listenable: true,
                 notListenableReason: null,
@@ -182,8 +178,8 @@ describe('public program contract', () => {
         }
     });
 
-    it('returns not-listenable state for a draft public program', async () => {
-        const { hindiStreamId, englishStreamId } = await seedProgramWithStreams('draft');
+    it('returns an expired state after the program end date', async () => {
+        const { hindiStreamId, englishStreamId } = await seedProgramWithStreams(true);
 
         const response = await request('/api/public/programs/patna-event-2026');
 
@@ -193,53 +189,8 @@ describe('public program contract', () => {
             program: {
                 slug: 'patna-event-2026',
                 name: 'Patna Event 2026',
-                venue: 'Main Hall',
-                eventDate: '2026-07-01',
-                status: 'draft',
-                accessControlEnabled: true,
-                listenable: false,
-                notListenableReason: 'not_started',
-            },
-            streams: [
-                {
-                    id: hindiStreamId,
-                    languageName: 'Hindi',
-                    nativeName: 'हिन्दी',
-                    languageCode: 'hi',
-                    displayOrder: 1,
-                    isActive: true,
-                },
-                {
-                    id: englishStreamId,
-                    languageName: 'English',
-                    nativeName: 'English',
-                    languageCode: 'en',
-                    displayOrder: 2,
-                    isActive: true,
-                },
-            ],
-            urls: {
-                listenerUrl: 'https://bhasha.test/patna-event-2026',
-                translatorUrl: 'https://bhasha.test/patna-event-2026/translate',
-                approverUrl: 'https://bhasha.test/patna-event-2026/approver',
-            },
-        });
-    });
-
-    it('returns not-listenable state for an archived public program', async () => {
-        const { hindiStreamId, englishStreamId } = await seedProgramWithStreams('archived');
-
-        const response = await request('/api/public/programs/patna-event-2026');
-
-        expect(response.status).toBe(200);
-        const body = await response.json();
-        expect(body).toEqual({
-            program: {
-                slug: 'patna-event-2026',
-                name: 'Patna Event 2026',
-                venue: 'Main Hall',
-                eventDate: '2026-07-01',
-                status: 'archived',
+                startDate: '2027-07-01',
+                endDate: '2020-07-01',
                 accessControlEnabled: true,
                 listenable: false,
                 notListenableReason: 'ended',

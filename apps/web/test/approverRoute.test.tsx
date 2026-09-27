@@ -31,9 +31,10 @@ const programMetadata = {
     program: {
         slug: 'patna-event-2026',
         name: 'Patna Event 2026',
-        venue: 'Main Hall',
-        eventDate: '2026-08-26',
-        status: 'live',
+        startDate: '2027-08-26',
+        endDate: '2027-08-26',
+        listenable: true,
+        notListenableReason: null,
         accessControlEnabled: true,
     },
     streams: [],

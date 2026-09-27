@@ -41,7 +41,7 @@ async function resetDb(): Promise<void> {
     testEnv.DB.exec('DELETE FROM programs');
 }
 
-async function seedProgram(status: 'draft' | 'live' | 'archived' = 'live'): Promise<SeededProgram> {
+async function seedProgram(): Promise<SeededProgram> {
     const suffix = crypto.randomUUID();
     const programId = `program_report_repo_${suffix}`;
     const slug = `report-repo-${suffix}`;
@@ -50,16 +50,14 @@ async function seedProgram(status: 'draft' | 'live' | 'archived' = 'live'): Prom
 
     testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (id, slug, name, start_date, end_date, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         programId,
         slug,
         'Report repository test program',
-        'Main Hall',
-        '2026-08-01',
-        status,
-        '',
+        '2027-08-01',
+        '2027-08-01',
         now,
         now,
     );

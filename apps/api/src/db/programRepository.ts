@@ -20,11 +20,7 @@ export interface ProgramRecord {
     name: string;
     startDate: string;
     endDate: string | null;
-    /** @deprecated Compatibility alias for clients during migration. */
-    eventDate: string;
     createdBy: string | null;
-    /** @deprecated No longer written or shown by the application. */
-    adminNotes: string;
     accessControlEnabled: boolean;
     createdAt: string;
     updatedAt: string;
@@ -159,17 +155,15 @@ export class ProgramRepository {
         }
 
         const timestamp = nowIso();
-        const startDate = input.startDate ?? input.eventDate ?? '';
-        const endDate = input.endDate ?? startDate;
+        const startDate = input.startDate ?? '';
+        const endDate = input.endDate ?? '';
         const program: ProgramRecord = {
             id: id('program'),
             slug: input.slug,
             name: input.name,
             startDate,
             endDate,
-            eventDate: startDate,
             createdBy,
-            adminNotes: '',
             accessControlEnabled: input.accessControlEnabled ?? false,
             createdAt: timestamp,
             updatedAt: timestamp,
@@ -226,8 +220,7 @@ export class ProgramRepository {
         const results = this.db
             .prepare(
         `SELECT id, slug, name, start_date as startDate,
-        end_date as endDate, start_date as eventDate,
-        '' as adminNotes, access_control_enabled as accessControlEnabled,
+        end_date as endDate, access_control_enabled as accessControlEnabled,
         created_at as createdAt, updated_at as updatedAt,
         retention_processed_at as retentionProcessedAt,
         created_by as createdBy
@@ -886,8 +879,6 @@ export class ProgramRepository {
 const PROGRAM_SELECT = `SELECT id, slug, name,
   start_date as startDate,
   end_date as endDate,
-  start_date as eventDate,
-  '' as adminNotes,
   access_control_enabled as accessControlEnabled,
   created_by as createdBy,
   created_at as createdAt,

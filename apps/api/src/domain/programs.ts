@@ -3,27 +3,15 @@ import { findSupportedLanguage, type SupportedLanguage } from './languages';
 export interface CreateProgramInput {
     slug: string;
     name: string;
-    /** @deprecated Ignored compatibility field; venues are no longer stored. */
-    venue?: string;
     startDate?: string;
     endDate?: string;
     accessControlEnabled?: boolean;
-    /** @deprecated Accepted only for old clients during the date-range rollout. */
-    eventDate?: string;
-    /** @deprecated Ignored; retained so older callers can be migrated safely. */
-    adminNotes?: string;
 }
 
 export interface UpdateProgramInput {
     name?: string;
-    /** @deprecated Ignored compatibility field; venues are no longer stored. */
-    venue?: string;
     startDate?: string;
     endDate?: string;
-    /** @deprecated Accepted only for old clients during the date-range rollout. */
-    eventDate?: string;
-    /** @deprecated Ignored; retained so older callers can be migrated safely. */
-    adminNotes?: string;
     accessControlEnabled?: boolean;
     createdBy?: string;
     nextSlug?: string;
@@ -145,8 +133,8 @@ function parseDate(value: unknown, field: string): string {
 export function parseCreateProgramInput(input: unknown): CreateProgramInput {
     const data = requireRecord(input, 'program');
     const slug = parseProgramSlug(data.slug, 'slug');
-    const startDate = parseDate(data.startDate ?? data.eventDate, 'startDate');
-    const endDate = parseDate(data.endDate ?? data.startDate ?? data.eventDate, 'endDate');
+    const startDate = parseDate(data.startDate, 'startDate');
+    const endDate = parseDate(data.endDate, 'endDate');
     if (endDate < startDate) {
         throw new Error('endDate must be on or after startDate');
     }
@@ -156,7 +144,6 @@ export function parseCreateProgramInput(input: unknown): CreateProgramInput {
         name: requireString(data.name, 'name'),
         startDate,
         endDate,
-        eventDate: startDate,
     };
     if (data.accessControlEnabled !== undefined) {
         program.accessControlEnabled = parseBoolean(
@@ -174,10 +161,9 @@ export function parseUpdateProgramInput(input: unknown): UpdateProgramInput {
     if (data.name !== undefined) {
         update.name = requireString(data.name, 'name');
     }
-    if (data.startDate !== undefined || data.eventDate !== undefined) {
-        const startDate = parseDate(data.startDate ?? data.eventDate, 'startDate');
+    if (data.startDate !== undefined) {
+        const startDate = parseDate(data.startDate, 'startDate');
         update.startDate = startDate;
-        update.eventDate = startDate;
     }
     if (data.endDate !== undefined) {
         update.endDate = parseDate(data.endDate, 'endDate');

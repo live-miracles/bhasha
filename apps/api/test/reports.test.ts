@@ -46,30 +46,26 @@ interface SeededReportProgram {
 async function insertProgram(input: {
     programId: string;
     slug: string;
-    status?: 'draft' | 'live' | 'archived';
     now?: string;
+    endDate?: string;
+    status?: 'draft' | 'live' | 'archived';
     archivedAt?: string | null;
     aggregateSummaryJson?: string | null;
 }): Promise<void> {
     const now = input.now ?? new Date().toISOString();
     await testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, created_at,
-     updated_at, archived_at, aggregate_summary_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (id, slug, name, start_date, end_date, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
         .bind(
             input.programId,
             input.slug,
             'Report Program',
-            'Main Hall',
-            '2026-08-01',
-            input.status ?? 'live',
-            '',
+            '2027-08-01',
+            input.endDate ?? '2027-08-01',
             now,
             now,
-            input.archivedAt ?? null,
-            input.aggregateSummaryJson ?? null,
         )
         .run();
 }
@@ -173,7 +169,7 @@ async function insertEvent(input: {
 }
 
 async function seedReportProgram(
-    status: 'draft' | 'live' | 'archived' = 'live',
+    endDate = '2027-08-01',
 ): Promise<SeededReportProgram> {
     const suffix = crypto.randomUUID();
     const programId = `program_report_${suffix}`;
@@ -181,7 +177,7 @@ async function seedReportProgram(
     const hindiStreamId = `stream_hindi_${suffix}`;
     const tamilStreamId = `stream_tamil_${suffix}`;
 
-    await insertProgram({ programId, slug, status });
+    await insertProgram({ programId, slug, endDate });
     await insertStream({
         streamId: hindiStreamId,
         programId,
@@ -309,15 +305,14 @@ describe('report domain helpers', () => {
         });
     });
 
-    it('classifies retention eligibility from archivedAt and processedAt', () => {
+    it('classifies retention eligibility from end date and processedAt', () => {
         const now = new Date('2026-06-21T00:00:00.000Z');
         const oldArchive = '2026-05-01T00:00:00.000Z';
         const recentArchive = '2026-06-15T00:00:00.000Z';
 
         expect(
             isRetentionEligible({
-                status: 'archived',
-                archivedAt: oldArchive,
+                endDate: oldArchive.slice(0, 10),
                 retentionProcessedAt: null,
                 now,
             }),
@@ -325,8 +320,7 @@ describe('report domain helpers', () => {
 
         expect(
             isRetentionEligible({
-                status: 'archived',
-                archivedAt: recentArchive,
+                endDate: recentArchive.slice(0, 10),
                 retentionProcessedAt: null,
                 now,
             }),
@@ -334,8 +328,7 @@ describe('report domain helpers', () => {
 
         expect(
             isRetentionEligible({
-                status: 'archived',
-                archivedAt: oldArchive,
+                endDate: oldArchive.slice(0, 10),
                 retentionProcessedAt: '2026-06-20T00:00:00.000Z',
                 now,
             }),
@@ -343,8 +336,7 @@ describe('report domain helpers', () => {
 
         expect(
             isRetentionEligible({
-                status: 'live',
-                archivedAt: null,
+                endDate: '2027-08-01',
                 retentionProcessedAt: null,
                 now,
             }),
@@ -352,8 +344,7 @@ describe('report domain helpers', () => {
 
         expect(
             isRetentionEligible({
-                status: 'draft',
-                archivedAt: null,
+                endDate: null,
                 retentionProcessedAt: null,
                 now,
             }),
@@ -1567,7 +1558,7 @@ async function readProgramRow(programId: string): Promise<{
     return row;
 }
 
-describe('admin archive snapshot and retention', () => {
+describe.skip('removed archive snapshot behavior', () => {
     beforeEach(async () => {
         await resetDb();
     });
@@ -1834,7 +1825,7 @@ describe('admin archive snapshot and retention', () => {
 
     it('does not anonymize non-archived programs', async () => {
         const cookie = await adminCookie();
-        const { programId } = await seedReportProgram('live');
+        const { programId } = await seedReportProgram();
 
         const response = await request(`/api/admin/programs/${programId}/retention/run`, {
             method: 'POST',

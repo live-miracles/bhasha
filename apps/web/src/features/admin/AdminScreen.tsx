@@ -407,7 +407,7 @@ function approverSvgFilename(filename: string): string {
 }
 
 function editFormFromProgram(program: AdminProgram) {
-    const startDate = program.startDate ?? program.eventDate ?? '';
+    const startDate = program.startDate ?? '';
     return {
         name: program.name,
         startDate,
@@ -419,7 +419,7 @@ function editFormFromProgram(program: AdminProgram) {
 }
 
 function programDateRange(program: AdminProgram): string {
-    const startDate = program.startDate ?? program.eventDate ?? '';
+    const startDate = program.startDate ?? '';
     const endDate = program.endDate ?? '';
     if (!endDate || endDate === startDate) {
         return startDate;
@@ -1932,8 +1932,8 @@ function ProgramList({
     }
 
     const sortedPrograms = [...programs].sort((left, right) => {
-        const leftStartDate = left.startDate ?? left.eventDate ?? '';
-        const rightStartDate = right.startDate ?? right.eventDate ?? '';
+    const leftStartDate = left.startDate ?? '';
+    const rightStartDate = right.startDate ?? '';
 
         if (!leftStartDate) return rightStartDate ? 1 : 0;
         if (!rightStartDate) return -1;

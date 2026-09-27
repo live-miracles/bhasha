@@ -31,33 +31,28 @@ async function resetDb(): Promise<void> {
 }
 
 async function seedProgram(input: {
-    status?: 'draft' | 'live' | 'archived';
     deletedAt?: string | null;
-    archivedAt?: string | null;
     retentionProcessedAt?: string | null;
+    endDate?: string;
 }): Promise<SeededProgram> {
     const id = `program_retention_service_${crypto.randomUUID()}`;
-    const slug = `${input.status ?? 'live'}-${id}`;
+    const slug = `retention-${id}`;
     const now = new Date().toISOString();
     await testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, created_at,
-     updated_at, archived_at, retention_processed_at, deleted_at, aggregate_summary_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (id, slug, name, start_date, end_date, created_at, updated_at,
+     retention_processed_at, deleted_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         id,
         slug,
         'Retention Service Program',
-        'Main Hall',
-        '2026-08-01',
-        input.status ?? 'live',
-        'notes',
+        '2027-08-01',
+        input.endDate ?? '2027-08-01',
         now,
         now,
-        input.archivedAt ?? null,
         input.retentionProcessedAt ?? null,
         input.deletedAt ?? null,
-        null,
     );
 
     return { id, slug };
@@ -145,11 +140,9 @@ describe('retention scheduled service orchestration', () => {
         const recentDeletedAt = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
 
         const expiredProgram = await seedProgram({
-            status: 'live',
             deletedAt: expiredDeletedAt,
         });
         const recentProgram = await seedProgram({
-            status: 'live',
             deletedAt: recentDeletedAt,
         });
 
@@ -185,7 +178,6 @@ describe('retention scheduled service orchestration', () => {
         const now = new Date('2026-06-23T00:00:00.000Z');
         const expiredDeletedAt = new Date(now.getTime() - 8 * 24 * 60 * 60 * 1000).toISOString();
         const expiredProgram = await seedProgram({
-            status: 'live',
             deletedAt: expiredDeletedAt,
         });
 
@@ -227,20 +219,16 @@ describe('retention scheduled service orchestration', () => {
             now.getTime() - 5 * 24 * 60 * 60 * 1000,
         ).toISOString();
         const redactedProgram = await seedProgram({
-            status: 'archived',
-            archivedAt: redactedAtBoundary,
+            endDate: '2020-01-01',
         });
         const recentArchived = await seedProgram({
-            status: 'archived',
-            archivedAt: nonRedactableBoundary,
+            endDate: '2026-06-20',
         });
         const liveProgram = await seedProgram({
-            status: 'live',
-            archivedAt: redactedAtBoundary,
+            endDate: '2027-08-01',
         });
         const softDeletedProgram = await seedProgram({
-            status: 'archived',
-            archivedAt: redactedAtBoundary,
+            endDate: '2020-01-01',
             deletedAt: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
         });
 
@@ -386,8 +374,8 @@ describe('retention scheduled service orchestration', () => {
     it('runs the grace/redact sweep and the daily access prune back to back', async () => {
         const now = new Date('2026-06-23T00:00:00.000Z');
         const expiredDeletedAt = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString();
-        await seedProgram({ status: 'live', deletedAt: expiredDeletedAt });
-        const dailyProgram = await seedProgram({ status: 'live' });
+        await seedProgram({ deletedAt: expiredDeletedAt });
+        const dailyProgram = await seedProgram({});
         testEnv.DB.prepare(
             `INSERT INTO listener_access
       (id, program_id, client_id, short_code, claim_secret_hash, status, created_at)

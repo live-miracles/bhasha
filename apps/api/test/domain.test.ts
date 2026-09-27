@@ -14,16 +14,14 @@ describe('program domain validation', () => {
             parseCreateProgramInput({
                 slug: 'patna-event-2026',
                 name: 'Patna Event 2026',
-                venue: 'Main Hall',
-                eventDate: '2026-08-01',
-                adminNotes: 'Use backup hotspot',
+                startDate: '2026-08-01',
+                endDate: '2026-08-01',
             }),
         ).toEqual({
             slug: 'patna-event-2026',
             name: 'Patna Event 2026',
-            venue: 'Main Hall',
-            eventDate: '2026-08-01',
-            adminNotes: 'Use backup hotspot',
+            startDate: '2026-08-01',
+            endDate: '2026-08-01',
         });
     });
 
@@ -32,8 +30,8 @@ describe('program domain validation', () => {
             parseCreateProgramInput({
                 slug: 'Patna Event',
                 name: 'Patna Event 2026',
-                venue: 'Main Hall',
-                eventDate: '2026-08-01',
+                startDate: '2026-08-01',
+                endDate: '2026-08-01',
             }),
         ).toThrow('slug must use lowercase letters, numbers, and hyphens');
     });
@@ -47,8 +45,8 @@ describe('program domain validation', () => {
             parseCreateProgramInput({
                 slug: 'patna-event-2026',
                 name: 'Patna Event 2026',
-                venue: 'Main Hall',
-                eventDate: '2026-08-01',
+                startDate: '2026-08-01',
+                endDate: '2026-08-01',
                 accessControlEnabled: true,
             }),
         ).toMatchObject({ accessControlEnabled: true });
@@ -62,8 +60,8 @@ describe('program domain validation', () => {
             parseCreateProgramInput({
                 slug: 'patna-event-2026',
                 name: 'Patna Event 2026',
-                venue: 'Main Hall',
-                eventDate: '2026-08-01',
+                startDate: '2026-08-01',
+                endDate: '2026-08-01',
                 accessControlEnabled: 1,
             }),
         ).toThrow('accessControlEnabled must be a boolean');

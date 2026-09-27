@@ -110,16 +110,14 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
 
     await testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at, deleted_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (id, slug, name, start_date, end_date, created_at, updated_at, deleted_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         programId,
         programId,
         'Program for retention prune',
-        'Main Hall',
-        '2026-08-01',
-        'live',
-        'retention test',
+        '2027-08-01',
+        '2027-08-01',
         now,
         now,
         deletedAt,

@@ -43,12 +43,6 @@ const ENDPOINT_CASES: EndpointCase[] = [
         path: ({ programId }) => `/api/admin/programs/${programId}/restore`,
     },
     {
-        name: 'POST /api/admin/programs/:id/archive',
-        method: 'POST',
-        write: true,
-        path: ({ programId }) => `/api/admin/programs/${programId}/archive`,
-    },
-    {
         name: 'GET /api/admin/programs/:id/listener-report',
         method: 'GET',
         write: false,

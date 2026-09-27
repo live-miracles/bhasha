@@ -4,12 +4,8 @@ export interface PublicProgramMetadata {
     program: {
         slug: string;
         name: string;
-        /** @deprecated Compatibility field; venues are no longer returned. */
-        venue?: string | null;
         startDate?: string | null;
         endDate?: string | null;
-        /** @deprecated Compatibility alias for older API responses. */
-        eventDate?: string | null;
         listenable: boolean;
         notListenableReason: 'not_started' | 'ended' | null;
         accessControlEnabled: boolean;

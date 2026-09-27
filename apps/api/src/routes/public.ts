@@ -161,7 +161,6 @@ export async function handlePublicRoutes(
                     name: program.name,
                     startDate: program.startDate,
                     endDate: program.endDate,
-                    eventDate: program.startDate,
                     accessControlEnabled: program.accessControlEnabled,
                     listenable: programStatusFlags.listenable,
                     notListenableReason: programStatusFlags.notListenableReason,

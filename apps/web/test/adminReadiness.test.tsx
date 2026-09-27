@@ -1,8 +1,10 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { MantineProvider } from '@mantine/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AdminReadiness } from '../src/api/admin';
 import { ReadinessPanel } from '../src/features/admin/readiness/ReadinessPanel';
+import type { ReactNode } from 'react';
 
 afterEach(() => {
     cleanup();
@@ -47,9 +49,13 @@ function readiness(): AdminReadiness {
     };
 }
 
+function renderReadiness(ui: ReactNode) {
+    return render(<MantineProvider>{ui}</MantineProvider>);
+}
+
 describe('ReadinessPanel', () => {
     it('renders the readiness heading and each item with its status', () => {
-        render(<ReadinessPanel readiness={readiness()} onConfirm={vi.fn()} />);
+        renderReadiness(<ReadinessPanel readiness={readiness()} onConfirm={vi.fn()} />);
 
         expect(screen.getByRole('heading', { name: /event readiness/i })).toBeTruthy();
 
@@ -61,7 +67,7 @@ describe('ReadinessPanel', () => {
     });
 
     it('surfaces blocker and warning states', () => {
-        render(<ReadinessPanel readiness={readiness()} onConfirm={vi.fn()} />);
+        renderReadiness(<ReadinessPanel readiness={readiness()} onConfirm={vi.fn()} />);
 
         const blockers = screen.getAllByText(/blocker/i);
         expect(blockers.length).toBeGreaterThan(0);
@@ -69,7 +75,7 @@ describe('ReadinessPanel', () => {
     });
 
     it('renders confirm buttons only for smoke and mobile field checks', () => {
-        render(<ReadinessPanel readiness={readiness()} onConfirm={vi.fn()} />);
+        renderReadiness(<ReadinessPanel readiness={readiness()} onConfirm={vi.fn()} />);
 
         expect(screen.getByRole('button', { name: /confirm realtime smoke test/i })).toBeTruthy();
         expect(screen.getByRole('button', { name: /confirm mobile field test/i })).toBeTruthy();
@@ -80,7 +86,7 @@ describe('ReadinessPanel', () => {
 
     it('calls onConfirm with the item id when a confirm button is clicked', () => {
         const onConfirm = vi.fn();
-        render(<ReadinessPanel readiness={readiness()} onConfirm={onConfirm} />);
+        renderReadiness(<ReadinessPanel readiness={readiness()} onConfirm={onConfirm} />);
 
         fireEvent.click(screen.getByRole('button', { name: /confirm realtime smoke test/i }));
 
@@ -88,7 +94,7 @@ describe('ReadinessPanel', () => {
     });
 
     it('shows a loading state when readiness is null', () => {
-        render(<ReadinessPanel readiness={null} onConfirm={vi.fn()} />);
+        renderReadiness(<ReadinessPanel readiness={null} onConfirm={vi.fn()} />);
         expect(screen.getByText(/loading event readiness/i)).toBeTruthy();
     });
 });

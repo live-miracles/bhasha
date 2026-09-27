@@ -22,9 +22,10 @@ const defaultProgramMetadata = {
     program: {
         slug: 'patna-event-2026',
         name: 'Patna Event 2026',
-        venue: null,
-        eventDate: null,
-        status: 'draft',
+        startDate: '2027-08-26',
+        endDate: '2027-08-26',
+        listenable: true,
+        notListenableReason: null,
     },
     streams: [],
     urls: {

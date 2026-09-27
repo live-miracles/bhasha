@@ -41,10 +41,8 @@ describe('AdminApi', () => {
             id: 'program_2',
             slug: 'deleted-event-2026',
             name: 'Deleted Event',
-            venue: 'Main Hall',
-            eventDate: '2026-08-01',
-            status: 'live' as const,
-            adminNotes: '',
+            startDate: '2027-08-01',
+            endDate: '2027-08-01',
             createdAt: '2026-08-01T10:00:00.000Z',
             updatedAt: '2026-08-01T10:00:00.000Z',
             firstLiveAt: null,
@@ -62,16 +60,14 @@ describe('AdminApi', () => {
         await api.createProgram({
             slug: 'patna-event-2026',
             name: 'Patna Event 2026',
-            venue: 'Main Hall',
-            eventDate: '2026-07-01',
-            adminNotes: 'Doors at 6',
+            startDate: '2027-07-01',
+            endDate: '2027-07-01',
             accessControlEnabled: true,
         });
         await api.updateProgram('program_1', {
             nextSlug: 'patna-renamed',
             accessControlEnabled: false,
         });
-        await api.archiveProgram('program_1');
         await api.deleteProgram('program_1');
         const deletedPrograms = await api.listDeletedPrograms();
         await api.restoreProgram('program_1');
@@ -85,16 +81,14 @@ describe('AdminApi', () => {
         expect(client.post).toHaveBeenNthCalledWith(2, '/api/admin/programs', {
             slug: 'patna-event-2026',
             name: 'Patna Event 2026',
-            venue: 'Main Hall',
-            eventDate: '2026-07-01',
-            adminNotes: 'Doors at 6',
+            startDate: '2027-07-01',
+            endDate: '2027-07-01',
             accessControlEnabled: true,
         });
         expect(client.patch).toHaveBeenCalledWith('/api/admin/programs/program_1', {
             nextSlug: 'patna-renamed',
             accessControlEnabled: false,
         });
-        expect(client.post).toHaveBeenNthCalledWith(3, '/api/admin/programs/program_1/archive');
         expect(client.delete).toHaveBeenCalledWith('/api/admin/programs/program_1');
         expect(client.get).toHaveBeenCalledWith('/api/admin/programs?deleted=true');
         expect(client.post).toHaveBeenCalledWith('/api/admin/programs/program_1/restore');
@@ -208,7 +202,6 @@ describe('AdminApi', () => {
             id: 'user_2',
             username: 'plain_user',
             role: 'user' as const,
-            isDisabled: false,
             createdAt: '2026-06-01T10:00:00.000Z',
             updatedAt: '2026-06-01T10:00:00.000Z',
         };
@@ -227,7 +220,7 @@ describe('AdminApi', () => {
             role: 'user',
             password: 'temp-pass',
         });
-        await api.updateUser('user_2', { isDisabled: true });
+        await api.updateUser('user_2', { username: 'renamed-user' });
         await api.resetUserPassword('user_2', { newPassword: 'new-pass' });
         await api.changeMyPassword({
             currentPassword: 'old',
@@ -242,7 +235,7 @@ describe('AdminApi', () => {
             password: 'temp-pass',
         });
         expect(client.patch).toHaveBeenCalledWith('/api/admin/users/user_2', {
-            isDisabled: true,
+            username: 'renamed-user',
         });
         expect(client.post).toHaveBeenCalledWith('/api/admin/users/user_2/password', {
             newPassword: 'new-pass',

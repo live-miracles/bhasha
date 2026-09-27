@@ -146,9 +146,10 @@ export async function seedProgram(
     overrides: Partial<{
         slug: string;
         name: string;
-        venue: string;
+        startDate: string;
+        endDate: string;
+        /** @deprecated test fixture aliases; production input no longer uses these fields. */
         eventDate: string;
-        adminNotes: string;
         createdBy: string;
     }> = {},
 ): Promise<ProgramRecord> {
@@ -158,9 +159,8 @@ export async function seedProgram(
         {
             slug: overrides.slug ?? `program-${crypto.randomUUID()}`,
             name: overrides.name ?? 'Patna Event 2026',
-            venue: overrides.venue ?? 'Main Hall',
-            eventDate: overrides.eventDate ?? '2026-08-01',
-            adminNotes: overrides.adminNotes ?? '',
+            startDate: overrides.startDate ?? overrides.eventDate ?? '2027-08-01',
+            endDate: overrides.endDate ?? overrides.startDate ?? overrides.eventDate ?? '2027-08-01',
         },
         createdBy,
     );

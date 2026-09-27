@@ -76,7 +76,7 @@ async function insertPublishedSession(input: {
     );
 }
 
-async function seedPublicProgram(programStatus: 'live' | 'draft' | 'archived' = 'live'): Promise<{
+async function seedPublicProgram(expired = false): Promise<{
     programId: string;
     slug: string;
     hindiStreamId: string;
@@ -98,16 +98,14 @@ async function seedPublicProgram(programStatus: 'live' | 'draft' | 'archived' = 
 
     await testEnv.DB.prepare(
         `INSERT INTO programs
-    (id, slug, name, venue, event_date, status, admin_notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    (id, slug, name, start_date, end_date, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         programId,
         slug,
         'Patna Event 2026',
-        'Main Hall',
-        '2026-08-01',
-        programStatus,
-        'admin-only public status notes',
+        '2027-08-01',
+        expired ? '2020-08-01' : '2027-08-01',
         now,
         now,
     );
@@ -329,28 +327,8 @@ describe('public program status', () => {
         }
     });
 
-    it('returns not-listenable false for a draft public status endpoint', async () => {
-        const { slug } = await seedPublicProgram('draft');
-
-        const response = await request(`/api/public/programs/${slug}/status`);
-
-        expect(response.status).toBe(200);
-        const body = await response.json();
-        expect(body).toEqual({
-            program: {
-                slug,
-                listenable: false,
-                notListenableReason: 'not_started',
-            },
-            streams: expect.any(Array),
-            stale: expect.any(Boolean),
-            degraded: expect.any(Boolean),
-            serverTime: expect.any(String),
-        });
-    });
-
-    it('returns not-listenable state for an archived public status endpoint', async () => {
-        const { slug } = await seedPublicProgram('archived');
+    it('returns not-listenable state after the program end date', async () => {
+        const { slug } = await seedPublicProgram(true);
 
         const response = await request(`/api/public/programs/${slug}/status`);
 
@@ -561,7 +539,6 @@ describe('public program status', () => {
         await testEnv.DB.prepare(
             `UPDATE programs
       SET deleted_at = ?,
-          status = 'live',
           updated_at = ?
       WHERE id = ?`,
         ).run(new Date().toISOString(), new Date().toISOString(), programId);
