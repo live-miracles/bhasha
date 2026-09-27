@@ -10,7 +10,8 @@ export interface PublicProgramMetadata {
         endDate?: string | null;
         /** @deprecated Compatibility alias for older API responses. */
         eventDate?: string | null;
-        status: string;
+        listenable: boolean;
+        notListenableReason: 'not_started' | 'ended' | null;
         accessControlEnabled: boolean;
     };
     streams: PublicLanguageStream[];
@@ -24,6 +25,8 @@ export interface PublicProgramMetadata {
 export interface PublicProgramStatus {
     program: {
         slug: string;
+        listenable: boolean;
+        notListenableReason: 'not_started' | 'ended' | null;
     };
     streams: Array<{
         id: string;

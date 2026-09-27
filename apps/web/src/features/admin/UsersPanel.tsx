@@ -1,12 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Alert, Badge, Button, Group, Paper, Stack, Table, TextInput, Title } from '@mantine/core';
+import { Alert, Button, Group, Paper, Stack, Table, TextInput, Title } from '@mantine/core';
 
 import { ApiError } from '../../api/client';
 import { type AdminApi, type AdminUser } from '../../api/admin';
 import { AdminDialog } from './AdminDialog';
 
 interface UsersPanelProps {
-    adminApi: Pick<AdminApi, 'listUsers' | 'createUser' | 'updateUser' | 'resetUserPassword'>;
+    adminApi: Pick<AdminApi, 'listUsers' | 'createUser' | 'updateUser' | 'deleteUser' | 'resetUserPassword'>;
+    currentUserId: string;
 }
 
 function errorText(error: unknown): string {
@@ -32,11 +33,12 @@ function errorText(error: unknown): string {
     return String(error);
 }
 
-export function UsersPanel({ adminApi }: UsersPanelProps) {
+export function UsersPanel({ adminApi, currentUserId }: UsersPanelProps) {
     const [users, setUsers] = useState<AdminUser[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [pending, setPending] = useState(false);
     const [createOpen, setCreateOpen] = useState(false);
+    const [createPasswordVisible, setCreatePasswordVisible] = useState(false);
     const [form, setForm] = useState({
         username: '',
         password: '',
@@ -45,6 +47,9 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
     const [newPassword, setNewPassword] = useState('');
     const [resetError, setResetError] = useState<string | null>(null);
     const [resetPending, setResetPending] = useState(false);
+    const [editUser, setEditUser] = useState<AdminUser | null>(null);
+    const [editUsername, setEditUsername] = useState('');
+    const [editPending, setEditPending] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -91,18 +96,38 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
         }
     }
 
-    async function toggleDisabled(user: AdminUser) {
+    function openEditDialog(user: AdminUser) {
+        setEditUser(user);
+        setEditUsername(user.username);
         setError(null);
-        setPending(true);
+    }
+
+    async function submitEdit(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault();
+        if (!editUser) return;
+        setEditPending(true);
         try {
-            const updated = await adminApi.updateUser(user.id, {
-                isDisabled: !user.isDisabled,
-            });
+            const updated = await adminApi.updateUser(editUser.id, { username: editUsername });
             setUsers((previous) =>
                 previous.map((candidate) => (candidate.id === updated.id ? updated : candidate)),
             );
-        } catch (toggleError) {
-            setError(errorText(toggleError));
+            setEditUser(null);
+        } catch (editError) {
+            setError(errorText(editError));
+        } finally {
+            setEditPending(false);
+        }
+    }
+
+    async function deleteUser(user: AdminUser) {
+        if (user.id === currentUserId || !window.confirm(`Delete user "${user.username}"?`)) return;
+        setError(null);
+        setPending(true);
+        try {
+            await adminApi.deleteUser(user.id);
+            setUsers((previous) => previous.filter((candidate) => candidate.id !== user.id));
+        } catch (deleteError) {
+            setError(errorText(deleteError));
         } finally {
             setPending(false);
         }
@@ -152,6 +177,7 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
                     leftSection={<PlusIcon />}
                     onClick={() => {
                         setError(null);
+                        setCreatePasswordVisible(false);
                         setCreateOpen(true);
                     }}
                     type="button"
@@ -173,8 +199,7 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
                         <Table.Tr>
                             <Table.Th>Username</Table.Th>
                             <Table.Th>Role</Table.Th>
-                            <Table.Th>Status</Table.Th>
-                            <Table.Th>Actions</Table.Th>
+                                <Table.Th>Actions</Table.Th>
                         </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
@@ -183,30 +208,30 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
                                 <Table.Td>{user.username}</Table.Td>
                                 <Table.Td>{user.role}</Table.Td>
                                 <Table.Td>
-                                    <Badge color={user.isDisabled ? 'gray' : 'green'}>
-                                        {user.isDisabled ? 'Disabled' : 'Active'}
-                                    </Badge>
-                                </Table.Td>
-                                <Table.Td>
                                     <Group gap="xs">
-                                        <Button
-                                            disabled={pending}
-                                            onClick={() => void toggleDisabled(user)}
-                                            size="compact-sm"
-                                            type="button"
-                                            variant="default"
-                                        >
-                                            {user.isDisabled ? 'Enable' : 'Disable'}
-                                        </Button>
-                                        <Button
-                                            disabled={pending}
-                                            onClick={() => void openResetDialog(user)}
-                                            size="compact-sm"
-                                            type="button"
-                                            variant="default"
-                                        >
-                                            Reset password
-                                        </Button>
+                                        {user.id === currentUserId ? (
+                                            <span>Current account</span>
+                                        ) : (
+                                            <>
+                                                <Button disabled={pending} onClick={() => openEditDialog(user)} size="compact-sm" type="button" variant="default">
+                                                    Edit name
+                                                </Button>
+                                                <Button color="red" disabled={pending} onClick={() => void deleteUser(user)} size="compact-sm" type="button" variant="default">
+                                                    Delete
+                                                </Button>
+                                            </>
+                                        )}
+                                        {user.id !== currentUserId ? (
+                                            <Button
+                                                disabled={pending}
+                                                onClick={() => void openResetDialog(user)}
+                                                size="compact-sm"
+                                                type="button"
+                                                variant="default"
+                                            >
+                                                Reset password
+                                            </Button>
+                                        ) : null}
                                     </Group>
                                 </Table.Td>
                             </Table.Tr>
@@ -231,14 +256,36 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
                             />
                             <TextInput
                                 aria-label="Password"
+                                aria-describedby="create-user-password-visibility"
                                 label="Password"
+                                id="create-user-password"
                                 onChange={(event) =>
                                     setForm({ ...form, password: event.target.value })
                                 }
                                 required
-                                type="password"
+                                rightSection={
+                                    <button
+                                        aria-label={
+                                            createPasswordVisible
+                                                ? 'Hide password'
+                                                : 'Show password'
+                                        }
+                                        className="password-visibility-button"
+                                        onClick={() =>
+                                            setCreatePasswordVisible((visible) => !visible)
+                                        }
+                                        type="button"
+                                    >
+                                        <EyeIcon slashed={!createPasswordVisible} />
+                                    </button>
+                                }
+                                rightSectionPointerEvents="auto"
+                                type={createPasswordVisible ? 'text' : 'password'}
                                 value={form.password}
                             />
+                            <span className="sr-only" id="create-user-password-visibility">
+                                {createPasswordVisible ? 'Password is visible' : 'Password is hidden'}
+                            </span>
                             {error ? <Alert color="red" role="alert">{error}</Alert> : null}
                             <Group justify="flex-end">
                                 <Button
@@ -251,6 +298,20 @@ export function UsersPanel({ adminApi }: UsersPanelProps) {
                                 <Button disabled={pending} loading={pending} type="submit">
                                     Create user
                                 </Button>
+                            </Group>
+                        </Stack>
+                    </form>
+                </Paper>
+            </AdminDialog>
+
+            <AdminDialog open={editUser !== null} onClose={() => setEditUser(null)} title="Edit user name">
+                <Paper p="md" radius="md" withBorder>
+                    <form onSubmit={submitEdit}>
+                        <Stack>
+                            <TextInput aria-label="Username" label="Username" onChange={(event) => setEditUsername(event.target.value)} required value={editUsername} />
+                            <Group justify="flex-end">
+                                <Button onClick={() => setEditUser(null)} type="button" variant="default">Cancel</Button>
+                                <Button disabled={editPending} loading={editPending} type="submit">Save</Button>
                             </Group>
                         </Stack>
                     </form>
@@ -298,6 +359,29 @@ function PlusIcon() {
     return (
         <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 16 16" width="16">
             <path d="M8 3v10M3 8h10" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+        </svg>
+    );
+}
+
+function EyeIcon({ slashed }: { slashed: boolean }) {
+    return (
+        <svg aria-hidden="true" fill="none" height="20" viewBox="0 0 24 24" width="20">
+            <path
+                d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+            />
+            <circle cx="12" cy="12" r="2.5" stroke="currentColor" strokeWidth="1.8" />
+            {slashed ? (
+                <path
+                    d="m4 4 16 16"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeWidth="1.8"
+                />
+            ) : null}
         </svg>
     );
 }

@@ -1,7 +1,5 @@
 import { apiClient } from './client';
 
-export type ProgramStatus = 'draft' | 'live' | 'archived';
-
 export interface AdminProgram {
     id: string;
     slug: string;
@@ -12,13 +10,12 @@ export interface AdminProgram {
     endDate?: string | null;
     /** @deprecated Compatibility alias for older API responses. */
     eventDate?: string;
-    status: ProgramStatus;
     /** @deprecated Compatibility alias for older API responses. */
     adminNotes?: string;
     accessControlEnabled: boolean;
+    createdBy: string | null;
     createdAt: string;
     updatedAt: string;
-    firstLiveAt: string | null;
 }
 
 export interface AdminStream {
@@ -56,7 +53,6 @@ export interface AdminUser {
     id: string;
     username: string;
     role: AdminRole;
-    isDisabled: boolean;
     createdAt: string;
     updatedAt: string;
 }
@@ -210,7 +206,7 @@ export interface AdminReportSummary {
     };
     streams: AdminReportStreamSummary[];
     generatedAt: string;
-    presenceSource: 'durable_object' | 'archived_snapshot';
+    presenceSource: 'durable_object';
 }
 
 export interface AdminEventFeedEntry {
@@ -294,9 +290,9 @@ export interface UpdateProgramPayload {
     venue?: string;
     startDate?: string;
     endDate?: string;
-    status?: ProgramStatus;
     nextSlug?: string;
     accessControlEnabled?: boolean;
+    createdBy?: string;
 }
 
 export interface CreateStreamPayload {
@@ -331,11 +327,11 @@ export interface AdminApi {
         role: AdminRole;
         password: string;
     }): Promise<AdminUser>;
-    updateUser(id: string, payload: { isDisabled?: boolean; role?: AdminRole }): Promise<AdminUser>;
+    updateUser(id: string, payload: { username?: string; role?: AdminRole }): Promise<AdminUser>;
+    deleteUser(id: string): Promise<void>;
     resetUserPassword(id: string, payload: { newPassword: string }): Promise<{ ok: true }>;
     createProgram(payload: CreateProgramPayload): Promise<AdminProgram>;
     updateProgram(programId: string, payload: UpdateProgramPayload): Promise<AdminProgramDetail>;
-    archiveProgram(programId: string): Promise<AdminProgramDetail>;
     deleteProgram(programId: string): Promise<void>;
     restoreProgram(programId: string): Promise<void>;
     getProgramDetail(programId: string): Promise<AdminProgramDetail>;
@@ -459,8 +455,11 @@ export function createAdminApi(client: AdminHttpClient = apiClient): AdminApi {
         createUser(p: { username: string; role: AdminRole; password: string }) {
             return client.post<AdminUser>('/api/admin/users', p);
         },
-        updateUser(id: string, p: { isDisabled?: boolean; role?: AdminRole }) {
+        updateUser(id: string, p: { username?: string; role?: AdminRole }) {
             return client.patch<AdminUser>(`/api/admin/users/${encodeURIComponent(id)}`, p);
+        },
+        deleteUser(id: string) {
+            return client.delete(`/api/admin/users/${encodeURIComponent(id)}`);
         },
         resetUserPassword(id: string, p: { newPassword: string }) {
             return client.post<{ ok: true }>(
@@ -473,9 +472,6 @@ export function createAdminApi(client: AdminHttpClient = apiClient): AdminApi {
         },
         updateProgram(programId: string, payload: UpdateProgramPayload) {
             return client.patch<AdminProgramDetail>(programPath(programId), payload);
-        },
-        archiveProgram(programId: string) {
-            return client.post<AdminProgramDetail>(`${programPath(programId)}/archive`);
         },
         deleteProgram(programId: string) {
             return client.delete(programPath(programId));

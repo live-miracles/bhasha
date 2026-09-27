@@ -2039,7 +2039,27 @@ body {
 }
 
 .admin-program-card {
+    position: relative;
     min-width: 0;
+}
+
+.admin-delete-program-button {
+    background-color: #7f1d1d;
+    color: #fff;
+}
+
+.admin-delete-program-button:hover {
+    background-color: #651818;
+}
+
+.admin-program-slug-badge {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    max-width: calc(100% - 2rem);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .admin-program-meta {
@@ -2049,15 +2069,7 @@ body {
 .admin-program-heading {
     min-width: 0;
     overflow: hidden;
-}
-
-.admin-program-slug {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--adm-text-soft);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    padding-right: 7rem;
 }
 
 .admin-program-heading .mantine-Title-root {

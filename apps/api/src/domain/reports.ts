@@ -35,7 +35,7 @@ export interface AdminReportSummaryResponse {
     totals: AdminReportSummaryTotals;
     streams: AdminReportStreamSummary[];
     generatedAt: string;
-    presenceSource: 'durable_object' | 'archived_snapshot';
+    presenceSource: 'durable_object';
 }
 
 export interface AdminEventFeedEntry {
@@ -173,27 +173,23 @@ export function isReconnectEvent(eventType: string): boolean {
 }
 
 export function isRetentionEligible(input: {
-    status: 'draft' | 'live' | 'archived';
-    archivedAt: string | null;
+    endDate: string | null;
     retentionProcessedAt: string | null;
     now: Date;
 }): boolean {
-    if (input.status !== 'archived') {
-        return false;
-    }
-    if (input.archivedAt === null) {
+    if (input.endDate === null) {
         return false;
     }
     if (input.retentionProcessedAt !== null) {
         return false;
     }
 
-    const archivedAtMs = Date.parse(input.archivedAt);
-    if (!Number.isFinite(archivedAtMs)) {
+    const endDateMs = Date.parse(`${input.endDate}T23:59:59.999Z`);
+    if (!Number.isFinite(endDateMs)) {
         return false;
     }
 
-    return input.now.getTime() - archivedAtMs >= RETENTION_MS;
+    return input.now.getTime() - endDateMs >= RETENTION_MS;
 }
 
 /** Local safe JSON parser for metadata columns. */

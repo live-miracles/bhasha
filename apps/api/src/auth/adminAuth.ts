@@ -102,9 +102,8 @@ function readString(body: Record<string, unknown>, key: string): string {
 
 /**
  * Username + password login against the `users` table. On success, issues a
- * user-bound `admin_session` cookie. Disabled users and users without a
- * password set are rejected (401), with a generic error to avoid user
- * enumeration.
+ * user-bound `admin_session` cookie. Users without a password set are rejected
+ * (401), with a generic error to avoid user enumeration.
  */
 export async function handleLogin(request: Request, env: Env): Promise<Response> {
     const body = await readJsonObject(request);
@@ -123,7 +122,7 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
 
     const users = new UsersRepository(env.DB);
     const user = await users.getUserByUsername(username);
-    if (!user || user.isDisabled || !user.passwordHash) {
+    if (!user || !user.passwordHash) {
         // Burn equivalent PBKDF2 work even when there is no real password to verify,
         // so the unknown-username / disabled / unset-password paths take comparable
         // time to a wrong-password attempt. Closes a user-enumeration timing oracle.
@@ -146,8 +145,7 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
  * Validate the `admin_session` cookie against a user-bound session.
  *
  * The JOIN to `users` means legacy sessions (user_id IS NULL) are dropped → 401,
- * forcing re-login. `is_disabled = 0` is re-checked on EVERY request so a
- * disabled user loses access immediately, not just on next login.
+ * forcing re-login.
  *
  * @returns The resolved {userId, role} or a 401 Response.
  */
@@ -162,7 +160,7 @@ export async function requireUserAuth(request: Request, env: Env): Promise<UserA
         `SELECT u.id AS id, u.role AS role
      FROM admin_sessions s
      JOIN users u ON u.id = s.user_id
-     WHERE s.session_hash = ? AND s.expires_at > ? AND u.is_disabled = 0`,
+     WHERE s.session_hash = ? AND s.expires_at > ?`,
     ).get(sessionHash, new Date().toISOString()) as { id: string; role: UserRole } | undefined;
 
     if (!row) {

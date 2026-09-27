@@ -70,7 +70,7 @@ type KpiTileProps = {
 };
 
 type StatusPillProps = {
-    tone: 'live' | 'silent' | 'offline' | 'draft' | 'archived';
+    tone: 'live' | 'silent' | 'offline';
     children: ReactNode;
 };
 
@@ -126,9 +126,7 @@ export function StatusPill({ tone, children }: StatusPillProps) {
               ? 'yellow'
               : tone === 'offline'
                 ? 'gray'
-                : tone === 'draft'
-                  ? 'violet'
-                  : 'dark';
+                : 'gray';
 
     return (
         <Badge color={color} variant={tone === 'live' ? 'filled' : 'light'}>

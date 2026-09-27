@@ -15,7 +15,7 @@ export interface CreateUserInput {
 }
 
 export interface UpdateUserInput {
-    isDisabled?: boolean;
+    username?: string;
     role?: UserRole;
 }
 
@@ -88,8 +88,8 @@ export function parseUpdateUserInput(input: unknown): UpdateUserInput {
     const data = requireRecord(input, 'update user');
     const output: UpdateUserInput = {};
 
-    if (data.isDisabled !== undefined) {
-        output.isDisabled = parseBoolean(data.isDisabled, 'isDisabled');
+    if (data.username !== undefined) {
+        output.username = parseUsername(data.username);
     }
     if (data.role !== undefined) {
         output.role = parseUserRole(data.role);

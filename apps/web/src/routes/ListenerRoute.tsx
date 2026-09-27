@@ -1649,10 +1649,7 @@ function InAppBrowserBanner({ app }: { app?: string | undefined }) {
 }
 
 function ListenerGateMessage({ reason }: { reason: Exclude<ListenerNotListenableReason, null> }) {
-    const [headline, subtext] =
-        reason === 'not_started'
-            ? ['This event has not started yet.', 'Check back when the event begins.']
-            : ['This event has ended.', 'Thank you for joining.'];
+    const [headline, subtext] = ['This program has expired.', 'Thank you for joining.'];
 
     return (
         <>

@@ -10,7 +10,6 @@ export type UserRecord = {
     passwordSalt: string | null;
     passwordIterations: number | null;
     role: UserRole;
-    isDisabled: boolean;
     createdAt: string;
     updatedAt: string;
 };
@@ -22,8 +21,8 @@ export type CreateUserInput = {
 };
 
 export type UpdateUserInput = {
+    username?: string;
     role?: UserRole;
-    isDisabled?: boolean;
 };
 
 // The fixed singleton admin account's identity, seeded automatically at
@@ -64,7 +63,6 @@ type UserRow = {
     password_salt: string | null;
     password_iterations: number | null;
     role: UserRole;
-    is_disabled: number;
     created_at: string;
     updated_at: string;
 };
@@ -122,7 +120,6 @@ function mapUser(row: UserRow): UserRecord {
         passwordSalt: row.password_salt,
         passwordIterations: row.password_iterations,
         role: row.role,
-        isDisabled: row.is_disabled === 1,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
@@ -156,8 +153,8 @@ export class UsersRepository {
             .prepare(
                 `INSERT INTO users
           (id, username, password_hash, password_salt, password_iterations,
-           role, is_disabled, created_at, updated_at)
-         VALUES (?, ?, NULL, NULL, NULL, ?, 0, ?, ?)`,
+           role, created_at, updated_at)
+         VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?)`,
             )
             .run(id, username, input.role, now, now);
 
@@ -168,7 +165,6 @@ export class UsersRepository {
             passwordSalt: null,
             passwordIterations: null,
             role: input.role,
-            isDisabled: false,
             createdAt: now,
             updatedAt: now,
         };
@@ -209,15 +205,14 @@ export class UsersRepository {
         const sets: string[] = [];
         const params: unknown[] = [];
 
+        if (fields.username !== undefined) {
+            sets.push('username = ?');
+            params.push(normalizeUsername(fields.username));
+        }
         if (fields.role !== undefined) {
             sets.push('role = ?');
             params.push(fields.role);
         }
-        if (fields.isDisabled !== undefined) {
-            sets.push('is_disabled = ?');
-            params.push(fields.isDisabled ? 1 : 0);
-        }
-
         if (sets.length === 0) {
             return this.getUserById(userId);
         }
@@ -231,8 +226,19 @@ export class UsersRepository {
         return this.getUserById(userId);
     }
 
-    async disableUser(userId: string): Promise<UserRecord | null> {
-        return this.updateUser(userId, { isDisabled: true });
+    async deleteUser(userId: string): Promise<boolean> {
+        const result = this.db.transaction(() => {
+            this.db
+                .prepare(
+                    `UPDATE programs
+                     SET deleted_at = COALESCE(deleted_at, ?), created_by = NULL, updated_at = ?
+                     WHERE created_by = ?`,
+                )
+                .run(new Date().toISOString(), new Date().toISOString(), userId);
+            this.db.prepare('DELETE FROM admin_sessions WHERE user_id = ?').run(userId);
+            return this.db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+        })();
+        return result.changes > 0;
     }
 
     /**

@@ -6,6 +6,7 @@ import type { Env } from '../env';
 import { json, type WaitUntilCtx } from '../http';
 import { readPresenceStatusSnapshot } from '../presence/status';
 import { deriveStreamState } from '../presence/streamState';
+import { isProgramExpired } from '../domain/programExpiry';
 
 // Listener /status is polled frequently at scale; a short in-process cache
 // collapses concurrent cache-misses into one build per TTL window. Degraded
@@ -149,7 +150,7 @@ export async function handlePublicRoutes(
             return json({ error: 'program_not_found' }, { status: 404 });
         }
 
-        const programStatusFlags = getProgramListenability(program.status);
+        const programStatusFlags = getProgramListenability(program.endDate);
         const streams = await programs.listActiveStreams(program.id);
         const publicPath = `/${encodeURIComponent(program.slug)}`;
 
@@ -161,7 +162,6 @@ export async function handlePublicRoutes(
                     startDate: program.startDate,
                     endDate: program.endDate,
                     eventDate: program.startDate,
-                    status: program.status,
                     accessControlEnabled: program.accessControlEnabled,
                     listenable: programStatusFlags.listenable,
                     notListenableReason: programStatusFlags.notListenableReason,
@@ -302,7 +302,7 @@ async function publicProgramStatus(
             };
         }
 
-        const programStatusFlags = getProgramListenability(program.status);
+        const programStatusFlags = getProgramListenability(program.endDate);
         const realtime = new RealtimeStreamRepository(env.DB);
         const [streams, presence, activePublishers] = await Promise.all([
             programs.listActiveStreams(program.id),
@@ -367,21 +367,13 @@ async function publicProgramStatus(
     }
 }
 
-function getProgramListenability(programStatus: string): {
+function getProgramListenability(endDate: string | null): {
     listenable: boolean;
     notListenableReason: 'not_started' | 'ended' | null;
 } {
-    return programStatus === 'live'
-        ? { listenable: true, notListenableReason: null }
-        : {
-              listenable: false,
-              notListenableReason:
-                  programStatus === 'draft'
-                      ? 'not_started'
-                      : programStatus === 'archived'
-                        ? 'ended'
-                        : null,
-          };
+    return endDate && isProgramExpired(endDate)
+        ? { listenable: false, notListenableReason: 'ended' }
+        : { listenable: true, notListenableReason: null };
 }
 
 async function publicPublisherVersion(publishSessionId: string): Promise<string> {

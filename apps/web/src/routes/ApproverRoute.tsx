@@ -29,7 +29,13 @@ type ScreenWakeLockNavigator = Navigator & {
     };
 };
 
-type AuthState = 'checking' | 'loggedOut' | 'loggedIn' | 'loggingOut' | 'programMissing';
+type AuthState =
+    | 'checking'
+    | 'loggedOut'
+    | 'loggedIn'
+    | 'loggingOut'
+    | 'programMissing'
+    | 'programExpired';
 type FeedbackKind = 'approved' | 'already' | 'notFound' | 'revoked' | 'rateLimited' | 'error';
 
 type ApprovalOutcome = {
@@ -101,6 +107,10 @@ export function ApproverRoute({
                     return;
                 }
                 setProgramName(metadata.program.name);
+                if (!metadata.program.listenable) {
+                    setAuth('programExpired');
+                    return;
+                }
             } catch (error) {
                 if (!active) {
                     return;
@@ -356,6 +366,12 @@ export function ApproverRoute({
                     {auth === 'programMissing' ? (
                         <p className="lp-info" role="status">
                             This program does not exist.
+                        </p>
+                    ) : null}
+
+                    {auth === 'programExpired' ? (
+                        <p className="lp-info" role="status">
+                            This program has expired.
                         </p>
                     ) : null}
 

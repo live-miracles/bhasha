@@ -9,7 +9,6 @@
 import type {
     CreateProgramInput,
     CreateStreamInput,
-    ProgramStatus,
     UpdateProgramInput,
     UpdateStreamInput,
 } from '../domain/programs';
@@ -23,23 +22,18 @@ export interface ProgramRecord {
     endDate: string | null;
     /** @deprecated Compatibility alias for clients during migration. */
     eventDate: string;
-    status: 'draft' | 'live' | 'archived';
     createdBy: string | null;
     /** @deprecated No longer written or shown by the application. */
     adminNotes: string;
     accessControlEnabled: boolean;
     createdAt: string;
     updatedAt: string;
-    firstLiveAt: string | null;
-    archivedAt: string | null;
     retentionProcessedAt: string | null;
     deletedAt?: string | null;
-    aggregateSummaryJson: string | null;
 }
 
 export interface UpdateProgramResult {
     record: ProgramRecord;
-    previousStatus: ProgramStatus;
 }
 
 export interface LanguageStreamRecord {
@@ -111,18 +105,6 @@ export class ProgramNotFoundError extends Error {
     }
 }
 
-export class ProgramSlugLockedError extends Error {
-    constructor() {
-        super('program slug is locked');
-    }
-}
-
-export class ProgramDeleteLockedError extends Error {
-    constructor() {
-        super('program delete is locked');
-    }
-}
-
 export class ProgramHasHistoryError extends Error {
     constructor() {
         super('program has history');
@@ -186,25 +168,21 @@ export class ProgramRepository {
             startDate,
             endDate,
             eventDate: startDate,
-            status: 'draft',
             createdBy,
             adminNotes: '',
             accessControlEnabled: input.accessControlEnabled ?? false,
             createdAt: timestamp,
             updatedAt: timestamp,
-            firstLiveAt: null,
-            archivedAt: null,
             retentionProcessedAt: null,
-            aggregateSummaryJson: null,
         };
 
         try {
             this.db
                 .prepare(
                     `INSERT INTO programs
-          (id, slug, name, start_date, end_date, status,
+          (id, slug, name, start_date, end_date,
            access_control_enabled, created_at, updated_at, created_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 )
                 .run(
                     program.id,
@@ -212,7 +190,6 @@ export class ProgramRepository {
                     program.name,
                     program.startDate,
                     program.endDate,
-                    program.status,
                     Number(program.accessControlEnabled),
                     program.createdAt,
                     program.updatedAt,
@@ -249,12 +226,10 @@ export class ProgramRepository {
         const results = this.db
             .prepare(
         `SELECT id, slug, name, start_date as startDate,
-        end_date as endDate, start_date as eventDate, status,
+        end_date as endDate, start_date as eventDate,
         '' as adminNotes, access_control_enabled as accessControlEnabled,
         created_at as createdAt, updated_at as updatedAt,
-        first_live_at as firstLiveAt,
-        archived_at as archivedAt, retention_processed_at as retentionProcessedAt,
-        aggregate_summary_json as aggregateSummaryJson,
+        retention_processed_at as retentionProcessedAt,
         created_by as createdBy
         FROM programs
         ${whereClause}
@@ -355,32 +330,9 @@ export class ProgramRepository {
             throw new ProgramNotFoundError();
         }
 
-        const previousStatus = current.status;
-
         const timestamp = nowIso();
         const setters: string[] = [];
         const values: (number | string | null)[] = [];
-
-        if (
-            input.nextSlug !== undefined &&
-            (current.status !== 'draft' || current.firstLiveAt !== null)
-        ) {
-            throw new ProgramSlugLockedError();
-        }
-
-        const statusTransitionLeavesArchived =
-            input.status !== undefined &&
-            current.status === 'archived' &&
-            input.status !== 'archived';
-
-        if (statusTransitionLeavesArchived) {
-            setters.push('archived_at = ?');
-            values.push(null);
-            setters.push('aggregate_summary_json = ?');
-            values.push(null);
-            setters.push('retention_processed_at = ?');
-            values.push(null);
-        }
 
         if (input.name !== undefined) {
             setters.push('name = ?');
@@ -398,13 +350,9 @@ export class ProgramRepository {
             setters.push('access_control_enabled = ?');
             values.push(Number(input.accessControlEnabled));
         }
-        if (input.status !== undefined) {
-            setters.push('status = ?');
-            values.push(input.status);
-        }
-        if (input.status === 'live') {
-            setters.push('first_live_at = COALESCE(first_live_at, ?)');
-            values.push(timestamp);
+        if (input.createdBy !== undefined) {
+            setters.push('created_by = ?');
+            values.push(input.createdBy);
         }
         if (input.nextSlug !== undefined && input.nextSlug !== current.slug) {
             if (await this.programSlugExists(input.nextSlug)) {
@@ -415,7 +363,7 @@ export class ProgramRepository {
         }
 
         if (setters.length === 0) {
-            return { record: current, previousStatus };
+            return { record: current };
         }
 
         setters.push('updated_at = ?');
@@ -434,40 +382,6 @@ export class ProgramRepository {
 
         return {
             record: await this.requireProgram(programId),
-            previousStatus,
-        };
-    }
-
-    async archiveProgram(
-        programId: string,
-        aggregateSummaryJson: string | null = null,
-    ): Promise<UpdateProgramResult> {
-        const current = await this.getProgramById(programId);
-        if (!current) {
-            throw new ProgramNotFoundError();
-        }
-
-        const result = await this.updateProgram(programId, { status: 'archived' });
-        const firstTransition = result.previousStatus !== 'archived';
-
-        // Only the first transition into archived captures archived_at and the
-        // aggregate summary snapshot, so re-archiving never overwrites history.
-        if (firstTransition) {
-            const timestamp = nowIso();
-            this.db
-                .prepare(
-                    `UPDATE programs
-          SET archived_at = COALESCE(archived_at, ?),
-              aggregate_summary_json = ?,
-              updated_at = ?
-          WHERE id = ?`,
-                )
-                .run(timestamp, aggregateSummaryJson, timestamp, programId);
-        }
-
-        return {
-            record: await this.requireProgram(programId),
-            previousStatus: result.previousStatus,
         };
     }
 
@@ -520,10 +434,6 @@ export class ProgramRepository {
             throw new ProgramNotFoundError();
         }
 
-        if (program.status !== 'draft') {
-            throw new ProgramDeleteLockedError();
-        }
-
         const history = await this.programHistoryCounts(programId);
         if (history.listenerConnections > 0 || history.streamEvents > 0) {
             throw new ProgramHasHistoryError();
@@ -538,11 +448,6 @@ export class ProgramRepository {
         });
         if (!program) {
             throw new ProgramNotFoundError();
-        }
-
-        if (program.status === 'draft') {
-            await this.deleteDraftProgram(programId);
-            return;
         }
 
         if (program.deletedAt) {
@@ -982,16 +887,13 @@ const PROGRAM_SELECT = `SELECT id, slug, name,
   start_date as startDate,
   end_date as endDate,
   start_date as eventDate,
-  status,
   '' as adminNotes,
   access_control_enabled as accessControlEnabled,
   created_by as createdBy,
   created_at as createdAt,
   updated_at as updatedAt,
-  first_live_at as firstLiveAt,
-  archived_at as archivedAt,
   retention_processed_at as retentionProcessedAt,
-  aggregate_summary_json as aggregateSummaryJson
+  deleted_at as deletedAt
 FROM programs`;
 
 type ProgramRow = Omit<ProgramRecord, 'accessControlEnabled'> & {

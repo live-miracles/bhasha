@@ -22,11 +22,9 @@ export class RetentionRepository {
             .prepare(
                 `SELECT id
         FROM programs
-        WHERE status='archived'
-          AND deleted_at IS NULL
+        WHERE deleted_at IS NULL
           AND retention_processed_at IS NULL
-          AND archived_at IS NOT NULL
-          AND archived_at < ?`,
+          AND end_date < date(?, '+1 day', '-30 days')`,
             )
             .all(beforeIso) as RetentionProgramRow[];
     }

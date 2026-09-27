@@ -47,8 +47,8 @@ export function createWebhookReceiver(env: Env): WebhookReceiver {
  * logout) and routes/admin.ts (kick-publisher, kick session). A participant
  * that's already gone (or a LiveKit server that's unreachable/unconfigured)
  * is not an error worth surfacing to the caller -- mirrors the "benign
- * cleanup" philosophy the old Cloudflare-Realtime code used for the same
- * kind of best-effort teardown call.
+ * cleanup" philosophy the old realtime code used for the same kind of
+ * best-effort teardown call.
  */
 export async function removeParticipantBestEffort(
     roomService: RoomServiceClient,
@@ -71,8 +71,8 @@ export async function removeParticipantBestEffort(
 }
 
 /**
- * Best-effort room teardown, used at stream-delete and program-archive/
- * restore-to-draft points so no stray empty room lingers. Never throws --
+ * Best-effort room teardown, used at stream-delete and program-delete points
+ * so no stray empty room lingers. Never throws --
  * LiveKit rooms are created implicitly on first join, so a delete for a
  * room that was never created (or is already gone) is an expected no-op.
  */

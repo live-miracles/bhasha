@@ -1,7 +1,5 @@
 import { findSupportedLanguage, type SupportedLanguage } from './languages';
 
-export type ProgramStatus = 'draft' | 'live' | 'archived';
-
 export interface CreateProgramInput {
     slug: string;
     name: string;
@@ -27,7 +25,7 @@ export interface UpdateProgramInput {
     /** @deprecated Ignored; retained so older callers can be migrated safely. */
     adminNotes?: string;
     accessControlEnabled?: boolean;
-    status?: ProgramStatus;
+    createdBy?: string;
     nextSlug?: string;
 }
 
@@ -144,13 +142,6 @@ function parseDate(value: unknown, field: string): string {
     return date;
 }
 
-function parseProgramStatus(value: unknown, field: string): ProgramStatus {
-    if (value === 'draft' || value === 'live' || value === 'archived') {
-        return value;
-    }
-    throw new Error(`${field} must be draft, live, or archived`);
-}
-
 export function parseCreateProgramInput(input: unknown): CreateProgramInput {
     const data = requireRecord(input, 'program');
     const slug = parseProgramSlug(data.slug, 'slug');
@@ -197,8 +188,8 @@ export function parseUpdateProgramInput(input: unknown): UpdateProgramInput {
             'accessControlEnabled',
         );
     }
-    if (data.status !== undefined) {
-        update.status = parseProgramStatus(data.status, 'status');
+    if (data.createdBy !== undefined) {
+        update.createdBy = requireString(data.createdBy, 'createdBy');
     }
     if (data.nextSlug !== undefined) {
         update.nextSlug = parseProgramSlug(data.nextSlug, 'nextSlug');

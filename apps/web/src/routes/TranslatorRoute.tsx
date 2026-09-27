@@ -115,6 +115,7 @@ export interface TranslatorRouteProps {
 type AuthState =
     | { status: 'checking' }
     | { status: 'programMissing' }
+    | { status: 'programExpired' }
     | { status: 'loggedOut' }
     | {
           status: 'loggedIn';
@@ -638,7 +639,11 @@ export function TranslatorRoute({
 
         void (async () => {
             try {
-                await publicApi.fetchProgram(programSlug);
+                const metadata = await publicApi.fetchProgram(programSlug);
+                if (!metadata.program.listenable) {
+                    setAuth({ status: 'programExpired' });
+                    return;
+                }
             } catch (error) {
                 if (!active) {
                     return;
@@ -1267,6 +1272,12 @@ export function TranslatorRoute({
                     {auth.status === 'programMissing' ? (
                         <p className="lp-info" role="status">
                             This program does not exist.
+                        </p>
+                    ) : null}
+
+                    {auth.status === 'programExpired' ? (
+                        <p className="lp-info" role="status">
+                            This program has expired.
                         </p>
                     ) : null}
 

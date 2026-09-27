@@ -23,6 +23,7 @@ import {
     type AdminEventFeed,
     type AdminListenerAccessSummary,
     type AdminMe,
+    type AdminUser,
     type AdminListenerReport,
     type ListenerReportQuery,
     type ListenerApprovalStatus,
@@ -37,7 +38,6 @@ import {
     type TranslatorSessionSummary,
     type AdminTranslator,
     type ConfirmableReadinessItemId,
-    type ProgramStatus,
     LISTENER_DEVICE_LABELS,
 } from '../../api/admin';
 import { ApiError } from '../../api/client';
@@ -412,9 +412,9 @@ function editFormFromProgram(program: AdminProgram) {
         name: program.name,
         startDate,
         endDate: program.endDate ?? startDate,
-        status: program.status,
         nextSlug: program.slug,
         accessControlEnabled: program.accessControlEnabled,
+        createdBy: program.createdBy ?? '',
     };
 }
 
@@ -489,6 +489,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     const [loginPassword, setLoginPassword] = useState('');
     const [createProgramOpen, setCreateProgramOpen] = useState(false);
     const [identity, setIdentity] = useState<AdminMe | null>(null);
+    const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
     const [programForm, setProgramForm] = useState({
         slug: '',
         name: '',
@@ -510,9 +511,9 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         name: '',
         startDate: '',
         endDate: '',
-        status: 'draft' as ProgramStatus,
         nextSlug: '',
         accessControlEnabled: false,
+        createdBy: '',
     });
     const [activeSection, setActiveSection] = useState<ActiveSection>('programs');
     const reportDateRangeRef = useRef<HTMLDivElement | null>(null);
@@ -550,6 +551,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         setRefreshing(false);
         setActiveSection('programs');
         setIdentity(null);
+        setAdminUsers([]);
         setKickedStream(null);
         setKickPending(false);
         setKickError(null);
@@ -594,6 +596,10 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             setPrograms(response.programs);
             setDeletedPrograms(deletedResponse);
             setIdentity(me);
+            if (me.role === 'admin') {
+                const usersResponse = await adminApi.listUsers();
+                setAdminUsers(usersResponse.users);
+            }
             setLoadState('ready');
         } catch (loadError) {
             if (requestId !== loadProgramsRequestId.current) {
@@ -1178,11 +1184,11 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                 <ProgramDetailForm
                     form={editForm}
                     readOnly={false}
-                    slugLocked={detail.program.status !== 'draft' || !!detail.program.firstLiveAt}
+                    slugLocked={false}
                     onChange={setEditForm}
-                    onArchive={() => void archiveSelectedProgram()}
                     onDelete={() => void deleteSelectedProgram()}
                     onSubmit={updateSelectedProgram}
+                    ownerOptions={adminUsers}
                 />
                 <ApproverAccessPanel
                     adminApi={adminApi}
@@ -1242,39 +1248,15 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             return;
         }
         setError(null);
-        // The slug is editable in draft until the program ever becomes live; any row
-        // with firstLiveAt set is locked, even if status is back to draft.
-        // Only send nextSlug when the persisted program is still a draft, so edits
-        // to name/date/status keep working after a program goes live.
-        const slugEditable = detail?.program.status === 'draft' && !detail?.program.firstLiveAt;
         try {
             const response = await adminApi.updateProgram(selectedProgramId, {
                 name: editForm.name,
                 startDate: editForm.startDate,
                 endDate: editForm.endDate,
-                status: editForm.status,
+                ...(editForm.createdBy ? { createdBy: editForm.createdBy } : {}),
                 accessControlEnabled: editForm.accessControlEnabled,
-                ...(slugEditable ? { nextSlug: editForm.nextSlug } : {}),
+                nextSlug: editForm.nextSlug,
             });
-            setDetail(response);
-            setEditForm(editFormFromProgram(response.program));
-            setPrograms((current) =>
-                current.map((program) =>
-                    program.id === response.program.id ? response.program : program,
-                ),
-            );
-        } catch (programError) {
-            setError(errorCode(programError));
-        }
-    }
-
-    async function archiveSelectedProgram() {
-        if (!selectedProgramId) {
-            return;
-        }
-        setError(null);
-        try {
-            const response = await adminApi.archiveProgram(selectedProgramId);
             setDetail(response);
             setEditForm(editFormFromProgram(response.program));
             setPrograms((current) =>
@@ -1293,10 +1275,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         }
         const selectedProgram =
             programs.find((program) => program.id === selectedProgramId) ?? detail?.program ?? null;
-        const message =
-            selectedProgram?.status === 'draft'
-                ? 'Delete this draft program permanently?'
-                : 'Delete this program? It will be moved to Recently deleted and can be restored for 7 days.';
+        const message = 'Delete this program? It will be moved to Recently deleted and can be restored for 7 days.';
         if (!window.confirm(message)) {
             return;
         }
@@ -1728,7 +1707,10 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                             />
                                         </section>
                                     ) : activeSection === 'users' && identity?.role === 'admin' ? (
-                                        <UsersPanel adminApi={adminApi} />
+                                        <UsersPanel
+                                            adminApi={adminApi}
+                                            currentUserId={identity?.id ?? ''}
+                                        />
                                     ) : activeSection === 'account' ? (
                                         <AccountPanel
                                             adminApi={adminApi}
@@ -1753,6 +1735,9 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                                 </Button>
                                             </div>
                                             <ProgramList
+                                                adminUsers={adminUsers}
+                                                currentOwnerId={identity?.id ?? null}
+                                                currentOwnerName={identity?.username ?? null}
                                                 programs={programs}
                                                 onOpen={(program) =>
                                                     navigate(adminProgramPath(program.slug))
@@ -1930,9 +1915,15 @@ function ProgramCreateForm({
 }
 
 function ProgramList({
+    adminUsers,
+    currentOwnerId,
+    currentOwnerName,
     programs,
     onOpen,
 }: {
+    adminUsers: AdminUser[];
+    currentOwnerId: string | null;
+    currentOwnerName: string | null;
     programs: AdminProgram[];
     onOpen: (program: AdminProgram) => void;
 }) {
@@ -1972,23 +1963,32 @@ function ProgramList({
                         tabIndex={0}
                         withBorder
                     >
+                        <Badge
+                            className="admin-program-slug-badge"
+                            color="gray"
+                            size="sm"
+                            variant="light"
+                        >
+                            {program.slug}
+                        </Badge>
                         <Stack gap="xs">
                             <Group className="admin-program-meta" justify="space-between" wrap="nowrap">
                                 <Text c="dimmed" size="sm">
                                     {programDateRange(program)}
                                 </Text>
-                                <StatusPill tone={program.status}>
-                                    {program.status.toUpperCase()}
-                                </StatusPill>
                             </Group>
                             <Group className="admin-program-heading" gap="xs" wrap="nowrap">
-                                <Text className="admin-program-slug" size="xs">
-                                    {program.slug}
-                                </Text>
                                 <Title order={3} size="h4">
                                     {program.name}
                                 </Title>
                             </Group>
+                            <Text c="dimmed" size="sm">
+                                {adminUsers.find((user) => user.id === program.createdBy)?.username ??
+                                    (program.createdBy === currentOwnerId
+                                        ? currentOwnerName
+                                        : null) ??
+                                    'Unassigned'}
+                            </Text>
                         </Stack>
                     </Paper>
                 );
@@ -2035,32 +2035,32 @@ function ProgramDetailForm({
     form,
     slugLocked,
     onChange,
-    onArchive,
     onDelete,
     onSubmit,
     readOnly,
+    ownerOptions,
 }: {
     form: {
         name: string;
         startDate: string;
         endDate: string;
-        status: ProgramStatus;
         nextSlug: string;
         accessControlEnabled: boolean;
+        createdBy: string;
     };
     slugLocked: boolean;
     onChange: (form: {
         name: string;
         startDate: string;
         endDate: string;
-        status: ProgramStatus;
         nextSlug: string;
         accessControlEnabled: boolean;
+        createdBy: string;
     }) => void;
-    onArchive: () => void;
     onDelete: () => void;
     onSubmit: (event: FormEvent<HTMLFormElement>) => void;
     readOnly: boolean;
+    ownerOptions: AdminUser[];
 }) {
     return (
         <Paper p="lg" radius="md" withBorder>
@@ -2111,6 +2111,20 @@ function ProgramDetailForm({
                             required
                             value={form.endDate}
                         />
+                        <NativeSelect
+                            data={[
+                                { value: '', label: 'Unassigned' },
+                                ...ownerOptions
+                                    .filter((user) => user.role === 'user')
+                                    .map((user) => ({ value: user.id, label: user.username })),
+                            ]}
+                            disabled={readOnly}
+                            label="Program owner"
+                            onChange={(event) =>
+                                onChange({ ...form, createdBy: event.currentTarget.value })
+                            }
+                            value={form.createdBy}
+                        />
                         <TextInput
                             aria-describedby={slugLocked ? 'next-slug-hint' : undefined}
                             aria-label="Next slug"
@@ -2123,23 +2137,6 @@ function ProgramDetailForm({
                             value={form.nextSlug}
                         />
                     </SimpleGrid>
-                    {slugLocked ? (
-                        <Text c="dimmed" id="next-slug-hint" size="sm">
-                            Slug is locked once the program leaves draft.
-                        </Text>
-                    ) : null}
-                    <NativeSelect
-                        data={['draft', 'live', 'archived']}
-                        disabled={readOnly}
-                        label="Detail status"
-                        onChange={(event) =>
-                            onChange({
-                                ...form,
-                                status: event.currentTarget.value as ProgramStatus,
-                            })
-                        }
-                        value={form.status}
-                    />
                     {readOnly ? null : (
                         <>
                             <Group>
@@ -2149,10 +2146,11 @@ function ProgramDetailForm({
                                 <Stack gap="sm">
                                     <Title order={3}>Danger zone</Title>
                                     <Group>
-                                        <Button color="red" onClick={onArchive} type="button">
-                                            Archive program
-                                        </Button>
-                                        <Button color="red" onClick={onDelete} type="button">
+                                        <Button
+                                            className="admin-delete-program-button"
+                                            onClick={onDelete}
+                                            type="button"
+                                        >
                                             Delete program
                                         </Button>
                                     </Group>
@@ -2262,7 +2260,18 @@ function ApproverAccessPanel({
     return (
         <section aria-label="Approver access" className="admin-subsection">
             <Stack gap="xs">
-                <Title order={2}>Approver access</Title>
+                <Group align="center" gap="sm">
+                    <Title order={2}>Approver access</Title>
+                    {access ? (
+                        <Badge
+                            aria-label={`${access.activeSessionCount} active approver sessions`}
+                            color={access.activeSessionCount > 0 ? 'green' : 'gray'}
+                            variant="light"
+                        >
+                            {access.activeSessionCount} active
+                        </Badge>
+                    ) : null}
+                </Group>
                 <Text c="dimmed" size="sm">
                     Shared credentials for event approvers who approve listener access.
                 </Text>
@@ -2270,12 +2279,6 @@ function ApproverAccessPanel({
             {access ? (
                 <Paper component="form" mt="md" onSubmit={save} p="md" radius="md" withBorder>
                     <Stack gap="md">
-                        <Paper aria-label="Active approver sessions" p="sm" radius="md" withBorder>
-                            <Text fw={700}>{access.activeSessionCount} active sessions</Text>
-                            <Text c="dimmed" size="sm">
-                                Approver sessions
-                            </Text>
-                        </Paper>
                         <TextInput
                             aria-label="Approver login ID"
                             autoComplete="username"

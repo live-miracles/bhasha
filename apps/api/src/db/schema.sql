@@ -5,7 +5,6 @@ CREATE TABLE users (
   password_salt TEXT,
   password_iterations INTEGER,
   role TEXT NOT NULL CHECK (role IN ('admin','user')),
-  is_disabled INTEGER NOT NULL DEFAULT 0 CHECK (is_disabled IN (0,1)),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -17,14 +16,10 @@ CREATE TABLE programs (
   name TEXT NOT NULL,
   start_date TEXT NOT NULL,
   end_date TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('draft', 'live', 'archived')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  archived_at TEXT,
   retention_processed_at TEXT,
-  aggregate_summary_json TEXT,
   deleted_at TEXT,
-  first_live_at TEXT,
   created_by TEXT REFERENCES users(id),
   access_control_enabled INTEGER NOT NULL DEFAULT 0 CHECK (access_control_enabled IN (0, 1))
 );

@@ -16,12 +16,10 @@ import {
 } from '../db/listenerRepository';
 import {
     type AdminProgramDetail,
-    ProgramDeleteLockedError,
     ProgramHasHistoryError,
     ProgramNotFoundError,
     ProgramRepository,
     ProgramSlugExistsError,
-    ProgramSlugLockedError,
     StreamDeleteLockedError,
     StreamHasHistoryError,
     StreamNotFoundError,
@@ -73,8 +71,6 @@ import type { RoomServiceClient } from 'livekit-server-sdk';
 import { DEVICE_LABELS } from '../domain/deviceLabel';
 import { deriveStreamState } from '../presence/streamState';
 import {
-    type AdminReportStreamSummary,
-    type AdminReportSummaryTotals,
     isRetentionEligible,
     listenerConnectionsToCsv,
 } from '../domain/reports';
@@ -286,48 +282,6 @@ function clampBatchSize(raw: string | null): number {
     return Math.min(Math.max(parsed, 1), MAX_BACKFILL_BATCH_SIZE);
 }
 
-function parseArchivedSummary(value: string): {
-    totals: AdminReportSummaryTotals;
-    streams: AdminReportStreamSummary[];
-} | null {
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(value);
-    } catch (_error) {
-        return null;
-    }
-
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        return null;
-    }
-
-    const candidate = parsed as {
-        totals?: unknown;
-        streams?: unknown;
-    };
-    if (
-        typeof candidate.totals !== 'object' ||
-        candidate.totals === null ||
-        !Array.isArray(candidate.streams)
-    ) {
-        return null;
-    }
-
-    const totals = candidate.totals as Partial<AdminReportSummaryTotals>;
-    return {
-        totals: {
-            ...totals,
-            // Legacy archived snapshots predate uniqueDevices; 0 is the honest
-            // default because the original per-device aggregate was never captured.
-            uniqueDevices:
-                typeof totals.uniqueDevices === 'number' && Number.isFinite(totals.uniqueDevices)
-                    ? totals.uniqueDevices
-                    : 0,
-        } as AdminReportSummaryTotals,
-        streams: candidate.streams as AdminReportStreamSummary[],
-    };
-}
-
 async function parseBody<T>(request: Request, parse: (input: unknown) => T): Promise<T | Response> {
     let body: unknown;
     try {
@@ -447,14 +401,6 @@ function repositoryErrorResponse(error: unknown): Response {
         return json({ error: 'program_slug_exists' }, { status: 409 });
     }
 
-    if (error instanceof ProgramSlugLockedError) {
-        return json({ error: 'program_slug_locked' }, { status: 409 });
-    }
-
-    if (error instanceof ProgramDeleteLockedError) {
-        return json({ error: 'program_delete_locked' }, { status: 409 });
-    }
-
     if (error instanceof ProgramHasHistoryError) {
         return json({ error: 'program_has_history' }, { status: 409 });
     }
@@ -503,7 +449,6 @@ function publicAdminUser(user: UserRecord) {
         id: user.id,
         username: user.username,
         role: user.role,
-        isDisabled: user.isDisabled,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
     };
@@ -558,13 +503,8 @@ function adminProgramPayload(detail: AdminProgramDetail, origin: string) {
     };
 }
 
-// Best-effort teardown of every stream's LiveKit room for a program, used at
-// the program-archive/soft-delete/PATCH-to-non-live points below. LiveKit
-// rooms are created implicitly on first participant join, so there is no
-// matching "create rooms" call needed at the mirror-image transitions
-// (restore-to-live, PATCH-to-live, stream create) -- explicit pre-creation
-// would only be useful for a synchronous "the room is ready before anyone
-// joins" guarantee, which nothing in this codebase depends on.
+// Best-effort teardown of every stream's LiveKit room for a deleted program.
+// LiveKit rooms are created implicitly on first participant join.
 async function teardownProgramRoomsBestEffort(
     programs: ProgramRepository,
     roomService: RoomServiceClient,
@@ -918,6 +858,34 @@ export async function handleAdminRoutes(
     }
 
     const userMatch = url.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+    if (request.method === 'DELETE' && userMatch) {
+        if (auth!.role !== 'admin') {
+            return json({ error: 'admin_role_required' }, { status: 403 });
+        }
+
+        const userId = userMatch[1];
+        if (!userId) {
+            return null;
+        }
+        if (userId === auth!.userId) {
+            return json({ error: 'cannot_delete_self' }, { status: 403 });
+        }
+
+        const target = await users.getUserById(userId);
+        if (!target || target.role === 'admin') {
+            return json({ error: 'user_not_found' }, { status: 404 });
+        }
+
+        try {
+            const deleted = await users.deleteUser(userId);
+            return deleted
+                ? new Response(null, { status: 204 })
+                : json({ error: 'user_not_found' }, { status: 404 });
+        } catch (error) {
+            return repositoryErrorResponse(error);
+        }
+    }
+
     if (request.method === 'PATCH' && userMatch) {
         if (auth!.role !== 'admin') {
             return json({ error: 'admin_role_required' }, { status: 403 });
@@ -952,11 +920,11 @@ export async function handleAdminRoutes(
             if (!updated) {
                 return json({ error: 'user_not_found' }, { status: 404 });
             }
-            if (input.isDisabled === true && !target.isDisabled) {
-                await users.deleteSessionsForUser(userId);
-            }
             return json(publicAdminUser(updated));
         } catch (error) {
+            if (isUsernameConflict(error)) {
+                return json({ error: 'username_taken' }, { status: 409 });
+            }
             return repositoryErrorResponse(error);
         }
     }
@@ -1027,21 +995,18 @@ export async function handleAdminRoutes(
                 return input;
             }
 
-            try {
-                const updateResult = await programs.updateProgram(programId, input);
-                // LiveKit rooms are created implicitly on join, so there's nothing to
-                // do on a transition INTO "live" -- but a transition OUT of "live"
-                // (back to draft, or archived via this generic PATCH rather than the
-                // dedicated /archive endpoint) should proactively tear down any
-                // rooms so no stray publisher/listener lingers in a room whose
-                // program the admin just took off the air.
-                if (
-                    updateResult.previousStatus === 'live' &&
-                    updateResult.record.status !== 'live'
-                ) {
-                    await teardownProgramRoomsBestEffort(programs, roomService, programId);
+            if (input.createdBy !== undefined) {
+                if (auth!.role !== 'admin') {
+                    return json({ error: 'admin_role_required' }, { status: 403 });
                 }
+                const owner = await users.getUserById(input.createdBy);
+                if (!owner || owner.role !== 'user') {
+                    return json({ error: 'program_owner_not_found' }, { status: 404 });
+                }
+            }
 
+            try {
+                await programs.updateProgram(programId, input);
                 return await adminProgramDetailResponse(programs, programId, url.origin);
             } catch (error) {
                 return repositoryErrorResponse(error);
@@ -1060,24 +1025,10 @@ export async function handleAdminRoutes(
             try {
                 const program = access;
 
-                if (program.status === 'draft') {
-                    await programs.deleteDraftProgram(programId);
-                    return new Response(null, { status: 204 });
-                }
-
                 const realtime = new RealtimeStreamRepository(env.DB);
-                const wasLive = program.status === 'live';
                 await programs.softDeleteProgram(programId);
-
-                if (wasLive) {
-                    try {
-                        await realtime.clearProgramStreamsLive(programId);
-                    } catch (error) {
-                        console.error('admin program soft-delete clear streams live failed', error);
-                    }
-
-                    await teardownProgramRoomsBestEffort(programs, roomService, programId);
-                }
+                await realtime.clearProgramStreamsLive(programId);
+                await teardownProgramRoomsBestEffort(programs, roomService, programId);
 
                 return new Response(null, { status: 200 });
             } catch (error) {
@@ -1108,67 +1059,6 @@ export async function handleAdminRoutes(
             // Cloudflare-Realtime StreamRelay which needed a synchronous
             // ensureProgramActiveStreamRelays call to pre-provision relay state.
             return new Response(null, { status: 200 });
-        } catch (error) {
-            return repositoryErrorResponse(error);
-        }
-    }
-
-    const archiveMatch = url.pathname.match(/^\/api\/admin\/programs\/([^/]+)\/archive$/);
-    if (request.method === 'POST' && archiveMatch) {
-        const programId = archiveMatch[1];
-        if (!programId) {
-            return null;
-        }
-
-        const access = await requireProgramAccess(programs, programId, auth!, {
-            write: true,
-            includeDeleted: false,
-        });
-        if (access instanceof Response) {
-            return access;
-        }
-
-        try {
-            // Capture the aggregate summary snapshot before archiving so archived
-            // reports keep the live D1 window count at archive time.
-            const aggregates = await listeners.getProgramReportAggregates(programId);
-            const activeListeners = await resolveActiveListenerCount(
-                env,
-                programId,
-                await listeners.countActiveListeners(programId, ACTIVE_LISTENER_WINDOW_SECONDS),
-            );
-            const activeListenersByStream = new Map(
-                activeListeners.streams.map((stream) => [stream.streamId, stream.count]),
-            );
-            const snapshot: {
-                totals: AdminReportSummaryTotals;
-                streams: AdminReportStreamSummary[];
-            } = {
-                totals: {
-                    activeListeners: activeListeners.total,
-                    totalConnections: aggregates.totals.totalConnections,
-                    uniqueDevices: aggregates.totals.uniqueDevices,
-                    dropouts: aggregates.totals.dropouts,
-                    reconnects: aggregates.totals.reconnects,
-                },
-                streams: aggregates.streams.map((stream) => ({
-                    streamId: stream.streamId,
-                    languageName: stream.languageName,
-                    languageCode: stream.languageCode,
-                    activeListeners: activeListenersByStream.get(stream.streamId) ?? 0,
-                    totalConnections: stream.totalConnections,
-                    dropouts: stream.dropouts,
-                    reconnects: stream.reconnects,
-                })),
-            };
-
-            await programs.archiveProgram(programId, JSON.stringify(snapshot));
-            const realtime = new RealtimeStreamRepository(env.DB);
-            await realtime.clearProgramStreamsLive(programId);
-
-            await teardownProgramRoomsBestEffort(programs, roomService, programId);
-
-            return await adminProgramDetailResponse(programs, programId, url.origin);
         } catch (error) {
             return repositoryErrorResponse(error);
         }
@@ -1301,19 +1191,6 @@ export async function handleAdminRoutes(
             const readDb = env.DB;
             const listeners = new ListenerRepository(readDb);
             const program = access;
-
-            if (program.status === 'archived' && program.aggregateSummaryJson) {
-                const snapshot = parseArchivedSummary(program.aggregateSummaryJson);
-                if (snapshot) {
-                    return json({
-                        programId,
-                        totals: snapshot.totals,
-                        streams: snapshot.streams,
-                        generatedAt: new Date().toISOString(),
-                        presenceSource: 'archived_snapshot',
-                    });
-                }
-            }
 
             const range = parseDateRange(url.searchParams);
             const aggregates = await listeners.getProgramReportAggregates(programId, range);
@@ -1466,8 +1343,7 @@ export async function handleAdminRoutes(
 
             const now = new Date();
             const eligible = isRetentionEligible({
-                status: program.status,
-                archivedAt: program.archivedAt,
+                endDate: program.endDate,
                 retentionProcessedAt: program.retentionProcessedAt,
                 now,
             });

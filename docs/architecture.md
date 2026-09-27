@@ -471,18 +471,25 @@ Install dependencies:
 npm install
 ```
 
-API dev server (reads env vars from the process environment -- export them from
-`.env` first, e.g. `export $(grep -v '^#' .env | xargs)`):
+The default development command starts the Docker development override with
+API and Vite hot reload, LiveKit, and a separate development database:
 
 ```bash
-PORT=8787 npm run dev --workspace apps/api
-# tsx watch src/index.ts
+npm run dev
 ```
 
-Web dev server:
+The web app is available at `http://127.0.0.1:5173` and the API at
+`http://127.0.0.1:8787`. Stop the stack with:
 
 ```bash
-npm run dev --workspace apps/web -- --host 0.0.0.0 --port 5173
+npm run dev:down
+```
+
+The first run builds missing images automatically. Rebuild explicitly after
+dependency, Dockerfile, or Compose changes:
+
+```bash
+npm run dev:build
 ```
 
 API tests:

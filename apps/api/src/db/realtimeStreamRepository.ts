@@ -877,11 +877,8 @@ export class RealtimeStreamRepository {
                     `SELECT relay_session_id as cloudflareSessionId,
             relay_track_name as publishedTrackName
           FROM language_streams ls
-          JOIN programs p
-            ON p.id = ls.program_id
         WHERE ls.program_id = ?
             AND ls.id = ?
-            AND p.status = 'live' -- program.status='live' guard is required because relay teardown lacks a production caller today, so stale relay coordinates from ended programs can remain.
             AND ls.relay_session_id IS NOT NULL
             AND ls.relay_session_id != ''
             AND ls.relay_track_name IS NOT NULL

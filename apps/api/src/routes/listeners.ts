@@ -21,6 +21,7 @@ import type { Env } from '../env';
 import { json, readJson, type WaitUntilCtx } from '../http';
 import { isLiveKitConfigured } from '../livekit/client';
 import { mintListenerToken } from '../livekit/tokens';
+import { isProgramExpired } from '../domain/programExpiry';
 import {
     ProgramReferenceMismatchError,
     resolveBrowserProgramReference,
@@ -253,6 +254,9 @@ async function createAccessClaim(
         if (!program) {
             throw new ProgramNotFoundError();
         }
+        if (isProgramExpired(program.endDate)) {
+            return json({ error: 'program_expired' }, { status: 410 });
+        }
         const claim = await listenerAccess.createClaim(program.id, input.clientId);
         return noStore(json(claim, { status: 201 }));
     } catch (error) {
@@ -269,6 +273,9 @@ async function getAccessStatus(
         const program = await programs.getProgramBySlug(input.programSlug);
         if (!program) {
             throw new ProgramNotFoundError();
+        }
+        if (isProgramExpired(program.endDate)) {
+            return json({ error: 'program_expired' }, { status: 410 });
         }
 
         if (input.proof === 'token') {
@@ -358,6 +365,9 @@ async function handleListenerRealtimeToken(
         const program = resolved.program;
         if (!program) {
             throw new ProgramNotFoundError();
+        }
+        if (isProgramExpired(program.endDate)) {
+            return json({ error: 'program_expired' }, { status: 410 });
         }
         if (program.accessControlEnabled) {
             await requireListenerApproval(env.DB, resolved.programId, input.accessToken);
@@ -661,6 +671,9 @@ async function resolveCreateConnectionInput(
         const program = resolved.program;
         if (!program) {
             throw new ProgramNotFoundError();
+        }
+        if (isProgramExpired(program.endDate)) {
+            return json({ error: 'program_expired' }, { status: 410 });
         }
         return {
             programId: resolved.programId,

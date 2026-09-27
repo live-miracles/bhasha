@@ -79,26 +79,22 @@ LiveKit server).
 
 ## Run locally
 
-Two terminals (this runs the Node API directly against whatever LiveKit
-server `.env`/your shell points at). To also exercise LiveKit and Caddy
-locally exactly as in production, use Docker Compose instead:
-`docker compose up --build` after populating `.env` (see "Configuration"
-above and `docker-compose.yml`).
+The default development command starts the Docker development stack with API
+and Vite hot reload, LiveKit, and a separate development database:
 
-**1. API — http://127.0.0.1:8787**
+    npm run dev
 
-    npm run dev --workspace apps/api
-    # tsx watch --env-file=../../.env src/index.ts; loads the repo-root .env
-    # automatically (Node's --env-file), so make sure you've copied
-    # .env.example to .env and filled in real values first (see
-    # "Configuration" above)
+Open the web app at `http://127.0.0.1:5173`. The API remains available at
+`http://127.0.0.1:8787`.
 
-**2. Web app — http://127.0.0.1:5173**
+The first run builds the development images automatically. After changing
+dependencies, the Dockerfile, or Compose configuration, rebuild explicitly:
 
-    npm run dev --workspace apps/web
+    npm run dev:build
 
-The web dev server proxies `/api/*` to the API at `http://127.0.0.1:8787`
-(see `apps/web/vite.config.ts`), so start the API first.
+Stop the development stack with:
+
+    npm run dev:down
 
 Health check:
 

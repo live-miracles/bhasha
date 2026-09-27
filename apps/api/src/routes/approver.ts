@@ -10,6 +10,7 @@ import { ProgramRepository } from '../db/programRepository';
 import { ApproverRepository } from '../db/approverRepository';
 import type { Env } from '../env';
 import { json, readJson, type WaitUntilCtx } from '../http';
+import { isProgramExpired } from '../domain/programExpiry';
 
 interface ApproverLoginInput {
     programSlug: string;
@@ -50,6 +51,9 @@ export async function handleApproverRoutes(
                 return approverResponse(
                     json({ error: 'approver_not_configured' }, { status: 409 }),
                 );
+            }
+            if (isProgramExpired(program.endDate)) {
+                return approverResponse(json({ error: 'program_expired' }, { status: 410 }));
             }
 
             // TODO(slice-5): `CF-Connecting-IP` was set by Cloudflare's edge; on the
@@ -124,6 +128,9 @@ export async function handleApproverRoutes(
                     json({ error: 'approver_auth_required' }, { status: 401 }),
                 );
             }
+            if (isProgramExpired(program.endDate)) {
+                return approverResponse(json({ error: 'program_expired' }, { status: 410 }));
+            }
             const counts = await listenerAccess.countByStatus(program.id);
             return approverResponse(
                 json({
@@ -146,6 +153,14 @@ export async function handleApproverRoutes(
             const auth = await requireApproverSession(request, env, approvers);
             if (auth instanceof Response) {
                 return approverResponse(auth);
+            }
+
+            const program = await programs.getProgramById(auth.session.programId);
+            if (!program) {
+                return approverResponse(json({ error: 'approver_auth_required' }, { status: 401 }));
+            }
+            if (isProgramExpired(program.endDate)) {
+                return approverResponse(json({ error: 'program_expired' }, { status: 410 }));
             }
 
             const result = await listenerAccess.approveClaim(

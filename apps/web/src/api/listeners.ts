@@ -1,7 +1,7 @@
 import { apiClient, type ApiClient } from './client';
 import type { PublicLanguageStream, PublicProgramMetadata, PublicProgramStatus } from './public';
 
-export type ListenerNotListenableReason = 'not_started' | 'ended' | null;
+export type ListenerNotListenableReason = 'ended' | null;
 
 export interface ListenerPublicProgramListenability {
     listenable: boolean;

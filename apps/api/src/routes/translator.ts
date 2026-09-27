@@ -9,7 +9,7 @@ import {
     RealtimeStreamRepository,
     StreamAlreadyPublishedError,
 } from '../db/realtimeStreamRepository';
-import { ProgramNotFoundError, ProgramRepository } from '../db/programRepository';
+import { ProgramNotFoundError, ProgramRepository, type ProgramRecord } from '../db/programRepository';
 import { parseEmail } from '../domain/programs';
 import {
     TranslatorRepository,
@@ -24,6 +24,7 @@ import {
 } from '../livekit/client';
 import { mintTranslatorToken, roomNameForStream, translatorIdentity } from '../livekit/tokens';
 import { reportAudioActivity } from '../presence/status';
+import { isProgramExpired } from '../domain/programExpiry';
 import { ProgramReferenceMismatchError, resolveBrowserProgramReference } from './programResolution';
 import type { RoomServiceClient } from 'livekit-server-sdk';
 
@@ -83,6 +84,9 @@ export async function handleTranslatorRoutes(
             if (!resolvedProgram) {
                 return translatorLoginResponse(programNotFound());
             }
+            if (isProgramExpired(resolvedProgram.program.endDate)) {
+                return translatorLoginResponse(programExpired());
+            }
 
             const translator = await translators.authenticate(
                 resolvedProgram.programId,
@@ -123,6 +127,14 @@ export async function handleTranslatorRoutes(
             const auth = await requireTranslatorSession(request, env, translators);
             if (auth instanceof Response) {
                 return translatorSessionResponse(auth);
+            }
+
+            const program = await programs.getProgramById(auth.translator.programId);
+            if (!program) {
+                return translatorSessionResponse(programNotFound());
+            }
+            if (isProgramExpired(program.endDate)) {
+                return translatorSessionResponse(programExpired());
             }
 
             return translatorSessionResponse(
@@ -344,6 +356,16 @@ async function handleTranslatorRealtimeToken(
             return translatorRealtimeResponse(auth);
         }
 
+        const program = await new ProgramRepository(env.DB).getProgramById(
+            auth.translator.programId,
+        );
+        if (!program) {
+            return translatorRealtimeResponse(programNotFound());
+        }
+        if (isProgramExpired(program.endDate)) {
+            return translatorRealtimeResponse(programExpired());
+        }
+
         await translators.requireAssignedStream(
             auth.translator.programId,
             auth.translator.id,
@@ -533,9 +555,10 @@ function readLoginEmail(body: object): string | null {
 async function resolveTranslatorLoginProgram(
     programs: ProgramRepository,
     input: TranslatorLoginInput,
-): Promise<{ programId: string } | null> {
+): Promise<{ programId: string; program: ProgramRecord } | null> {
     try {
-        return await resolveBrowserProgramReference(programs, input);
+        const resolved = await resolveBrowserProgramReference(programs, input);
+        return resolved.program ? { programId: resolved.programId, program: resolved.program } : null;
     } catch (error) {
         if (
             error instanceof ProgramNotFoundError ||
@@ -655,6 +678,10 @@ function invalidCredentials(): Response {
 
 function programNotFound(): Response {
     return json({ error: 'program_not_found' }, { status: 404 });
+}
+
+function programExpired(): Response {
+    return json({ error: 'program_expired' }, { status: 410 });
 }
 
 function invalidRealtimeRequest(): Response {

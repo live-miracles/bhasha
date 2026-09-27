@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
@@ -55,7 +56,16 @@ const CRITICAL_CH_VALUE = 'Sec-CH-UA-Model, Sec-CH-UA-Platform, Sec-CH-UA-Platfo
 export function createApp(env: Env): Hono {
     const app = new Hono();
     const ctx: WaitUntilCtx = createFireAndForgetCtx();
-    const webDistPath = env.WEB_DIST_PATH ?? DEFAULT_WEB_DIST_PATH;
+    // Docker uses /app/apps/web/dist, while local API development resolves the
+    // repository-relative default. If a Docker path is left in a local .env,
+    // use the existing local build instead of making every SPA deep link 404.
+    const configuredWebDistPath = env.WEB_DIST_PATH;
+    const webDistPath =
+        configuredWebDistPath && existsSync(configuredWebDistPath)
+            ? configuredWebDistPath
+            : existsSync(DEFAULT_WEB_DIST_PATH)
+              ? DEFAULT_WEB_DIST_PATH
+              : (configuredWebDistPath ?? DEFAULT_WEB_DIST_PATH);
 
     // Client-hint headers (apps/web/public/_headers' Cloudflare-Pages-specific
     // equivalent). Set on every response, after the rest of the chain runs, by

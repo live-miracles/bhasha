@@ -1,0 +1,85 @@
+# Development override for the production topology in docker-compose.yml.
+# Run with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# The API and Vite containers mount source directories for watch mode. LiveKit
+# still runs in Docker so realtime behavior can be tested against the same SFU
+# image as the production-like stack. Caddy is intentionally disabled here;
+# Vite serves the web app directly on port 5173.
+
+services:
+    app:
+        build:
+            context: .
+            dockerfile: Dockerfile
+            target: deps
+        command: ['npm', 'run', 'dev', '--workspace', 'apps/api']
+        working_dir: /repo
+        environment:
+            WEB_DIST_PATH: /repo/apps/web/dist
+            LIVEKIT_URL: ws://127.0.0.1:7880
+            PORT: 8787
+        volumes:
+            - ./apps/api:/repo/apps/api
+            - ./tsconfig.base.json:/repo/tsconfig.base.json:ro
+            - ./.env:/repo/.env:ro
+            - bhasha_dev_data:/data
+
+    web:
+        build:
+            context: .
+            dockerfile: Dockerfile
+            target: deps
+        command: ['npm', 'run', 'dev', '--workspace', 'apps/web', '--', '--host', '0.0.0.0']
+        working_dir: /repo
+        environment:
+            VITE_API_PROXY_TARGET: http://app:8787
+        volumes:
+            - ./apps/web:/repo/apps/web
+            - ./tsconfig.base.json:/repo/tsconfig.base.json:ro
+        ports:
+            - '127.0.0.1:5173:5173'
+        networks:
+            - bhasha
+        depends_on:
+            - app
+
+    livekit:
+        ports: !override
+            - '7880:7880/tcp'
+            - '7881:7881/tcp'
+            - '51000-51010:51000-51010/udp'
+            - '3478:3478/udp'
+
+    caddy:
+        profiles:
+            - production-only
+
+volumes:
+    bhasha_dev_data: {}
+
+configs:
+    # The production config advertises a public IP through STUN. Local Docker
+    # development should use the published localhost ports instead.
+    livekit_config:
+        content: |
+            port: 7880
+            log_level: info
+
+            rtc:
+              tcp_port: 7881
+              port_range_start: 51000
+              port_range_end: 51010
+              use_external_ip: false
+
+            keys:
+              "${LIVEKIT_API_KEY}": "${LIVEKIT_API_SECRET}"
+
+            turn:
+              enabled: true
+              udp_port: 3478
+
+            webhook:
+              api_key: "${LIVEKIT_API_KEY}"
+              urls:
+                - http://app:8787/api/livekit/webhook
