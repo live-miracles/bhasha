@@ -78,11 +78,7 @@ function approverApi(overrides: Partial<ApproverApi> = {}): ApproverApi {
 
 function renderRoute(api: ApproverApi) {
     return render(
-        <ApproverRoute
-            programSlug="patna-event-2026"
-            publicApi={publicApi()}
-            approverApi={api}
-        />,
+        <ApproverRoute programSlug="patna-event-2026" publicApi={publicApi()} approverApi={api} />,
     );
 }
 

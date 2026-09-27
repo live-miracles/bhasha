@@ -40,15 +40,7 @@ async function seedTranslatorWithAssignment(password: string): Promise<Translato
         `INSERT INTO programs
     (id, slug, name, start_date, end_date, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-        programId,
-        `program-${suffix}`,
-        'Patna Event 2026',
-        '2027-08-01',
-        '2027-08-01',
-        now,
-        now,
-    );
+    ).run(programId, `program-${suffix}`, 'Patna Event 2026', '2027-08-01', '2027-08-01', now, now);
 
     testEnv.DB.prepare(
         `INSERT INTO language_streams

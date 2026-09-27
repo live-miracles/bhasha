@@ -30,12 +30,7 @@ type ScreenWakeLockNavigator = Navigator & {
 };
 
 type AuthState =
-    | 'checking'
-    | 'loggedOut'
-    | 'loggedIn'
-    | 'loggingOut'
-    | 'programMissing'
-    | 'programExpired';
+    'checking' | 'loggedOut' | 'loggedIn' | 'loggingOut' | 'programMissing' | 'programExpired';
 type FeedbackKind = 'approved' | 'already' | 'notFound' | 'revoked' | 'rateLimited' | 'error';
 
 type ApprovalOutcome = {
@@ -59,10 +54,7 @@ export function ApproverRoute({
     approverApi: approverApiProp,
 }: ApproverRouteProps) {
     const publicApi = useMemo(() => publicApiProp ?? createPublicApi(), [publicApiProp]);
-    const approverApi = useMemo(
-        () => approverApiProp ?? createApproverApi(),
-        [approverApiProp],
-    );
+    const approverApi = useMemo(() => approverApiProp ?? createApproverApi(), [approverApiProp]);
     const inAppBrowser = useMemo(() => detectInAppBrowser(), []);
     const [auth, setAuth] = useState<AuthState>('checking');
     const [programName, setProgramName] = useState(programSlug);
@@ -447,10 +439,7 @@ export function ApproverRoute({
                                 </p>
                             ) : null}
 
-                            <section
-                                className="approver-scanner-panel"
-                                aria-label="Camera scanner"
-                            >
+                            <section className="approver-scanner-panel" aria-label="Camera scanner">
                                 <h2>Scan a listener QR code</h2>
                                 <ApproverScanner
                                     onCameraError={handleCameraError}

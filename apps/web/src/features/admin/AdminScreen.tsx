@@ -92,7 +92,12 @@ const EMPTY_REPORT_FILTERS: ReportFiltersState = {
 function PlusIcon() {
     return (
         <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
-            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+            <path
+                d="M12 5v14M5 12h14"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="2"
+            />
         </svg>
     );
 }
@@ -1275,7 +1280,8 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         }
         const selectedProgram =
             programs.find((program) => program.id === selectedProgramId) ?? detail?.program ?? null;
-        const message = 'Delete this program? It will be moved to Recently deleted and can be restored for 7 days.';
+        const message =
+            'Delete this program? It will be moved to Recently deleted and can be restored for 7 days.';
         if (!window.confirm(message)) {
             return;
         }
@@ -1731,7 +1737,9 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                                     }}
                                                     type="button"
                                                 >
-                                                    <span className="admin-add-program-label">Add program</span>
+                                                    <span className="admin-add-program-label">
+                                                        Add program
+                                                    </span>
                                                 </Button>
                                             </div>
                                             <ProgramList
@@ -1890,9 +1898,7 @@ function ProgramCreateForm({
                     <TextInput
                         aria-label="Start date"
                         label="Start date"
-                        onChange={(event) =>
-                            onChange({ ...form, startDate: event.target.value })
-                        }
+                        onChange={(event) => onChange({ ...form, startDate: event.target.value })}
                         type="date"
                         required
                         value={form.startDate}
@@ -1932,8 +1938,8 @@ function ProgramList({
     }
 
     const sortedPrograms = [...programs].sort((left, right) => {
-    const leftStartDate = left.startDate ?? '';
-    const rightStartDate = right.startDate ?? '';
+        const leftStartDate = left.startDate ?? '';
+        const rightStartDate = right.startDate ?? '';
 
         if (!leftStartDate) return rightStartDate ? 1 : 0;
         if (!rightStartDate) return -1;
@@ -1972,7 +1978,11 @@ function ProgramList({
                             {program.slug}
                         </Badge>
                         <Stack gap="xs">
-                            <Group className="admin-program-meta" justify="space-between" wrap="nowrap">
+                            <Group
+                                className="admin-program-meta"
+                                justify="space-between"
+                                wrap="nowrap"
+                            >
                                 <Text c="dimmed" size="sm">
                                     {programDateRange(program)}
                                 </Text>
@@ -1983,7 +1993,8 @@ function ProgramList({
                                 </Title>
                             </Group>
                             <Text c="dimmed" size="sm">
-                                {adminUsers.find((user) => user.id === program.createdBy)?.username ??
+                                {adminUsers.find((user) => user.id === program.createdBy)
+                                    ?.username ??
                                     (program.createdBy === currentOwnerId
                                         ? currentOwnerName
                                         : null) ??
@@ -2104,9 +2115,7 @@ function ProgramDetailForm({
                             aria-label="Detail end date"
                             disabled={readOnly}
                             label="Detail end date"
-                            onChange={(event) =>
-                                onChange({ ...form, endDate: event.target.value })
-                            }
+                            onChange={(event) => onChange({ ...form, endDate: event.target.value })}
                             type="date"
                             required
                             value={form.endDate}

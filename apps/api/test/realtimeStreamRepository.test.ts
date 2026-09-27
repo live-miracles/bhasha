@@ -295,35 +295,34 @@ describe('RealtimeStreamRepository relay read helpers', () => {
     });
 
     it('keeps relay publisher selection independent of program expiry', async () => {
-            const graph = await seedTranslatorGraph();
-            const repo = new RealtimeStreamRepository(testEnv.DB);
+        const graph = await seedTranslatorGraph();
+        const repo = new RealtimeStreamRepository(testEnv.DB);
 
-            await repo.setRelayCoords({
-                programId: graph.programId,
-                streamId: graph.streamId,
-                relaySessionId: 'relay_session_1',
-                relayTrackName: 'relay_track_1',
-            });
+        await repo.setRelayCoords({
+            programId: graph.programId,
+            streamId: graph.streamId,
+            relaySessionId: 'relay_session_1',
+            relayTrackName: 'relay_track_1',
+        });
 
-            testEnv.DB.prepare(
-                `UPDATE language_streams
+        testEnv.DB.prepare(
+            `UPDATE language_streams
         SET is_live = 0,
             cloudflare_session_id = NULL,
             current_track_id = NULL,
             updated_at = ?
         WHERE program_id = ? AND id = ?`,
-            ).run(new Date().toISOString(), graph.programId, graph.streamId);
+        ).run(new Date().toISOString(), graph.programId, graph.streamId);
 
-            testEnv.DB.prepare(`UPDATE programs SET end_date = ? WHERE id = ?`).run(
-                '2020-01-01',
-                graph.programId,
-            );
+        testEnv.DB.prepare(`UPDATE programs SET end_date = ? WHERE id = ?`).run(
+            '2020-01-01',
+            graph.programId,
+        );
 
-            await expect(
-                repo.getListenerPublisher(graph.programId, graph.streamId, true),
-            ).resolves.toMatchObject({ isRelay: true });
-        },
-    );
+        await expect(
+            repo.getListenerPublisher(graph.programId, graph.streamId, true),
+        ).resolves.toMatchObject({ isRelay: true });
+    });
 
     it('returns translator publisher when relay preference is disabled', async () => {
         const graph = await seedTranslatorGraph();

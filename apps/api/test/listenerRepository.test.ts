@@ -52,15 +52,7 @@ async function seedProgram(): Promise<SeededProgram> {
         `INSERT INTO programs
     (id, slug, name, start_date, end_date, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-        programId,
-        slug,
-        'Report repository test program',
-        '2027-08-01',
-        '2027-08-01',
-        now,
-        now,
-    );
+    ).run(programId, slug, 'Report repository test program', '2027-08-01', '2027-08-01', now, now);
 
     testEnv.DB.prepare(
         `INSERT INTO language_streams

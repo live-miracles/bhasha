@@ -6,7 +6,10 @@ import { type AdminApi, type AdminUser } from '../../api/admin';
 import { AdminDialog } from './AdminDialog';
 
 interface UsersPanelProps {
-    adminApi: Pick<AdminApi, 'listUsers' | 'createUser' | 'updateUser' | 'deleteUser' | 'resetUserPassword'>;
+    adminApi: Pick<
+        AdminApi,
+        'listUsers' | 'createUser' | 'updateUser' | 'deleteUser' | 'resetUserPassword'
+    >;
     currentUserId: string;
 }
 
@@ -199,7 +202,7 @@ export function UsersPanel({ adminApi, currentUserId }: UsersPanelProps) {
                         <Table.Tr>
                             <Table.Th>Username</Table.Th>
                             <Table.Th>Role</Table.Th>
-                                <Table.Th>Actions</Table.Th>
+                            <Table.Th>Actions</Table.Th>
                         </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
@@ -213,10 +216,23 @@ export function UsersPanel({ adminApi, currentUserId }: UsersPanelProps) {
                                             <span>Current account</span>
                                         ) : (
                                             <>
-                                                <Button disabled={pending} onClick={() => openEditDialog(user)} size="compact-sm" type="button" variant="default">
+                                                <Button
+                                                    disabled={pending}
+                                                    onClick={() => openEditDialog(user)}
+                                                    size="compact-sm"
+                                                    type="button"
+                                                    variant="default"
+                                                >
                                                     Edit name
                                                 </Button>
-                                                <Button color="red" disabled={pending} onClick={() => void deleteUser(user)} size="compact-sm" type="button" variant="default">
+                                                <Button
+                                                    color="red"
+                                                    disabled={pending}
+                                                    onClick={() => void deleteUser(user)}
+                                                    size="compact-sm"
+                                                    type="button"
+                                                    variant="default"
+                                                >
                                                     Delete
                                                 </Button>
                                             </>
@@ -284,9 +300,15 @@ export function UsersPanel({ adminApi, currentUserId }: UsersPanelProps) {
                                 value={form.password}
                             />
                             <span className="sr-only" id="create-user-password-visibility">
-                                {createPasswordVisible ? 'Password is visible' : 'Password is hidden'}
+                                {createPasswordVisible
+                                    ? 'Password is visible'
+                                    : 'Password is hidden'}
                             </span>
-                            {error ? <Alert color="red" role="alert">{error}</Alert> : null}
+                            {error ? (
+                                <Alert color="red" role="alert">
+                                    {error}
+                                </Alert>
+                            ) : null}
                             <Group justify="flex-end">
                                 <Button
                                     onClick={() => setCreateOpen(false)}
@@ -304,14 +326,32 @@ export function UsersPanel({ adminApi, currentUserId }: UsersPanelProps) {
                 </Paper>
             </AdminDialog>
 
-            <AdminDialog open={editUser !== null} onClose={() => setEditUser(null)} title="Edit user name">
+            <AdminDialog
+                open={editUser !== null}
+                onClose={() => setEditUser(null)}
+                title="Edit user name"
+            >
                 <Paper p="md" radius="md" withBorder>
                     <form onSubmit={submitEdit}>
                         <Stack>
-                            <TextInput aria-label="Username" label="Username" onChange={(event) => setEditUsername(event.target.value)} required value={editUsername} />
+                            <TextInput
+                                aria-label="Username"
+                                label="Username"
+                                onChange={(event) => setEditUsername(event.target.value)}
+                                required
+                                value={editUsername}
+                            />
                             <Group justify="flex-end">
-                                <Button onClick={() => setEditUser(null)} type="button" variant="default">Cancel</Button>
-                                <Button disabled={editPending} loading={editPending} type="submit">Save</Button>
+                                <Button
+                                    onClick={() => setEditUser(null)}
+                                    type="button"
+                                    variant="default"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button disabled={editPending} loading={editPending} type="submit">
+                                    Save
+                                </Button>
                             </Group>
                         </Stack>
                     </form>
@@ -323,8 +363,7 @@ export function UsersPanel({ adminApi, currentUserId }: UsersPanelProps) {
                     <form onSubmit={submitResetPassword}>
                         <Stack>
                             <p>
-                                Set a new password for{' '}
-                                <strong>{passwordUser?.username}</strong>
+                                Set a new password for <strong>{passwordUser?.username}</strong>
                             </p>
                             <TextInput
                                 aria-label="New password"
@@ -358,7 +397,12 @@ export function UsersPanel({ adminApi, currentUserId }: UsersPanelProps) {
 function PlusIcon() {
     return (
         <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 16 16" width="16">
-            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+            <path
+                d="M8 3v10M3 8h10"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="1.8"
+            />
         </svg>
     );
 }

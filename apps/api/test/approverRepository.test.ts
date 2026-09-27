@@ -72,9 +72,7 @@ describe('ApproverRepository', () => {
 
         expect(await approvers.authenticate(program.id, 'gate-team', 'custom-pass')).toBe(true);
         expect(await approvers.authenticate(program.id, 'gate-team', 'wrong-pass')).toBe(false);
-        expect(await approvers.authenticate(program.id, 'unknown-team', 'custom-pass')).toBe(
-            false,
-        );
+        expect(await approvers.authenticate(program.id, 'unknown-team', 'custom-pass')).toBe(false);
 
         expect(timingSafeEqualHex).toHaveBeenCalledTimes(3);
         for (const [candidate, expected] of timingSafeEqualHex.mock.calls) {

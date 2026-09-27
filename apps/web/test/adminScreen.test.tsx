@@ -749,9 +749,7 @@ describe('AdminScreen', () => {
             renderAdmin(<AdminScreen adminApi={api} />);
 
             await screen.findByText('Patna Event 2026');
-            expect(
-                await screen.findByRole('button', { name: 'Add program' }),
-            ).toBeInTheDocument();
+            expect(await screen.findByRole('button', { name: 'Add program' })).toBeInTheDocument();
             fireEvent.click(screen.getByRole('button', { name: 'Add program' }));
             expect(await screen.findByLabelText('Program name')).toBeInTheDocument();
         },
@@ -954,9 +952,7 @@ describe('AdminScreen', () => {
             expect(getApproverAccess).toHaveBeenCalledWith('program_2');
         });
         expect(screen.queryByText('PATNA2345A')).not.toBeInTheDocument();
-        expect(
-            screen.queryByRole('dialog', { name: 'Approver password' }),
-        ).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Approver password' })).not.toBeInTheDocument();
     });
 
     it('refreshes listener counts from the Status tab', async () => {
@@ -1334,7 +1330,7 @@ describe('AdminScreen', () => {
         expect(
             await screen.findByRole('heading', { name: 'Management login' }),
         ).toBeInTheDocument();
-            expect(screen.getByLabelText('Password')).toBeInTheDocument();
+        expect(screen.getByLabelText('Password')).toBeInTheDocument();
 
         const summaryCallsAfterExpiry = getReportSummary.mock.calls.length;
         const eventCallsAfterExpiry = getEventFeed.mock.calls.length;
@@ -2395,9 +2391,7 @@ describe('AdminScreen', () => {
     it.skip('archives the selected program', () => {});
 
     it('moves a live program to Recently deleted and restores it', async () => {
-        let programs: AdminProgram[] = [
-            { ...firstProgram(), id: 'program_1' },
-        ];
+        let programs: AdminProgram[] = [{ ...firstProgram(), id: 'program_1' }];
         let deletedPrograms: AdminProgram[] = [];
         const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
         const api = makeApi({

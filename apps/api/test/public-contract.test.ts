@@ -8,9 +8,7 @@ async function request(path: string, init: RequestInit = {}) {
     return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
-async function seedProgramWithStreams(
-    expired = false,
-): Promise<{
+async function seedProgramWithStreams(expired = false): Promise<{
     programId: string;
     hindiStreamId: string;
     englishStreamId: string;

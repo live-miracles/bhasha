@@ -601,9 +601,7 @@ describe('approver auth and admin approver access', () => {
       WHERE id = ?`,
         ).get(session.id) as
             { sessionHash: string; expiresAt: string; absoluteExpiresAt: string } | undefined;
-        expect(stored?.sessionHash).toBe(
-            await sha256Hex(token + testEnv.APPROVER_SESSION_SECRET!),
-        );
+        expect(stored?.sessionHash).toBe(await sha256Hex(token + testEnv.APPROVER_SESSION_SECRET!));
 
         testEnv.DB.prepare(
             `UPDATE approver_sessions

@@ -3,10 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import type { Database } from './sqlite';
 
-const DEFAULT_SCHEMA_PATH = path.join(
-    path.dirname(fileURLToPath(import.meta.url)),
-    'schema.sql',
-);
+const DEFAULT_SCHEMA_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'schema.sql');
 
 /**
  * Initialize the draft application's database from its one fresh schema file.
@@ -17,9 +14,7 @@ export function runMigrations(
     db: Database,
     schemaPath: string = DEFAULT_SCHEMA_PATH,
 ): { applied: string[] } {
-    const hasTables = db
-        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1")
-        .get();
+    const hasTables = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1").get();
     if (hasTables) {
         return { applied: [] };
     }

@@ -29,15 +29,7 @@ async function seedProgram(label: 'draft' | 'live' | 'archived'): Promise<Seeded
         `INSERT INTO programs
     (id, slug, name, start_date, end_date, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-        id,
-        slug,
-        `Program ${slug}`,
-        '2027-08-01',
-        '2027-08-01',
-        now,
-        now,
-    );
+    ).run(id, slug, `Program ${slug}`, '2027-08-01', '2027-08-01', now, now);
 
     return { id, slug };
 }

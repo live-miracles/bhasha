@@ -124,9 +124,7 @@ export async function handleApproverRoutes(
 
             const program = await programs.getProgramById(auth.session.programId);
             if (!program) {
-                return approverResponse(
-                    json({ error: 'approver_auth_required' }, { status: 401 }),
-                );
+                return approverResponse(json({ error: 'approver_auth_required' }, { status: 401 }));
             }
             if (isProgramExpired(program.endDate)) {
                 return approverResponse(json({ error: 'program_expired' }, { status: 410 }));

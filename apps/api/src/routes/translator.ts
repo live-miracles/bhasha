@@ -9,7 +9,11 @@ import {
     RealtimeStreamRepository,
     StreamAlreadyPublishedError,
 } from '../db/realtimeStreamRepository';
-import { ProgramNotFoundError, ProgramRepository, type ProgramRecord } from '../db/programRepository';
+import {
+    ProgramNotFoundError,
+    ProgramRepository,
+    type ProgramRecord,
+} from '../db/programRepository';
 import { parseEmail } from '../domain/programs';
 import {
     TranslatorRepository,
@@ -558,7 +562,9 @@ async function resolveTranslatorLoginProgram(
 ): Promise<{ programId: string; program: ProgramRecord } | null> {
     try {
         const resolved = await resolveBrowserProgramReference(programs, input);
-        return resolved.program ? { programId: resolved.programId, program: resolved.program } : null;
+        return resolved.program
+            ? { programId: resolved.programId, program: resolved.program }
+            : null;
     } catch (error) {
         if (
             error instanceof ProgramNotFoundError ||

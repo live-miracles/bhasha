@@ -156,7 +156,7 @@ describe('admin user management APIs', () => {
             body: JSON.stringify({ username: 'renamed_target' }),
         });
         expect(rename.status).toBe(200);
-        expect((await rename.json() as { username: string }).username).toBe('renamed_target');
+        expect(((await rename.json()) as { username: string }).username).toBe('renamed_target');
 
         // Cannot PATCH the admin account itself.
         const patchAdmin = await request(`/api/admin/users/${adminId}`, {

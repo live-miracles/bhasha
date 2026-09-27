@@ -1,7 +1,14 @@
 import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { MantineProvider } from '@mantine/core';
-import { cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import {
+    cleanup,
+    fireEvent,
+    render as rtlRender,
+    screen,
+    waitFor,
+    within,
+} from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type {

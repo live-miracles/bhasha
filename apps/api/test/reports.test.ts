@@ -168,9 +168,7 @@ async function insertEvent(input: {
         .run();
 }
 
-async function seedReportProgram(
-    endDate = '2027-08-01',
-): Promise<SeededReportProgram> {
+async function seedReportProgram(endDate = '2027-08-01'): Promise<SeededReportProgram> {
     const suffix = crypto.randomUUID();
     const programId = `program_report_${suffix}`;
     const slug = `patna-report-${suffix}`;

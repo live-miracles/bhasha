@@ -40,15 +40,7 @@ async function seedTranslatorWithAssignment(
         `INSERT INTO programs
     (id, slug, name, start_date, end_date, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-        programId,
-        programSlug,
-        'Patna Event 2026',
-        '2027-08-01',
-        '2027-08-01',
-        now,
-        now,
-    );
+    ).run(programId, programSlug, 'Patna Event 2026', '2027-08-01', '2027-08-01', now, now);
 
     testEnv.DB.prepare(
         `INSERT INTO language_streams
@@ -85,15 +77,7 @@ async function seedProgramOnly(): Promise<{
         `INSERT INTO programs
     (id, slug, name, start_date, end_date, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-        programId,
-        programSlug,
-        'Other Program',
-        '2027-08-02',
-        '2027-08-02',
-        now,
-        now,
-    );
+    ).run(programId, programSlug, 'Other Program', '2027-08-02', '2027-08-02', now, now);
 
     return { programId, programSlug };
 }

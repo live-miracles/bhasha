@@ -219,7 +219,7 @@ export class ProgramRepository {
 
         const results = this.db
             .prepare(
-        `SELECT id, slug, name, start_date as startDate,
+                `SELECT id, slug, name, start_date as startDate,
         end_date as endDate, access_control_enabled as accessControlEnabled,
         created_at as createdAt, updated_at as updatedAt,
         retention_processed_at as retentionProcessedAt,

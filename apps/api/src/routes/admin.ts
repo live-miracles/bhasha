@@ -70,10 +70,7 @@ import { readPresenceStatusSnapshot } from '../presence/status';
 import type { RoomServiceClient } from 'livekit-server-sdk';
 import { DEVICE_LABELS } from '../domain/deviceLabel';
 import { deriveStreamState } from '../presence/streamState';
-import {
-    isRetentionEligible,
-    listenerConnectionsToCsv,
-} from '../domain/reports';
+import { isRetentionEligible, listenerConnectionsToCsv } from '../domain/reports';
 
 const CSV_REPORT_NOTES =
     'disconnectedAt may be empty if the browser disappeared without an explicit leave event before presence timeout.';

@@ -21,13 +21,7 @@ type LoginPageProps = {
 
 function EyeIcon({ slashed }: { slashed: boolean }) {
     return (
-        <svg
-            aria-hidden="true"
-            fill="none"
-            height="20"
-            viewBox="0 0 24 24"
-            width="20"
-        >
+        <svg aria-hidden="true" fill="none" height="20" viewBox="0 0 24 24" width="20">
             <path
                 d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
                 stroke="currentColor"
@@ -107,7 +101,9 @@ export function LoginPage({
                                 required={passwordRequired}
                                 rightSection={
                                     <button
-                                        aria-label={passwordVisible ? 'Hide password' : 'Show password'}
+                                        aria-label={
+                                            passwordVisible ? 'Hide password' : 'Show password'
+                                        }
                                         className="password-visibility-button"
                                         onClick={() => setPasswordVisible((visible) => !visible)}
                                         type="button"

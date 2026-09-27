@@ -160,7 +160,8 @@ export async function seedProgram(
             slug: overrides.slug ?? `program-${crypto.randomUUID()}`,
             name: overrides.name ?? 'Patna Event 2026',
             startDate: overrides.startDate ?? overrides.eventDate ?? '2027-08-01',
-            endDate: overrides.endDate ?? overrides.startDate ?? overrides.eventDate ?? '2027-08-01',
+            endDate:
+                overrides.endDate ?? overrides.startDate ?? overrides.eventDate ?? '2027-08-01',
         },
         createdBy,
     );

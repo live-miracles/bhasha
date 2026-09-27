@@ -123,8 +123,7 @@ async function seedPublishedAudio(programId: string, streamId: string): Promise<
 async function setProgramStatus(
     _programId: string,
     _status: 'archived' | 'live' | 'draft',
-): Promise<void> {
-}
+): Promise<void> {}
 
 async function setRelayCoords(streamId: string, relayVersion: number): Promise<void> {
     const now = new Date().toISOString();

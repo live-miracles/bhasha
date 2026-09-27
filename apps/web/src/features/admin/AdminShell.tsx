@@ -139,7 +139,7 @@ function ShellBrand() {
     return (
         <Group gap="sm" wrap="nowrap">
             <ThemeIcon color="brand" radius="md" size="lg" variant="light">
-<Image alt="" src="/branding/logo.png" w={24} />
+                <Image alt="" src="/branding/logo.png" w={24} />
             </ThemeIcon>
             <div>
                 <Text fw={800} size="sm" tt="uppercase">
