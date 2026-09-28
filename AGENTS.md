@@ -165,6 +165,12 @@ the repository.
   `npm run typecheck --workspace apps/web`,
   `npm run typecheck --workspace apps/api`, and
   `npm run e2e --workspace apps/web`.
+- Before committing or handing off changes, run the repository-wide CI parity checks from
+  `.github/workflows/ci.yml`: `npm run lint` and `npm run format:check`.
+  `format:check` covers the entire repository, not only changed files. If it fails,
+  run `npx prettier --write .`, inspect the resulting diff for unintended changes, and
+  rerun both checks. Treat ESLint errors as blockers; existing warnings are currently
+  allowed by the CI command.
 - Never print, copy, commit, or place LiveKit/session secrets in repository files. Verify only that required secret material exists outside the repository.
 - Do not use destructive commands such as `git reset --hard`, broad recursive deletion, or overwriting unrelated files without explicit authorization.
 - Before handing off, summarize changed files, tests/checks run, known limitations, and any exact blocker. Include clickable local file links when useful.
