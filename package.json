@@ -6,6 +6,7 @@
         "apps/web"
     ],
     "scripts": {
+        "predev": "node -e \"const fs=require('fs');if(!fs.existsSync('.env'))fs.copyFileSync('.env.example','.env')\"",
         "dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up",
         "dev:build": "docker compose -f docker-compose.yml -f docker-compose.dev.yml build",
         "dev:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
