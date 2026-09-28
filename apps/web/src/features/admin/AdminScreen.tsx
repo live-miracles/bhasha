@@ -1256,10 +1256,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                         value={status ? String(status.totalActiveListeners) : '—'}
                     />
                     <KpiTile
-                        label="Freshness"
-                        value={status ? (status.stale ? 'Stale' : 'Fresh') : '—'}
-                    />
-                    <KpiTile
                         label="Service"
                         value={status ? (status.degraded ? 'Degraded' : 'Normal') : '—'}
                     />
