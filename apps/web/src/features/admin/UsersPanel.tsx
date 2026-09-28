@@ -1,5 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Alert, Button, Group, Paper, Stack, Table, TextInput, Title } from '@mantine/core';
+import {
+    ActionIcon,
+    Alert,
+    Button,
+    Group,
+    Paper,
+    Stack,
+    Table,
+    TextInput,
+    Title,
+    Tooltip,
+} from '@mantine/core';
 
 import { ApiError } from '../../api/client';
 import { type AdminApi, type AdminUser } from '../../api/admin';
@@ -197,63 +208,68 @@ export function UsersPanel({ adminApi, currentUserId }: UsersPanelProps) {
 
             {users.length === 0 ? <p>No users yet.</p> : null}
             {users.length > 0 ? (
-                <Table mt="md" striped withTableBorder>
-                    <Table.Thead>
-                        <Table.Tr>
-                            <Table.Th>Username</Table.Th>
-                            <Table.Th>Role</Table.Th>
-                            <Table.Th>Actions</Table.Th>
-                        </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                        {users.map((user) => (
-                            <Table.Tr key={user.id}>
-                                <Table.Td>{user.username}</Table.Td>
-                                <Table.Td>{user.role}</Table.Td>
-                                <Table.Td>
-                                    <Group gap="xs">
-                                        {user.id === currentUserId ? (
-                                            <span>Current account</span>
-                                        ) : (
-                                            <>
-                                                <Button
-                                                    disabled={pending}
-                                                    onClick={() => openEditDialog(user)}
-                                                    size="compact-sm"
-                                                    type="button"
-                                                    variant="default"
-                                                >
-                                                    Edit name
-                                                </Button>
-                                                <Button
-                                                    color="red"
-                                                    disabled={pending}
-                                                    onClick={() => void deleteUser(user)}
-                                                    size="compact-sm"
-                                                    type="button"
-                                                    variant="default"
-                                                >
-                                                    Delete
-                                                </Button>
-                                            </>
-                                        )}
-                                        {user.id !== currentUserId ? (
-                                            <Button
-                                                disabled={pending}
-                                                onClick={() => void openResetDialog(user)}
-                                                size="compact-sm"
-                                                type="button"
-                                                variant="default"
-                                            >
-                                                Reset password
-                                            </Button>
-                                        ) : null}
-                                    </Group>
-                                </Table.Td>
+                <Table.ScrollContainer minWidth={0} mt="md">
+                    <Table horizontalSpacing="xs" striped verticalSpacing="xs" withTableBorder>
+                        <Table.Thead>
+                            <Table.Tr>
+                                <Table.Th>Username</Table.Th>
+                                <Table.Th>Role</Table.Th>
+                                <Table.Th>Actions</Table.Th>
                             </Table.Tr>
-                        ))}
-                    </Table.Tbody>
-                </Table>
+                        </Table.Thead>
+                        <Table.Tbody>
+                            {users.map((user) => (
+                                <Table.Tr key={user.id}>
+                                    <Table.Td>{user.username}</Table.Td>
+                                    <Table.Td>{user.role}</Table.Td>
+                                    <Table.Td>
+                                        <Group gap={6} wrap="nowrap">
+                                            {user.id === currentUserId ? (
+                                                <span>Current account</span>
+                                            ) : (
+                                                <>
+                                                    <Tooltip label="Edit name">
+                                                        <ActionIcon
+                                                            aria-label={`Edit name for ${user.username}`}
+                                                            disabled={pending}
+                                                            onClick={() => openEditDialog(user)}
+                                                            variant="default"
+                                                        >
+                                                            <EditIcon />
+                                                        </ActionIcon>
+                                                    </Tooltip>
+                                                    <Tooltip label="Delete user">
+                                                        <ActionIcon
+                                                            aria-label={`Delete ${user.username}`}
+                                                            color="red"
+                                                            disabled={pending}
+                                                            onClick={() => void deleteUser(user)}
+                                                            variant="light"
+                                                        >
+                                                            <TrashIcon />
+                                                        </ActionIcon>
+                                                    </Tooltip>
+                                                </>
+                                            )}
+                                            {user.id !== currentUserId ? (
+                                                <Button
+                                                    disabled={pending}
+                                                    leftSection={<KeyIcon />}
+                                                    onClick={() => void openResetDialog(user)}
+                                                    size="compact-xs"
+                                                    type="button"
+                                                    variant="default"
+                                                >
+                                                    Reset
+                                                </Button>
+                                            ) : null}
+                                        </Group>
+                                    </Table.Td>
+                                </Table.Tr>
+                            ))}
+                        </Table.Tbody>
+                    </Table>
+                </Table.ScrollContainer>
             ) : null}
 
             <AdminDialog open={createOpen} onClose={() => setCreateOpen(false)} title="Create user">
@@ -402,6 +418,50 @@ function PlusIcon() {
                 stroke="currentColor"
                 strokeLinecap="round"
                 strokeWidth="1.8"
+            />
+        </svg>
+    );
+}
+
+function EditIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 16 16" width="16">
+            <path
+                d="M10.4 2.6a1.2 1.2 0 0 1 1.7 0l1.3 1.3a1.2 1.2 0 0 1 0 1.7L6 13H3v-3z"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.3"
+            />
+            <path d="m9 4 3 3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.3" />
+        </svg>
+    );
+}
+
+function TrashIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 16 16" width="16">
+            <path
+                d="M3 5h10M6.3 5V3.3h3.4V5M4.6 5v8.2c0 .55.45 1 1 1h4.8c.55 0 1-.45 1-1V5M6.6 7.5v4M9.4 7.5v4"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.3"
+            />
+        </svg>
+    );
+}
+
+function KeyIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 16 16" width="16">
+            <circle cx="5.5" cy="10.5" r="2.9" stroke="currentColor" strokeWidth="1.3" />
+            <path
+                d="m7.7 8.3 5.2-5.2M11 3.9l1.1 1.1M9.1 5.8l1.1 1.1"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.3"
             />
         </svg>
     );

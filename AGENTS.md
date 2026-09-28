@@ -47,6 +47,8 @@ Do not rely on memory for API syntax, LiveKit server-sdk/client-sdk behavior, be
 
 Use a pragmatic, behavior-focused testing workflow for feature and bug-fix work: test the important user-visible behavior, domain rules, integration boundaries, and regressions comprehensively, but add tests where they provide meaningful confidence. Writing a failing test first is encouraged when it clarifies the expected behavior or reproduces a bug, but it is not required for every change. Do not contort production code or design solely to increase line coverage. Keep changes reviewable and avoid unrelated refactors.
 
+For small, low-risk changes (e.g., an isolated UI/CSS tweak, a copy change, small script/config wiring), do not run the full verification stack after every edit — a scoped check (a single workspace's typecheck, or a quick visual/manual confirmation) is enough, and the user can confirm the result looks right themselves. This keeps iterative development fast. Regardless of change size, always run the full regression suite (tests, typecheck, lint, format:check, and e2e where relevant — see the canonical commands below) before committing.
+
 Claude Code and Codex are both supported as primary implementation and review agents for this repository. The developer may choose either based on preference and task fit. The active agent should inspect the relevant code and documentation, state important assumptions, use the repository's normal editing conventions, and report verification results clearly. Do not delegate routine work merely to satisfy a process rule; delegate when parallel research, an isolated implementation slice, or an independent review will materially improve the result.
 
 If the repo is not initialized as a git repository, do not claim that code was committed. Report that commit steps are blocked until git is initialized or the correct git root is provided. Do not create commits unless the user requests a commit or the active task explicitly requires one.
@@ -165,7 +167,8 @@ the repository.
   `npm run typecheck --workspace apps/web`,
   `npm run typecheck --workspace apps/api`, and
   `npm run e2e --workspace apps/web`.
-- Before committing or handing off changes, run the repository-wide CI parity checks from
+- During iterative work on a small, low-risk change, a scoped check (single-workspace typecheck, or the user's manual confirmation) is enough — do not force the full stack after every edit.
+- Before committing or handing off changes, regardless of change size, run the repository-wide CI parity checks from
   `.github/workflows/ci.yml`: `npm run lint` and `npm run format:check`.
   `format:check` covers the entire repository, not only changed files. If it fails,
   run `npx prettier --write .`, inspect the resulting diff for unintended changes, and
@@ -186,7 +189,7 @@ For a feature request, adapt the depth to the risk and size of the change:
 1. Inspect the requirements, architecture, relevant code, and current worktree state.
 2. Create a concise implementation plan for non-trivial work.
 3. Add focused tests for meaningful behavior and regressions. Use a failing test first when it clarifies the expected behavior, then implement the smallest complete slice; otherwise, implement first and verify with appropriate tests.
-4. Run focused tests and type checks; run broader regression or end-to-end checks when the change affects integration boundaries, realtime behavior, authentication, or mobile UX.
+4. Run focused tests and type checks; run broader regression or end-to-end checks when the change affects integration boundaries, realtime behavior, authentication, or mobile UX. For small, low-risk changes this can be a scoped check plus the user's manual confirmation (see Engineering Workflow above) — but run the full regression suite before any commit.
 5. For larger or higher-risk changes, obtain an independent architecture or code review, either directly or through an isolated delegated agent.
 6. Address review findings, re-run verification, and report any blocker precisely.
 7. Commit only when requested or explicitly required by the task.
@@ -198,7 +201,7 @@ For a bug fix:
 1. Reproduce the failure and identify the likely cause before editing.
 2. Add or update a regression test and verify it fails when feasible.
 3. Implement the focused fix and verify the regression test passes.
-4. Run relevant type checks and broader tests as warranted by the affected surface.
+4. Run relevant type checks and broader tests as warranted by the affected surface. For small, low-risk fixes this can be a scoped check plus the user's manual confirmation (see Engineering Workflow above) — but run the full regression suite before any commit.
 5. Use an independent review for security-sensitive, realtime, persistence, or cross-client changes.
 6. Commit only when requested or explicitly required by the task.
 

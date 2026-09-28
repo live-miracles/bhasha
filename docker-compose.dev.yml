@@ -19,6 +19,11 @@ services:
             WEB_DIST_PATH: /repo/apps/web/dist
             LIVEKIT_URL: ws://127.0.0.1:7880
             PORT: 8787
+            # Bind-mount fs-change events from the Windows host don't always
+            # reach this container's watcher; tsx watch bundles chokidar,
+            # which falls back to polling when this is set (see
+            # apps/web/vite.config.ts for the same fix on the web service).
+            CHOKIDAR_USEPOLLING: '1'
         volumes:
             - ./apps/api:/repo/apps/api
             - ./tsconfig.base.json:/repo/tsconfig.base.json:ro
@@ -34,6 +39,10 @@ services:
         working_dir: /repo
         environment:
             VITE_API_PROXY_TARGET: http://app:8787
+            # Bind-mount fs-change events from the Windows host don't always
+            # reach this container's watcher; fall back to polling (see
+            # apps/web/vite.config.ts).
+            VITE_WATCH_USE_POLLING: '1'
         volumes:
             - ./apps/web:/repo/apps/web
             - ./tsconfig.base.json:/repo/tsconfig.base.json:ro

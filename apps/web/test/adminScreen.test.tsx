@@ -601,6 +601,7 @@ describe('AdminScreen', () => {
 
         renderAdmin(<AdminScreen adminApi={api} />);
         fireEvent.click(await screen.findByRole('button', { name: 'Account' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Reset password' }));
 
         fireEvent.change(await screen.findByLabelText('Current password'), {
             target: { value: 'old-pass' },
@@ -611,7 +612,7 @@ describe('AdminScreen', () => {
         fireEvent.change(screen.getByLabelText('Confirm new password'), {
             target: { value: 'new-pass' },
         });
-        fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
         expect(await screen.findByText('Password updated successfully.')).toBeInTheDocument();
         expect(changeMyPassword).toHaveBeenCalledWith({
@@ -646,7 +647,10 @@ describe('AdminScreen', () => {
         ).not.toBeInTheDocument();
     });
 
-    it('sorts program cards by start date ascending', async () => {
+    it('sorts current program cards by start date ascending', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        vi.setSystemTime(new Date('2026-01-16T10:00:00.000Z'));
+
         const earlyProgram = {
             ...firstProgram(),
             id: 'program_early',
@@ -673,7 +677,8 @@ describe('AdminScreen', () => {
             />,
         );
 
-        const cards = await screen.findAllByRole('button');
+        const currentSection = await screen.findByRole('region', { name: 'Current programs' });
+        const cards = within(currentSection).getAllByRole('button');
         const cardNames = cards
             .map((card) => card.textContent ?? '')
             .filter((text) => text.includes('Early Event') || text.includes('Late Event'));
@@ -681,6 +686,82 @@ describe('AdminScreen', () => {
         expect(cardNames[0]).toContain('2026-01-15 – 16');
         expect(cardNames[0]).toContain('Early Event');
         expect(cardNames[1]).toContain('Late Event');
+    });
+
+    it('sorts past program cards by start date descending', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        vi.setSystemTime(new Date('2026-09-28T10:00:00.000Z'));
+
+        const earlyPastProgram = {
+            ...firstProgram(),
+            id: 'program_past_early',
+            name: 'Early Past Event',
+            slug: 'early-past-event',
+            startDate: '2026-01-15',
+            endDate: '2026-01-16',
+        };
+        const latePastProgram = {
+            ...firstProgram(),
+            id: 'program_past_late',
+            name: 'Late Past Event',
+            slug: 'late-past-event',
+            startDate: '2026-08-15',
+            endDate: '2026-08-16',
+        };
+
+        renderAdmin(
+            <AdminScreen
+                adminApi={makeApi({
+                    listPrograms: vi.fn(async () => ({
+                        programs: [earlyPastProgram, latePastProgram],
+                    })),
+                })}
+            />,
+        );
+
+        const pastSection = await screen.findByRole('region', { name: 'Past programs' });
+        const cards = within(pastSection).getAllByRole('button');
+        const cardNames = cards
+            .map((card) => card.textContent ?? '')
+            .filter((text) => text.includes('Past Event'));
+        expect(cardNames).toHaveLength(2);
+        expect(cardNames[0]).toContain('Late Past Event');
+        expect(cardNames[1]).toContain('Early Past Event');
+    });
+
+    it('keeps a program current through a 2-day grace period after its end date, then moves it to Past', async () => {
+        const gracePeriodProgram = {
+            ...firstProgram(),
+            id: 'program_grace',
+            name: 'Grace Period Event',
+            slug: 'grace-period-event',
+            startDate: '2026-09-20',
+            endDate: '2026-09-21',
+        };
+
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        vi.setSystemTime(new Date('2026-09-22T10:00:00.000Z'));
+        const { unmount } = renderAdmin(
+            <AdminScreen
+                adminApi={makeApi({
+                    listPrograms: vi.fn(async () => ({ programs: [gracePeriodProgram] })),
+                })}
+            />,
+        );
+        const currentSection = await screen.findByRole('region', { name: 'Current programs' });
+        expect(within(currentSection).getByText('Grace Period Event')).toBeInTheDocument();
+        unmount();
+
+        vi.setSystemTime(new Date('2026-09-23T00:00:00.000Z'));
+        renderAdmin(
+            <AdminScreen
+                adminApi={makeApi({
+                    listPrograms: vi.fn(async () => ({ programs: [gracePeriodProgram] })),
+                })}
+            />,
+        );
+        const pastSection = await screen.findByRole('region', { name: 'Past programs' });
+        expect(within(pastSection).getByText('Grace Period Event')).toBeInTheDocument();
     });
 
     it('opens a program by clicking the program card instead of an Open button', async () => {

@@ -241,7 +241,7 @@ export function AdminLayout({ sidebar, children }: AdminLayoutProps) {
                     collapsed: { mobile: !opened },
                     width: 256,
                 }}
-                padding="lg"
+                padding={{ base: 8, sm: 'lg' }}
             >
                 <AppShell.Header>
                     <Group h="100%" justify="space-between" px="lg">

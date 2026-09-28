@@ -101,6 +101,27 @@ function PlusIcon() {
         </svg>
     );
 }
+
+function RestoreIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <path
+                d="M3 12a9 9 0 1 0 3-6.7M3 4v6h6"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+            />
+            <path
+                d="M12 8v4l2.5 2"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+            />
+        </svg>
+    );
+}
 const EMPTY_EVENT_FILTERS: EventFiltersState = {
     eventTypes: [],
     translatorId: '',
@@ -432,6 +453,67 @@ function programDateRange(program: AdminProgram): string {
 
     const endDay = endDate.split('-').pop();
     return endDay ? `${startDate} – ${endDay}` : `${startDate} – ${endDate}`;
+}
+
+// Same grace period as apps/api/src/domain/programExpiry.ts's isProgramExpired,
+// so a program only moves to "Past" here exactly when listeners/translators/
+// approvers would actually see it as expired.
+const PROGRAM_PAST_GRACE_DAYS = 2;
+
+function isPastProgram(endDate: string | null | undefined, now = new Date()): boolean {
+    if (!endDate) {
+        return false;
+    }
+    const today = now.toISOString().slice(0, 10);
+    const pastOn = new Date(`${endDate}T00:00:00.000Z`);
+    pastOn.setUTCDate(pastOn.getUTCDate() + PROGRAM_PAST_GRACE_DAYS);
+    return today >= pastOn.toISOString().slice(0, 10);
+}
+
+function sortProgramsByStartDate(
+    programs: AdminProgram[],
+    direction: 'asc' | 'desc',
+): AdminProgram[] {
+    const sign = direction === 'asc' ? 1 : -1;
+    return [...programs].sort((left, right) => {
+        const leftStartDate = left.startDate ?? '';
+        const rightStartDate = right.startDate ?? '';
+
+        if (!leftStartDate) return rightStartDate ? 1 : 0;
+        if (!rightStartDate) return -1;
+        return (
+            sign * leftStartDate.localeCompare(rightStartDate) ||
+            left.name.localeCompare(right.name)
+        );
+    });
+}
+
+function sortProgramsByDeletedAtDesc(programs: AdminProgram[]): AdminProgram[] {
+    return [...programs].sort((left, right) => {
+        const leftDeletedAt = left.deletedAt ?? '';
+        const rightDeletedAt = right.deletedAt ?? '';
+        return rightDeletedAt.localeCompare(leftDeletedAt) || left.name.localeCompare(right.name);
+    });
+}
+
+// Same grace period as apps/api/src/domain/retentionService.ts's
+// GRACE_DAYS_MS, so this matches when a deleted program is actually pruned.
+const PROGRAM_PURGE_GRACE_DAYS = 7;
+
+function daysUntilProgramPurge(
+    deletedAt: string | null | undefined,
+    now = new Date(),
+): number | null {
+    if (!deletedAt) {
+        return null;
+    }
+    const deletedAtMs = new Date(deletedAt).getTime();
+    if (Number.isNaN(deletedAtMs)) {
+        return null;
+    }
+    const dayMs = 24 * 60 * 60 * 1000;
+    const daysElapsed = Math.floor((now.getTime() - deletedAtMs) / dayMs);
+    return Math.max(0, PROGRAM_PURGE_GRACE_DAYS - daysElapsed);
 }
 
 export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
@@ -1705,8 +1787,14 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                             <div className="admin-section-head">
                                                 <h2>Recently deleted</h2>
                                             </div>
-                                            <DeletedProgramList
-                                                programs={deletedPrograms}
+                                            <ProgramGrid
+                                                adminUsers={adminUsers}
+                                                currentOwnerId={identity?.id ?? null}
+                                                currentOwnerName={identity?.username ?? null}
+                                                emptyMessage="No recently deleted programs."
+                                                programs={sortProgramsByDeletedAtDesc(
+                                                    deletedPrograms,
+                                                )}
                                                 onRestore={(programId: string) => {
                                                     void restoreProgram(programId);
                                                 }}
@@ -1721,6 +1809,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                         <AccountPanel
                                             adminApi={adminApi}
                                             username={identity?.username}
+                                            role={identity?.role}
                                             onSignOut={handleSignOut}
                                         />
                                     ) : (
@@ -1742,15 +1831,75 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                                     </span>
                                                 </Button>
                                             </div>
-                                            <ProgramList
-                                                adminUsers={adminUsers}
-                                                currentOwnerId={identity?.id ?? null}
-                                                currentOwnerName={identity?.username ?? null}
-                                                programs={programs}
-                                                onOpen={(program) =>
-                                                    navigate(adminProgramPath(program.slug))
-                                                }
-                                            />
+                                            {programs.length === 0 ? (
+                                                <p>No programs yet.</p>
+                                            ) : (
+                                                <>
+                                                    <section aria-label="Current programs">
+                                                        <Stack gap="md" mt="md">
+                                                            <Title order={3}>
+                                                                Current programs
+                                                            </Title>
+                                                            <ProgramGrid
+                                                                adminUsers={adminUsers}
+                                                                currentOwnerId={
+                                                                    identity?.id ?? null
+                                                                }
+                                                                currentOwnerName={
+                                                                    identity?.username ?? null
+                                                                }
+                                                                emptyMessage="No current programs."
+                                                                programs={sortProgramsByStartDate(
+                                                                    programs.filter(
+                                                                        (program) =>
+                                                                            !isPastProgram(
+                                                                                program.endDate,
+                                                                            ),
+                                                                    ),
+                                                                    'asc',
+                                                                )}
+                                                                onOpen={(program) =>
+                                                                    navigate(
+                                                                        adminProgramPath(
+                                                                            program.slug,
+                                                                        ),
+                                                                    )
+                                                                }
+                                                            />
+                                                        </Stack>
+                                                    </section>
+                                                    <section aria-label="Past programs">
+                                                        <Stack gap="md" mt="xl">
+                                                            <Title order={3}>Past programs</Title>
+                                                            <ProgramGrid
+                                                                adminUsers={adminUsers}
+                                                                currentOwnerId={
+                                                                    identity?.id ?? null
+                                                                }
+                                                                currentOwnerName={
+                                                                    identity?.username ?? null
+                                                                }
+                                                                emptyMessage="No past programs."
+                                                                programs={sortProgramsByStartDate(
+                                                                    programs.filter((program) =>
+                                                                        isPastProgram(
+                                                                            program.endDate,
+                                                                        ),
+                                                                    ),
+                                                                    'desc',
+                                                                )}
+                                                                onOpen={(program) =>
+                                                                    navigate(
+                                                                        adminProgramPath(
+                                                                            program.slug,
+                                                                        ),
+                                                                    )
+                                                                }
+                                                            />
+                                                        </Stack>
+                                                    </section>
+                                                </>
+                                            )}
                                         </section>
                                     )}
                                 </div>
@@ -1920,123 +2069,125 @@ function ProgramCreateForm({
     );
 }
 
-function ProgramList({
+function ProgramCard({
+    adminUsers,
+    currentOwnerId,
+    currentOwnerName,
+    program,
+    onOpen,
+    onRestore,
+}: {
+    adminUsers: AdminUser[];
+    currentOwnerId: string | null;
+    currentOwnerName: string | null;
+    program: AdminProgram;
+    onOpen?: ((program: AdminProgram) => void) | undefined;
+    onRestore?: ((programId: string) => void) | undefined;
+}) {
+    function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+        if (!onOpen) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onOpen(program);
+        }
+    }
+
+    return (
+        <Paper
+            className={`admin-card admin-program-card${onOpen ? ' admin-card-clickable' : ''}`}
+            component="article"
+            onClick={onOpen ? () => onOpen(program) : undefined}
+            onKeyDown={onOpen ? handleKeyDown : undefined}
+            p="lg"
+            radius="md"
+            role={onOpen ? 'button' : undefined}
+            tabIndex={onOpen ? 0 : undefined}
+            withBorder
+        >
+            <Badge className="admin-program-slug-badge" color="gray" size="sm" variant="light">
+                {program.slug}
+            </Badge>
+            <Stack gap="xs">
+                <Group className="admin-program-meta" justify="space-between" wrap="nowrap">
+                    <Text c="dimmed" size="sm">
+                        {programDateRange(program)}
+                    </Text>
+                </Group>
+                <Group className="admin-program-heading" gap="xs" wrap="nowrap">
+                    <Title order={3} size="h4">
+                        {program.name}
+                    </Title>
+                </Group>
+                <Text c="dimmed" size="sm">
+                    {adminUsers.find((user) => user.id === program.createdBy)?.username ??
+                        (program.createdBy === currentOwnerId ? currentOwnerName : null) ??
+                        'Unassigned'}
+                </Text>
+            </Stack>
+            {onRestore ? (
+                <Group align="center" gap="sm" mt="md" wrap="nowrap">
+                    <Button
+                        leftSection={<RestoreIcon />}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            onRestore(program.id);
+                        }}
+                        type="button"
+                    >
+                        Restore
+                    </Button>
+                    {(() => {
+                        const daysLeft = daysUntilProgramPurge(program.deletedAt);
+                        if (daysLeft === null) {
+                            return null;
+                        }
+                        return (
+                            <Text c="dimmed" size="xs">
+                                {daysLeft <= 0
+                                    ? 'Deletes today'
+                                    : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`}
+                            </Text>
+                        );
+                    })()}
+                </Group>
+            ) : null}
+        </Paper>
+    );
+}
+
+function ProgramGrid({
     adminUsers,
     currentOwnerId,
     currentOwnerName,
     programs,
+    emptyMessage,
     onOpen,
+    onRestore,
 }: {
     adminUsers: AdminUser[];
     currentOwnerId: string | null;
     currentOwnerName: string | null;
     programs: AdminProgram[];
-    onOpen: (program: AdminProgram) => void;
+    emptyMessage: string;
+    onOpen?: ((program: AdminProgram) => void) | undefined;
+    onRestore?: ((programId: string) => void) | undefined;
 }) {
     if (programs.length === 0) {
-        return <p>No programs yet.</p>;
-    }
-
-    const sortedPrograms = [...programs].sort((left, right) => {
-        const leftStartDate = left.startDate ?? '';
-        const rightStartDate = right.startDate ?? '';
-
-        if (!leftStartDate) return rightStartDate ? 1 : 0;
-        if (!rightStartDate) return -1;
-        return leftStartDate.localeCompare(rightStartDate) || left.name.localeCompare(right.name);
-    });
-
-    return (
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
-            {sortedPrograms.map((program) => {
-                function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        onOpen(program);
-                    }
-                }
-
-                return (
-                    <Paper
-                        className="admin-card admin-card-clickable admin-program-card"
-                        component="article"
-                        key={program.id}
-                        onClick={() => onOpen(program)}
-                        onKeyDown={handleKeyDown}
-                        p="lg"
-                        radius="md"
-                        role="button"
-                        tabIndex={0}
-                        withBorder
-                    >
-                        <Badge
-                            className="admin-program-slug-badge"
-                            color="gray"
-                            size="sm"
-                            variant="light"
-                        >
-                            {program.slug}
-                        </Badge>
-                        <Stack gap="xs">
-                            <Group
-                                className="admin-program-meta"
-                                justify="space-between"
-                                wrap="nowrap"
-                            >
-                                <Text c="dimmed" size="sm">
-                                    {programDateRange(program)}
-                                </Text>
-                            </Group>
-                            <Group className="admin-program-heading" gap="xs" wrap="nowrap">
-                                <Title order={3} size="h4">
-                                    {program.name}
-                                </Title>
-                            </Group>
-                            <Text c="dimmed" size="sm">
-                                {adminUsers.find((user) => user.id === program.createdBy)
-                                    ?.username ??
-                                    (program.createdBy === currentOwnerId
-                                        ? currentOwnerName
-                                        : null) ??
-                                    'Unassigned'}
-                            </Text>
-                        </Stack>
-                    </Paper>
-                );
-            })}
-        </SimpleGrid>
-    );
-}
-
-function DeletedProgramList({
-    programs,
-    onRestore,
-}: {
-    programs: AdminProgram[];
-    onRestore?: (programId: string) => void;
-}) {
-    if (programs.length === 0) {
-        return <p>No recently deleted programs.</p>;
+        return <p>{emptyMessage}</p>;
     }
 
     return (
         <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
             {programs.map((program) => (
-                <Paper className="admin-card" key={program.id} p="lg" radius="md" withBorder>
-                    <Stack gap="xs">
-                        <Title order={3} size="h4">
-                            {program.name}
-                        </Title>
-                        <Text c="dimmed" size="sm">
-                            {programDateRange(program)}
-                        </Text>
-                    </Stack>
-                    {onRestore ? (
-                        <Button mt="md" onClick={() => onRestore(program.id)} type="button">
-                            Restore
-                        </Button>
-                    ) : null}
-                </Paper>
+                <ProgramCard
+                    adminUsers={adminUsers}
+                    currentOwnerId={currentOwnerId}
+                    currentOwnerName={currentOwnerName}
+                    key={program.id}
+                    onOpen={onOpen}
+                    onRestore={onRestore}
+                    program={program}
+                />
             ))}
         </SimpleGrid>
     );

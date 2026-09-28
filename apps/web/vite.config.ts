@@ -29,5 +29,15 @@ export default defineConfig({
         proxy: {
             '/api': process.env.VITE_API_PROXY_TARGET ?? 'http://127.0.0.1:8787',
         },
+        // Docker Desktop's bind-mount filesystem events don't reliably reach the
+        // container's Linux fs.watch on Windows (and WSL2 generally, per Vite's
+        // own docs), so the dev server can silently keep serving stale
+        // transforms after a host-side edit. Polling trades some CPU for
+        // reliability; only enabled when explicitly opted into (see
+        // docker-compose.dev.yml's `web` service). Omitted (rather than set to
+        // null/undefined) so default watching is untouched otherwise.
+        ...(process.env.VITE_WATCH_USE_POLLING === '1'
+            ? { watch: { usePolling: true, interval: 300 } }
+            : {}),
     },
 });

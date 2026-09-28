@@ -223,7 +223,7 @@ export class ProgramRepository {
         end_date as endDate, access_control_enabled as accessControlEnabled,
         created_at as createdAt, updated_at as updatedAt,
         retention_processed_at as retentionProcessedAt,
-        created_by as createdBy
+        created_by as createdBy, deleted_at as deletedAt
         FROM programs
         ${whereClause}
         ORDER BY start_date DESC, created_at DESC`,
