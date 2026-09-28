@@ -111,7 +111,7 @@ describe('ApiClient', () => {
 
         await expect(
             client.patch('/api/admin/programs/program_1', {
-                nextSlug: 'renamed-event',
+                slug: 'renamed-event',
             }),
         ).rejects.toMatchObject({
             status: 409,

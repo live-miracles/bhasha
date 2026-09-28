@@ -1291,7 +1291,7 @@ describe('program and stream admin API', () => {
         const slugChange = await request(`/api/admin/programs/${program.id}`, {
             method: 'PATCH',
             headers: { Cookie: cookie },
-            body: JSON.stringify({ nextSlug: 'live-then-back' }),
+            body: JSON.stringify({ slug: 'live-then-back' }),
         });
 
         expect(slugChange.status).toBe(409);
@@ -1380,28 +1380,14 @@ describe('program and stream admin API', () => {
         });
     });
 
-    it('rejects ordinary patch attempts to mutate slug', async () => {
+    it('renames a draft program with slug and updates URL and QR metadata', async () => {
         const cookie = await adminCookie();
         const program = await createProgram(cookie);
 
         const patch = await request(`/api/admin/programs/${program.id}`, {
             method: 'PATCH',
             headers: { Cookie: cookie },
-            body: JSON.stringify({ slug: 'new-public-slug' }),
-        });
-
-        expect(patch.status).toBe(400);
-        expect(await patch.json()).toEqual({ error: 'slug_immutable' });
-    });
-
-    it('renames a draft program with nextSlug and updates URL and QR metadata', async () => {
-        const cookie = await adminCookie();
-        const program = await createProgram(cookie);
-
-        const patch = await request(`/api/admin/programs/${program.id}`, {
-            method: 'PATCH',
-            headers: { Cookie: cookie },
-            body: JSON.stringify({ nextSlug: 'patna-event-final' }),
+            body: JSON.stringify({ slug: 'patna-event-final' }),
         });
 
         expect(patch.status).toBe(200);
@@ -1419,7 +1405,7 @@ describe('program and stream admin API', () => {
         });
     });
 
-    it('rejects duplicate nextSlug with program_slug_exists', async () => {
+    it('rejects duplicate slug with program_slug_exists', async () => {
         const cookie = await adminCookie();
         const first = await createProgram(cookie);
         await createProgram(cookie, {
@@ -1430,14 +1416,14 @@ describe('program and stream admin API', () => {
         const patch = await request(`/api/admin/programs/${first.id}`, {
             method: 'PATCH',
             headers: { Cookie: cookie },
-            body: JSON.stringify({ nextSlug: 'already-used-slug' }),
+            body: JSON.stringify({ slug: 'already-used-slug' }),
         });
 
         expect(patch.status).toBe(409);
         expect(await patch.json()).toEqual({ error: 'program_slug_exists' });
     });
 
-    it.skip('rejects nextSlug changes after draft status', async () => {
+    it.skip('rejects slug changes after draft status', async () => {
         const cookie = await adminCookie();
         const liveProgram = await createProgram(cookie, {
             slug: 'live-program',
@@ -1454,7 +1440,7 @@ describe('program and stream admin API', () => {
             const patch = await request(`/api/admin/programs/${program.id}`, {
                 method: 'PATCH',
                 headers: { Cookie: cookie },
-                body: JSON.stringify({ nextSlug: `${program.slug}-renamed` }),
+                body: JSON.stringify({ slug: `${program.slug}-renamed` }),
             });
 
             expect(patch.status).toBe(409);
@@ -1462,7 +1448,7 @@ describe('program and stream admin API', () => {
         }
     });
 
-    it.skip('rejects any nextSlug field after draft status even when unchanged', async () => {
+    it.skip('rejects any slug field after draft status even when unchanged', async () => {
         const cookie = await adminCookie();
         const liveProgram = await createProgram(cookie, {
             slug: 'live-unchanged-slug',
@@ -1479,7 +1465,7 @@ describe('program and stream admin API', () => {
             const patch = await request(`/api/admin/programs/${program.id}`, {
                 method: 'PATCH',
                 headers: { Cookie: cookie },
-                body: JSON.stringify({ nextSlug: program.slug }),
+                body: JSON.stringify({ slug: program.slug }),
             });
 
             expect(patch.status).toBe(409);

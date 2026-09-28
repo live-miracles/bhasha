@@ -459,15 +459,6 @@ async function parseUpdateProgramBody(request: Request): Promise<UpdateProgramIn
         return json({ error: 'invalid_json' }, { status: 400 });
     }
 
-    if (
-        typeof body === 'object' &&
-        body !== null &&
-        !Array.isArray(body) &&
-        Object.prototype.hasOwnProperty.call(body, 'slug')
-    ) {
-        return json({ error: 'slug_immutable' }, { status: 400 });
-    }
-
     try {
         return parseUpdateProgramInput(body);
     } catch (error) {
@@ -946,8 +937,18 @@ export async function handleAdminRoutes(
             return input;
         }
 
+        if (input.createdBy !== undefined) {
+            if (auth!.role !== 'admin') {
+                return json({ error: 'admin_role_required' }, { status: 403 });
+            }
+            const owner = await users.getUserById(input.createdBy);
+            if (!owner || (owner.role !== 'admin' && owner.role !== 'user')) {
+                return json({ error: 'program_owner_not_found' }, { status: 404 });
+            }
+        }
+
         try {
-            return json(await programs.createProgram(input, auth!.userId), {
+            return json(await programs.createProgram(input, input.createdBy ?? auth!.userId), {
                 status: 201,
             });
         } catch (error) {
@@ -997,7 +998,7 @@ export async function handleAdminRoutes(
                     return json({ error: 'admin_role_required' }, { status: 403 });
                 }
                 const owner = await users.getUserById(input.createdBy);
-                if (!owner || owner.role !== 'user') {
+                if (!owner || (owner.role !== 'admin' && owner.role !== 'user')) {
                     return json({ error: 'program_owner_not_found' }, { status: 404 });
                 }
             }

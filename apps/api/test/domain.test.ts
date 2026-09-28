@@ -55,6 +55,18 @@ describe('program domain validation', () => {
         });
     });
 
+    it('accepts an optional program owner on create', () => {
+        expect(
+            parseCreateProgramInput({
+                slug: 'patna-event-2026',
+                name: 'Patna Event 2026',
+                startDate: '2026-08-01',
+                endDate: '2026-08-01',
+                createdBy: 'user_1',
+            }),
+        ).toMatchObject({ createdBy: 'user_1' });
+    });
+
     it('rejects non-boolean listener access-control flags', () => {
         expect(() =>
             parseCreateProgramInput({

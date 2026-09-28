@@ -65,7 +65,7 @@ describe('AdminApi', () => {
             accessControlEnabled: true,
         });
         await api.updateProgram('program_1', {
-            nextSlug: 'patna-renamed',
+            slug: 'patna-renamed',
             accessControlEnabled: false,
         });
         await api.deleteProgram('program_1');
@@ -86,7 +86,7 @@ describe('AdminApi', () => {
             accessControlEnabled: true,
         });
         expect(client.patch).toHaveBeenCalledWith('/api/admin/programs/program_1', {
-            nextSlug: 'patna-renamed',
+            slug: 'patna-renamed',
             accessControlEnabled: false,
         });
         expect(client.delete).toHaveBeenCalledWith('/api/admin/programs/program_1');

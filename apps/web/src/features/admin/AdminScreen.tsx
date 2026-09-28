@@ -1,4 +1,13 @@
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    FormEvent,
+    KeyboardEvent,
+    ReactNode,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
 import {
     Alert,
     Badge,
@@ -50,7 +59,7 @@ import {
     type ReportDateRangeValue,
 } from './reports/ReportDateRangeControl';
 import { ReportSummaryPanel } from './reports/ReportSummaryPanel';
-import { formatISTDateTime, formatISTTime } from './formatTime';
+import { formatISTDateTime, formatISTTime, formatLocalTime } from './formatTime';
 import { ConfirmDialog } from './ConfirmDialog';
 import { AdminDialog } from './AdminDialog';
 import { KickConfirmDialog } from './KickConfirmDialog';
@@ -114,6 +123,35 @@ function RestoreIcon() {
             />
             <path
                 d="M12 8v4l2.5 2"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+            />
+        </svg>
+    );
+}
+
+function EditIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <path
+                d="m4 16.5-.8 3.3 3.3-.8L18.7 6.8a2.1 2.1 0 0 0-3-3L3.5 16.5Z"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+            />
+            <path d="m14.5 5.5 4 4" stroke="currentColor" strokeWidth="1.8" />
+        </svg>
+    );
+}
+
+function TrashIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <path
+                d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7l1-3h4l1 3"
                 stroke="currentColor"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -438,7 +476,7 @@ function editFormFromProgram(program: AdminProgram) {
         name: program.name,
         startDate,
         endDate: program.endDate ?? startDate,
-        nextSlug: program.slug,
+        slug: program.slug,
         accessControlEnabled: program.accessControlEnabled,
         createdBy: program.createdBy ?? '',
     };
@@ -575,6 +613,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     const [loginUsername, setLoginUsername] = useState('');
     const [loginPassword, setLoginPassword] = useState('');
     const [createProgramOpen, setCreateProgramOpen] = useState(false);
+    const [editProgramOpen, setEditProgramOpen] = useState(false);
     const [identity, setIdentity] = useState<AdminMe | null>(null);
     const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
     const [programForm, setProgramForm] = useState({
@@ -583,6 +622,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         startDate: '',
         endDate: '',
         accessControlEnabled: false,
+        createdBy: '',
     });
     const [streamForm, setStreamForm] = useState({
         languageName: '',
@@ -598,7 +638,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         name: '',
         startDate: '',
         endDate: '',
-        nextSlug: '',
+        slug: '',
         accessControlEnabled: false,
         createdBy: '',
     });
@@ -1255,14 +1295,17 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                         label="Active listeners"
                         value={status ? String(status.totalActiveListeners) : '—'}
                     />
-                    <KpiTile
-                        label="Server time"
-                        value={status ? formatISTTime(status.serverTime) : '—'}
-                    />
                 </div>
                 <ProgramDetailForm
+                    currentOwnerId={identity?.id ?? null}
+                    currentOwnerName={identity?.username ?? null}
                     form={editForm}
-                    readOnly={false}
+                    isAdmin={identity?.role === 'admin'}
+                    onEdit={() => {
+                        setError(null);
+                        setEditProgramOpen(true);
+                    }}
+                    readOnly
                     slugLocked={false}
                     onChange={setEditForm}
                     onDelete={() => void deleteSelectedProgram()}
@@ -1306,6 +1349,9 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                 startDate: programForm.startDate,
                 endDate: programForm.endDate,
                 accessControlEnabled: programForm.accessControlEnabled,
+                ...(identity?.role === 'admin' && programForm.createdBy
+                    ? { createdBy: programForm.createdBy }
+                    : {}),
             });
             setProgramForm({
                 slug: '',
@@ -1313,6 +1359,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                 startDate: '',
                 endDate: '',
                 accessControlEnabled: false,
+                createdBy: '',
             });
             setCreateProgramOpen(false);
             await loadPrograms();
@@ -1332,9 +1379,11 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                 name: editForm.name,
                 startDate: editForm.startDate,
                 endDate: editForm.endDate,
-                ...(editForm.createdBy ? { createdBy: editForm.createdBy } : {}),
+                ...(identity?.role === 'admin' && editForm.createdBy
+                    ? { createdBy: editForm.createdBy }
+                    : {}),
                 accessControlEnabled: editForm.accessControlEnabled,
-                nextSlug: editForm.nextSlug,
+                slug: editForm.slug,
             });
             setDetail(response);
             setEditForm(editFormFromProgram(response.program));
@@ -1343,6 +1392,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                     program.id === response.program.id ? response.program : program,
                 ),
             );
+            setEditProgramOpen(false);
         } catch (programError) {
             setError(errorCode(programError));
         }
@@ -1362,6 +1412,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         setError(null);
         try {
             await adminApi.deleteProgram(selectedProgramId);
+            setEditProgramOpen(false);
             setSelectedProgramId(null);
             setDetail(null);
             setStatus(null);
@@ -1814,6 +1865,12 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                                     leftSection={<PlusIcon />}
                                                     onClick={() => {
                                                         setError(null);
+                                                        if (identity?.role === 'admin') {
+                                                            setProgramForm((current) => ({
+                                                                ...current,
+                                                                createdBy: identity.id,
+                                                            }));
+                                                        }
                                                         setCreateProgramOpen(true);
                                                     }}
                                                     type="button"
@@ -1941,8 +1998,32 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                 error={error}
                                 form={programForm}
                                 onChange={setProgramForm}
+                                isAdmin={identity?.role === 'admin'}
+                                ownerOptions={adminUsers}
                                 onSubmit={submitProgram}
                                 readOnly={false}
+                            />
+                        </AdminDialog>
+                        <AdminDialog
+                            onClose={() => {
+                                setError(null);
+                                setEditProgramOpen(false);
+                            }}
+                            open={editProgramOpen}
+                            title="Edit program details"
+                        >
+                            <ProgramDetailForm
+                                currentOwnerId={identity?.id ?? null}
+                                currentOwnerName={identity?.username ?? null}
+                                error={error}
+                                form={editForm}
+                                isAdmin={identity?.role === 'admin'}
+                                onChange={setEditForm}
+                                onSubmit={updateSelectedProgram}
+                                ownerOptions={adminUsers}
+                                readOnly={false}
+                                showHeader={false}
+                                slugLocked={false}
                             />
                         </AdminDialog>
                         <KickConfirmDialog
@@ -1969,10 +2050,45 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     );
 }
 
+function AdminFormShell({
+    children,
+    error,
+    onSubmit,
+    withBorder = false,
+}: {
+    children: ReactNode;
+    error?: string | null | undefined;
+    onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+    withBorder?: boolean;
+}) {
+    const form = (
+        <form onSubmit={onSubmit}>
+            <Stack gap="md">
+                {error ? (
+                    <Alert color="red" role="alert">
+                        {error}
+                    </Alert>
+                ) : null}
+                {children}
+            </Stack>
+        </form>
+    );
+
+    return withBorder ? (
+        <Paper p="lg" radius="md" withBorder>
+            {form}
+        </Paper>
+    ) : (
+        form
+    );
+}
+
 function ProgramCreateForm({
     form,
+    isAdmin,
     onChange,
     onSubmit,
+    ownerOptions,
     error,
     readOnly,
 }: {
@@ -1982,6 +2098,7 @@ function ProgramCreateForm({
         startDate: string;
         endDate: string;
         accessControlEnabled: boolean;
+        createdBy: string;
     };
     onChange: (form: {
         slug: string;
@@ -1989,8 +2106,11 @@ function ProgramCreateForm({
         startDate: string;
         endDate: string;
         accessControlEnabled: boolean;
+        createdBy: string;
     }) => void;
     onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+    isAdmin: boolean;
+    ownerOptions: AdminUser[];
     error?: string | null;
     readOnly: boolean;
 }) {
@@ -1999,65 +2119,70 @@ function ProgramCreateForm({
     }
 
     return (
-        <form onSubmit={onSubmit}>
-            <Stack gap="md">
-                <Text c="dimmed" size="sm">
-                    Set up the event before adding language streams and translators.
-                </Text>
-                {error ? (
-                    <Alert color="red" role="alert">
-                        {error}
-                    </Alert>
-                ) : null}
-                <Checkbox
-                    aria-label="Require listener approval before they can listen"
-                    checked={form.accessControlEnabled}
-                    description="Listeners must be approved by a approver before they can listen"
-                    label="Require listener approval"
-                    onChange={(event) =>
-                        onChange({
-                            ...form,
-                            accessControlEnabled: event.currentTarget.checked,
-                        })
-                    }
+        <AdminFormShell error={error} onSubmit={onSubmit}>
+            <Checkbox
+                aria-label="Require listener approval before they can listen"
+                checked={form.accessControlEnabled}
+                label="Require listener approval"
+                onChange={(event) =>
+                    onChange({
+                        ...form,
+                        accessControlEnabled: event.currentTarget.checked,
+                    })
+                }
+            />
+            <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                <TextInput
+                    aria-label="Program name"
+                    label="Program name"
+                    onChange={(event) => onChange({ ...form, name: event.target.value })}
+                    required
+                    value={form.name}
                 />
-                <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                    <TextInput
-                        aria-label="Program name"
-                        label="Program name"
-                        onChange={(event) => onChange({ ...form, name: event.target.value })}
-                        required
-                        value={form.name}
+                <TextInput
+                    aria-label="Program slug"
+                    label="Program slug"
+                    onChange={(event) => onChange({ ...form, slug: event.target.value })}
+                    required
+                    value={form.slug}
+                />
+                <TextInput
+                    aria-label="Start date"
+                    label="Start date"
+                    onChange={(event) => onChange({ ...form, startDate: event.target.value })}
+                    type="date"
+                    required
+                    value={form.startDate}
+                />
+                <TextInput
+                    aria-label="End date"
+                    label="End date"
+                    onChange={(event) => onChange({ ...form, endDate: event.target.value })}
+                    type="date"
+                    required
+                    value={form.endDate}
+                />
+                {isAdmin ? (
+                    <NativeSelect
+                        data={[
+                            { value: '', label: 'Unassigned' },
+                            ...ownerOptions.map((user) => ({
+                                value: user.id,
+                                label: user.username,
+                            })),
+                        ]}
+                        label="Program owner"
+                        onChange={(event) =>
+                            onChange({ ...form, createdBy: event.currentTarget.value })
+                        }
+                        value={form.createdBy}
                     />
-                    <TextInput
-                        aria-label="Program slug"
-                        label="Program slug"
-                        onChange={(event) => onChange({ ...form, slug: event.target.value })}
-                        required
-                        value={form.slug}
-                    />
-                    <TextInput
-                        aria-label="Start date"
-                        label="Start date"
-                        onChange={(event) => onChange({ ...form, startDate: event.target.value })}
-                        type="date"
-                        required
-                        value={form.startDate}
-                    />
-                    <TextInput
-                        aria-label="End date"
-                        label="End date"
-                        onChange={(event) => onChange({ ...form, endDate: event.target.value })}
-                        type="date"
-                        required
-                        value={form.endDate}
-                    />
-                </SimpleGrid>
-                <Group justify="flex-end">
-                    <Button type="submit">Create program</Button>
-                </Group>
-            </Stack>
-        </form>
+                ) : null}
+            </SimpleGrid>
+            <Group justify="flex-end">
+                <Button type="submit">Create program</Button>
+            </Group>
+        </AdminFormShell>
     );
 }
 
@@ -2186,19 +2311,28 @@ function ProgramGrid({
 }
 
 function ProgramDetailForm({
+    currentOwnerId,
+    currentOwnerName,
+    error,
     form,
+    isAdmin,
+    onEdit,
     slugLocked,
     onChange,
     onDelete,
     onSubmit,
     readOnly,
     ownerOptions,
+    showHeader,
 }: {
+    currentOwnerId: string | null;
+    currentOwnerName: string | null;
+    error?: string | null;
     form: {
         name: string;
         startDate: string;
         endDate: string;
-        nextSlug: string;
+        slug: string;
         accessControlEnabled: boolean;
         createdBy: string;
     };
@@ -2207,25 +2341,101 @@ function ProgramDetailForm({
         name: string;
         startDate: string;
         endDate: string;
-        nextSlug: string;
+        slug: string;
         accessControlEnabled: boolean;
         createdBy: string;
     }) => void;
-    onDelete: () => void;
+    onDelete?: () => void;
+    onEdit?: () => void;
     onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+    isAdmin: boolean;
     readOnly: boolean;
     ownerOptions: AdminUser[];
+    showHeader?: boolean;
 }) {
+    const shouldShowHeader = showHeader ?? true;
+
     return (
-        <Paper p="lg" radius="md" withBorder>
-            <form onSubmit={onSubmit}>
-                <Stack gap="md">
-                    <Title order={2}>Program detail</Title>
+        <AdminFormShell error={error} onSubmit={onSubmit} withBorder={readOnly}>
+            {shouldShowHeader ? (
+                <Group justify="space-between">
+                    <Title order={2}>Program details</Title>
+                    {readOnly ? (
+                        <Group gap="xs">
+                            {onEdit ? (
+                                <Button
+                                    aria-label="Edit program details"
+                                    className="admin-add-program-button"
+                                    leftSection={<EditIcon />}
+                                    onClick={onEdit}
+                                    type="button"
+                                >
+                                    <span className="admin-add-program-label">Edit</span>
+                                </Button>
+                            ) : null}
+                            {onDelete ? (
+                                <Button
+                                    aria-label="Delete program"
+                                    className="admin-add-program-button admin-delete-program-button"
+                                    leftSection={<TrashIcon />}
+                                    onClick={onDelete}
+                                    type="button"
+                                >
+                                    <span className="admin-add-program-label">Delete</span>
+                                </Button>
+                            ) : null}
+                        </Group>
+                    ) : null}
+                </Group>
+            ) : null}
+            {readOnly ? (
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <Stack gap={2}>
+                        <Text c="dimmed" size="xs">
+                            Listener approval
+                        </Text>
+                        <Text>{form.accessControlEnabled ? 'Required' : 'Not required'}</Text>
+                    </Stack>
+                    <Stack gap={2}>
+                        <Text c="dimmed" size="xs">
+                            Program name
+                        </Text>
+                        <Text>{form.name || '—'}</Text>
+                    </Stack>
+                    <Stack gap={2}>
+                        <Text c="dimmed" size="xs">
+                            Start date
+                        </Text>
+                        <Text>{form.startDate || '—'}</Text>
+                    </Stack>
+                    <Stack gap={2}>
+                        <Text c="dimmed" size="xs">
+                            End date
+                        </Text>
+                        <Text>{form.endDate || '—'}</Text>
+                    </Stack>
+                    <Stack gap={2}>
+                        <Text c="dimmed" size="xs">
+                            Program slug
+                        </Text>
+                        <Text>{form.slug || '—'}</Text>
+                    </Stack>
+                    <Stack gap={2}>
+                        <Text c="dimmed" size="xs">
+                            Program owner
+                        </Text>
+                        <Text>
+                            {ownerOptions.find((user) => user.id === form.createdBy)?.username ??
+                                (form.createdBy === currentOwnerId ? currentOwnerName : null) ??
+                                'Unassigned'}
+                        </Text>
+                    </Stack>
+                </SimpleGrid>
+            ) : (
+                <>
                     <Checkbox
                         aria-label="Require listener approval before they can listen"
                         checked={form.accessControlEnabled}
-                        description="Listeners must be approved by a approver before they can listen"
-                        disabled={readOnly}
                         label="Require listener approval"
                         onChange={(event) =>
                             onChange({
@@ -2237,15 +2447,22 @@ function ProgramDetailForm({
                     <SimpleGrid cols={{ base: 1, sm: 2 }}>
                         <TextInput
                             aria-label="Detail program name"
-                            disabled={readOnly}
                             label="Detail program name"
                             onChange={(event) => onChange({ ...form, name: event.target.value })}
                             required
                             value={form.name}
                         />
                         <TextInput
+                            aria-describedby={slugLocked ? 'slug-hint' : undefined}
+                            aria-label="Program slug"
+                            label="Program slug"
+                            onChange={(event) => onChange({ ...form, slug: event.target.value })}
+                            disabled={slugLocked}
+                            required={!slugLocked}
+                            value={form.slug}
+                        />
+                        <TextInput
                             aria-label="Detail start date"
-                            disabled={readOnly}
                             label="Detail start date"
                             onChange={(event) =>
                                 onChange({ ...form, startDate: event.target.value })
@@ -2256,63 +2473,38 @@ function ProgramDetailForm({
                         />
                         <TextInput
                             aria-label="Detail end date"
-                            disabled={readOnly}
                             label="Detail end date"
                             onChange={(event) => onChange({ ...form, endDate: event.target.value })}
                             type="date"
                             required
                             value={form.endDate}
                         />
-                        <NativeSelect
-                            data={[
-                                { value: '', label: 'Unassigned' },
-                                ...ownerOptions
-                                    .filter((user) => user.role === 'user')
-                                    .map((user) => ({ value: user.id, label: user.username })),
-                            ]}
-                            disabled={readOnly}
-                            label="Program owner"
-                            onChange={(event) =>
-                                onChange({ ...form, createdBy: event.currentTarget.value })
-                            }
-                            value={form.createdBy}
-                        />
-                        <TextInput
-                            aria-describedby={slugLocked ? 'next-slug-hint' : undefined}
-                            aria-label="Next slug"
-                            disabled={readOnly || slugLocked}
-                            label="Next slug"
-                            onChange={(event) =>
-                                onChange({ ...form, nextSlug: event.target.value })
-                            }
-                            required={!slugLocked}
-                            value={form.nextSlug}
-                        />
+                        {isAdmin ? (
+                            <NativeSelect
+                                data={[
+                                    { value: '', label: 'Unassigned' },
+                                    ...ownerOptions.map((user) => ({
+                                        value: user.id,
+                                        label: user.username,
+                                    })),
+                                ]}
+                                label="Program owner"
+                                onChange={(event) =>
+                                    onChange({
+                                        ...form,
+                                        createdBy: event.currentTarget.value,
+                                    })
+                                }
+                                value={form.createdBy}
+                            />
+                        ) : null}
                     </SimpleGrid>
-                    {readOnly ? null : (
-                        <>
-                            <Group>
-                                <Button type="submit">Update program</Button>
-                            </Group>
-                            <Paper p="md" radius="md" withBorder>
-                                <Stack gap="sm">
-                                    <Title order={3}>Danger zone</Title>
-                                    <Group>
-                                        <Button
-                                            className="admin-delete-program-button"
-                                            onClick={onDelete}
-                                            type="button"
-                                        >
-                                            Delete program
-                                        </Button>
-                                    </Group>
-                                </Stack>
-                            </Paper>
-                        </>
-                    )}
-                </Stack>
-            </form>
-        </Paper>
+                    <Group justify="flex-end">
+                        <Button type="submit">Update program</Button>
+                    </Group>
+                </>
+            )}
+        </AdminFormShell>
     );
 }
 
@@ -2663,7 +2855,7 @@ function StatusPanel({
                     label="Updated"
                     value={status.updatedAt ? formatISTDateTime(status.updatedAt) : 'Not available'}
                 />
-                <KpiTile label="Server time" value={formatISTTime(status.serverTime)} />
+                <KpiTile label="Server time" value={formatLocalTime(status.serverTime)} />
             </div>
             <table className="admin-table">
                 <thead>

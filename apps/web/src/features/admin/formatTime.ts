@@ -35,3 +35,20 @@ export function formatISTTime(iso: string | null | undefined): string {
         }) + ' IST'
     );
 }
+
+export function formatLocalTime(iso: string | null | undefined): string {
+    if (!iso) {
+        return '—';
+    }
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) {
+        return iso;
+    }
+    return d.toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZoneName: 'short',
+    });
+}

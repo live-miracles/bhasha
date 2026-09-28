@@ -6,6 +6,7 @@ export interface CreateProgramInput {
     startDate?: string;
     endDate?: string;
     accessControlEnabled?: boolean;
+    createdBy?: string;
 }
 
 export interface UpdateProgramInput {
@@ -14,7 +15,7 @@ export interface UpdateProgramInput {
     endDate?: string;
     accessControlEnabled?: boolean;
     createdBy?: string;
-    nextSlug?: string;
+    slug?: string;
 }
 
 export interface CreateStreamInput {
@@ -151,6 +152,9 @@ export function parseCreateProgramInput(input: unknown): CreateProgramInput {
             'accessControlEnabled',
         );
     }
+    if (data.createdBy !== undefined) {
+        program.createdBy = requireString(data.createdBy, 'createdBy');
+    }
     return program;
 }
 
@@ -177,8 +181,8 @@ export function parseUpdateProgramInput(input: unknown): UpdateProgramInput {
     if (data.createdBy !== undefined) {
         update.createdBy = requireString(data.createdBy, 'createdBy');
     }
-    if (data.nextSlug !== undefined) {
-        update.nextSlug = parseProgramSlug(data.nextSlug, 'nextSlug');
+    if (data.slug !== undefined) {
+        update.slug = parseProgramSlug(data.slug, 'slug');
     }
 
     return update;

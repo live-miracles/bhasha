@@ -833,6 +833,11 @@ describe('AdminScreen', () => {
             expect(await screen.findByRole('button', { name: 'Add program' })).toBeInTheDocument();
             fireEvent.click(screen.getByRole('button', { name: 'Add program' }));
             expect(await screen.findByLabelText('Program name')).toBeInTheDocument();
+            if (role === 'admin') {
+                expect(screen.getByLabelText('Program owner')).toBeInTheDocument();
+            } else {
+                expect(screen.queryByLabelText('Program owner')).not.toBeInTheDocument();
+            }
         },
     );
 
@@ -856,15 +861,12 @@ describe('AdminScreen', () => {
         fireEvent.change(await screen.findByLabelText('End date'), {
             target: { value: '2026-09-01' },
         });
-        expect(
-            screen.getByText('Listeners must be approved by a approver before they can listen'),
-        ).toBeInTheDocument();
+        fireEvent.change(screen.getByLabelText('Program owner'), {
+            target: { value: 'user_1' },
+        });
         const accessToggle = screen.getByRole('checkbox', {
             name: /Require listener approval.*before they can listen/i,
         });
-        expect(accessToggle).toHaveAccessibleDescription(
-            'Listeners must be approved by a approver before they can listen',
-        );
         fireEvent.click(accessToggle);
         fireEvent.click(screen.getByRole('button', { name: 'Create program' }));
 
@@ -873,6 +875,7 @@ describe('AdminScreen', () => {
             expect.objectContaining({
                 slug: 'gaya-event-2026',
                 accessControlEnabled: true,
+                createdBy: 'user_1',
             }),
         );
     });
@@ -3113,7 +3116,7 @@ describe('AdminScreen', () => {
         expect(screen.getByRole('alert')).toHaveTextContent('revoke_session_failed');
     });
 
-    it.skip('omits nextSlug when saving a non-draft program so other details still save', async () => {
+    it.skip('omits slug when saving a non-draft program so other details still save', async () => {
         const liveProgram: AdminProgram = { ...firstProgram() };
         const liveDetail: AdminProgramDetail = {
             ...programDetail(),
@@ -3140,7 +3143,7 @@ describe('AdminScreen', () => {
             expect(updateProgram).toHaveBeenCalledTimes(1);
         });
         const [, payload] = updateProgram.mock.calls[0]!;
-        expect(payload).not.toHaveProperty('nextSlug');
+        expect(payload).not.toHaveProperty('slug');
         expect(payload).toMatchObject({
             name: 'Patna Event 2026 Updated',
             status: 'live',
@@ -3156,29 +3159,15 @@ describe('AdminScreen', () => {
         renderAdmin(<AdminScreen adminApi={api} />);
         await openFirstProgram();
 
-        await screen.findByRole('checkbox', {
+        expect(await screen.findByText('Listener approval')).toBeInTheDocument();
+        expect(screen.getByText('Not required')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Edit program details' }));
+        const dialog = await screen.findByRole('dialog');
+        const toggle = within(dialog).getByRole('checkbox', {
             name: /Require listener approval.*before they can listen/i,
         });
-        // The detail form remounts (React key={program.id}) once the program
-        // detail fetch resolves, so re-query for a live node right before
-        // asserting instead of reusing the handle captured by findByRole --
-        // otherwise an in-flight remount can leave `toggle` pointing at an
-        // already-detached element.
-        await waitFor(() => {
-            expect(
-                screen.getByRole('checkbox', {
-                    name: /Require listener approval.*before they can listen/i,
-                }),
-            ).not.toBeChecked();
-        });
-        const toggle = screen.getByRole('checkbox', {
-            name: /Require listener approval.*before they can listen/i,
-        });
-        expect(toggle).toHaveAccessibleDescription(
-            'Listeners must be approved by a approver before they can listen',
-        );
         fireEvent.click(toggle);
-        fireEvent.click(screen.getByRole('button', { name: 'Update program' }));
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Update program' }));
 
         await waitFor(() => expect(updateProgram).toHaveBeenCalledTimes(1));
         expect(updateProgram).toHaveBeenCalledWith(
@@ -3201,10 +3190,10 @@ describe('AdminScreen', () => {
         renderAdmin(<AdminScreen adminApi={api} />);
         await openFirstProgram();
 
-        expect(await screen.findByLabelText('Next slug')).toBeDisabled();
+        expect(await screen.findByLabelText('Program slug')).toBeDisabled();
     });
 
-    it.skip('still sends nextSlug when saving a draft program', async () => {
+    it.skip('still sends slug when saving a draft program', async () => {
         const updateProgram = vi.fn(async (_programId: string, _payload: UpdateProgramPayload) =>
             programDetail(),
         );
@@ -3222,15 +3211,15 @@ describe('AdminScreen', () => {
             expect(updateProgram).toHaveBeenCalledTimes(1);
         });
         const [, payload] = updateProgram.mock.calls[0]!;
-        expect(payload).toMatchObject({ nextSlug: 'patna-event-2026' });
-        expect(await screen.findByLabelText('Next slug')).not.toBeDisabled();
+        expect(payload).toMatchObject({ slug: 'patna-event-2026' });
+        expect(await screen.findByLabelText('Program slug')).not.toBeDisabled();
     });
 
-    it.skip("still sends nextSlug when a draft's status is switched to live before saving", async () => {
+    it.skip("still sends slug when a draft's status is switched to live before saving", async () => {
         // Guards the decision to key slug-editability on the persisted status
         // (detail.program.status), not the unsaved dropdown value (editForm.status).
         // A draft is still editable, so flipping the dropdown to live and saving in
-        // one PATCH must carry nextSlug — the backend accepts it because the row is
+        // one PATCH must carry slug — the backend accepts it because the row is
         // still a draft at write time.
         const updateProgram = vi.fn(async (_programId: string, _payload: UpdateProgramPayload) =>
             programDetail(),
@@ -3244,7 +3233,7 @@ describe('AdminScreen', () => {
         fireEvent.change(screen.getByLabelText('Detail status'), {
             target: { value: 'live' },
         });
-        expect(screen.getByLabelText('Next slug')).not.toBeDisabled();
+        expect(screen.getByLabelText('Program slug')).not.toBeDisabled();
         fireEvent.click(screen.getByRole('button', { name: 'Update program' }));
 
         await waitFor(() => {
@@ -3253,11 +3242,11 @@ describe('AdminScreen', () => {
         const [, payload] = updateProgram.mock.calls[0]!;
         expect(payload).toMatchObject({
             status: 'live',
-            nextSlug: 'patna-event-2026',
+            slug: 'patna-event-2026',
         });
     });
 
-    it.skip('locks nextSlug for draft programs that have ever been live', async () => {
+    it.skip('locks slug for draft programs that have ever been live', async () => {
         const livedDraft: AdminProgram = {
             ...firstProgram(),
         };
@@ -3277,8 +3266,8 @@ describe('AdminScreen', () => {
         renderAdmin(<AdminScreen adminApi={api} />);
         await openFirstProgram();
 
-        await screen.findByLabelText('Next slug');
-        expect(screen.getByLabelText('Next slug')).toBeDisabled();
+        await screen.findByLabelText('Program slug');
+        expect(screen.getByLabelText('Program slug')).toBeDisabled();
         fireEvent.change(screen.getByLabelText('Detail program name'), {
             target: { value: 'Patna Event 2026 Draft' },
         });
@@ -3288,6 +3277,6 @@ describe('AdminScreen', () => {
             expect(updateProgram).toHaveBeenCalledTimes(1);
         });
         const [, payload] = updateProgram.mock.calls[0]!;
-        expect(payload).not.toHaveProperty('nextSlug');
+        expect(payload).not.toHaveProperty('slug');
     });
 });

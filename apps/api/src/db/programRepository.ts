@@ -347,12 +347,12 @@ export class ProgramRepository {
             setters.push('created_by = ?');
             values.push(input.createdBy);
         }
-        if (input.nextSlug !== undefined && input.nextSlug !== current.slug) {
-            if (await this.programSlugExists(input.nextSlug)) {
+        if (input.slug !== undefined && input.slug !== current.slug) {
+            if (await this.programSlugExists(input.slug)) {
                 throw new ProgramSlugExistsError();
             }
             setters.push('slug = ?');
-            values.push(input.nextSlug);
+            values.push(input.slug);
         }
 
         if (setters.length === 0) {

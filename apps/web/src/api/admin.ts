@@ -271,13 +271,14 @@ export interface CreateProgramPayload {
     startDate?: string;
     endDate?: string;
     accessControlEnabled: boolean;
+    createdBy?: string;
 }
 
 export interface UpdateProgramPayload {
     name?: string;
     startDate?: string;
     endDate?: string;
-    nextSlug?: string;
+    slug?: string;
     accessControlEnabled?: boolean;
     createdBy?: string;
 }
