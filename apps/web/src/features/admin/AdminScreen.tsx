@@ -2120,17 +2120,6 @@ function ProgramCreateForm({
 
     return (
         <AdminFormShell error={error} onSubmit={onSubmit}>
-            <Checkbox
-                aria-label="Require listener approval before they can listen"
-                checked={form.accessControlEnabled}
-                label="Require listener approval"
-                onChange={(event) =>
-                    onChange({
-                        ...form,
-                        accessControlEnabled: event.currentTarget.checked,
-                    })
-                }
-            />
             <SimpleGrid cols={{ base: 1, sm: 2 }}>
                 <TextInput
                     aria-label="Program name"
@@ -2179,6 +2168,17 @@ function ProgramCreateForm({
                     />
                 ) : null}
             </SimpleGrid>
+            <Checkbox
+                aria-label="Require listener approval before they can listen"
+                checked={form.accessControlEnabled}
+                label="Require listener approval"
+                onChange={(event) =>
+                    onChange({
+                        ...form,
+                        accessControlEnabled: event.currentTarget.checked,
+                    })
+                }
+            />
             <Group justify="flex-end">
                 <Button type="submit">Create program</Button>
             </Group>
@@ -2392,12 +2392,6 @@ function ProgramDetailForm({
                 <SimpleGrid cols={{ base: 1, sm: 2 }}>
                     <Stack gap={2}>
                         <Text c="dimmed" size="xs">
-                            Listener approval
-                        </Text>
-                        <Text>{form.accessControlEnabled ? 'Required' : 'Not required'}</Text>
-                    </Stack>
-                    <Stack gap={2}>
-                        <Text c="dimmed" size="xs">
                             Program name
                         </Text>
                         <Text>{form.name || '—'}</Text>
@@ -2430,20 +2424,15 @@ function ProgramDetailForm({
                                 'Unassigned'}
                         </Text>
                     </Stack>
+                    <Stack gap={2}>
+                        <Text c="dimmed" size="xs">
+                            Listener approval
+                        </Text>
+                        <Text>{form.accessControlEnabled ? 'Required' : 'Not required'}</Text>
+                    </Stack>
                 </SimpleGrid>
             ) : (
                 <>
-                    <Checkbox
-                        aria-label="Require listener approval before they can listen"
-                        checked={form.accessControlEnabled}
-                        label="Require listener approval"
-                        onChange={(event) =>
-                            onChange({
-                                ...form,
-                                accessControlEnabled: event.currentTarget.checked,
-                            })
-                        }
-                    />
                     <SimpleGrid cols={{ base: 1, sm: 2 }}>
                         <TextInput
                             aria-label="Detail program name"
@@ -2499,6 +2488,17 @@ function ProgramDetailForm({
                             />
                         ) : null}
                     </SimpleGrid>
+                    <Checkbox
+                        aria-label="Require listener approval before they can listen"
+                        checked={form.accessControlEnabled}
+                        label="Require listener approval"
+                        onChange={(event) =>
+                            onChange({
+                                ...form,
+                                accessControlEnabled: event.currentTarget.checked,
+                            })
+                        }
+                    />
                     <Group justify="flex-end">
                         <Button type="submit">Update program</Button>
                     </Group>
