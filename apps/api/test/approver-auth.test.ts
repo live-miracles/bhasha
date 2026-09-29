@@ -55,12 +55,13 @@ async function approverLogin(
     },
     env: Env = buildTestEnv(),
     ip: string | null = '198.51.100.7',
+    useForwardedFor = false,
 ): Promise<Response> {
     const headers: Record<string, string> = {
         'content-type': 'application/json',
     };
     if (ip !== null) {
-        headers['CF-Connecting-IP'] = ip;
+        headers[useForwardedFor ? 'X-Forwarded-For' : 'CF-Connecting-IP'] = ip;
     }
     return request(
         '/api/approver/login',
@@ -426,6 +427,32 @@ describe('approver auth and admin approver access', () => {
             null,
         );
         expect(success.status).toBe(200);
+    });
+
+    it('uses the Caddy forwarded client IP for per-IP throttling', async () => {
+        const program = await seedApproverProgram('patna-approver-forwarded-ip');
+        await configureApprover(program.id, 'approver@example.com', 'correct-pass-1');
+        const clientIp = '203.0.113.88';
+        const ipHash = await sha256Hex(clientIp);
+        testEnv.DB.prepare(
+            `INSERT INTO approver_login_attempts
+       (program_id, ip_hash, window_start, attempt_count, locked_until)
+       VALUES (?, ?, ?, 30, NULL)`,
+        ).run(program.id, ipHash, new Date().toISOString());
+
+        const response = await approverLogin(
+            {
+                programSlug: program.slug,
+                loginId: 'approver@example.com',
+                password: 'wrong-pass-1',
+            },
+            buildTestEnv(),
+            clientIp,
+            true,
+        );
+
+        expect(response.status).toBe(429);
+        expect(await response.json()).toEqual({ error: 'too_many_attempts' });
     });
 
     it('rejects a correct credential that arrives beyond a concurrent program burst cap', async () => {

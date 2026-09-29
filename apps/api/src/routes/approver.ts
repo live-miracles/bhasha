@@ -11,6 +11,7 @@ import { ApproverRepository } from '../db/approverRepository';
 import type { Env } from '../env';
 import { json, readJson, type WaitUntilCtx } from '../http';
 import { isProgramExpired } from '../domain/programExpiry';
+import { clientIp } from '../auth/clientIp';
 
 interface ApproverLoginInput {
     programSlug: string;
@@ -56,13 +57,8 @@ export async function handleApproverRoutes(
                 return approverResponse(json({ error: 'program_expired' }, { status: 410 }));
             }
 
-            // TODO(slice-5): `CF-Connecting-IP` was set by Cloudflare's edge; on the
-            // new Caddy-fronted deploy this needs to become `X-Forwarded-For` (or
-            // whatever header Caddy is configured to set). Until then this always
-            // reads null, so per-IP approver login throttling is a no-op (the
-            // per-program-wide threshold in recordFailure still applies).
-            const clientIp = request.headers.get('CF-Connecting-IP');
-            const ipHash = clientIp === null ? null : await sha256Hex(clientIp);
+            const clientAddress = clientIp(request);
+            const ipHash = clientAddress === null ? null : await sha256Hex(clientAddress);
             if (await approvers.isLocked(program.id, ipHash)) {
                 return approverResponse(json({ error: 'too_many_attempts' }, { status: 429 }));
             }

@@ -2,6 +2,14 @@ import type { Env } from '../env';
 import { json } from '../http';
 import { sha256Hex } from './crypto';
 import { UsersRepository, type UserRole } from '../db/usersRepository';
+import { clientIp } from './clientIp';
+import {
+    adminLoginBuckets,
+    clearLoginFailures,
+    ensureLoginThrottleTable,
+    loginThrottleStatus,
+    recordLoginFailure,
+} from './loginThrottle';
 
 const SESSION_SECONDS = 86_400;
 
@@ -120,6 +128,15 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
         return invalid;
     }
 
+    ensureLoginThrottleTable(env.DB);
+    const buckets = await adminLoginBuckets(username, clientIp(request), env.ADMIN_SESSION_SECRET);
+    const throttle = loginThrottleStatus(env.DB, buckets);
+    if (throttle.locked) {
+        const response = json({ error: 'too_many_attempts' }, { status: 429 });
+        response.headers.set('retry-after', String(throttle.retryAfterSeconds));
+        return response;
+    }
+
     const users = new UsersRepository(env.DB);
     const user = await users.getUserByUsername(username);
     if (!user || !user.passwordHash) {
@@ -127,14 +144,27 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
         // so the unknown-username / disabled / unset-password paths take comparable
         // time to a wrong-password attempt. Closes a user-enumeration timing oracle.
         await users.dummyVerify(password);
+        const failure = recordLoginFailure(env.DB, buckets);
+        if (failure.locked) {
+            const response = json({ error: 'too_many_attempts' }, { status: 429 });
+            response.headers.set('retry-after', String(failure.retryAfterSeconds));
+            return response;
+        }
         return invalid;
     }
 
     const ok = await users.verifyPassword(user, password);
     if (!ok) {
+        const failure = recordLoginFailure(env.DB, buckets);
+        if (failure.locked) {
+            const response = json({ error: 'too_many_attempts' }, { status: 429 });
+            response.headers.set('retry-after', String(failure.retryAfterSeconds));
+            return response;
+        }
         return invalid;
     }
 
+    clearLoginFailures(env.DB, buckets);
     const token = await issueSession(env, user.id, SESSION_SECONDS);
     const response = json({ ok: true });
     response.headers.set('set-cookie', sessionCookie(token, SESSION_SECONDS));

@@ -16,6 +16,24 @@ export function runMigrations(
 ): { applied: string[] } {
     const hasTables = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1").get();
     if (hasTables) {
+        // Keep security tables present for databases created before they were
+        // added to schema.sql. This is intentionally idempotent.
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS admin_login_attempts (
+              bucket TEXT PRIMARY KEY,
+              window_start TEXT NOT NULL,
+              attempt_count INTEGER NOT NULL DEFAULT 0,
+              locked_until TEXT
+            )
+        `);
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS translator_login_attempts (
+              bucket TEXT PRIMARY KEY,
+              window_start TEXT NOT NULL,
+              attempt_count INTEGER NOT NULL DEFAULT 0,
+              locked_until TEXT
+            )
+        `);
         return { applied: [] };
     }
 

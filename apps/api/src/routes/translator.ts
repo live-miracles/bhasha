@@ -31,6 +31,14 @@ import { reportAudioActivity } from '../presence/status';
 import { isProgramExpired } from '../domain/programExpiry';
 import { ProgramReferenceMismatchError, resolveBrowserProgramReference } from './programResolution';
 import type { RoomServiceClient } from 'livekit-server-sdk';
+import { clientIp } from '../auth/clientIp';
+import {
+    clearLoginFailures,
+    ensureLoginThrottleTable,
+    loginThrottleStatus,
+    recordLoginFailure,
+    translatorLoginBuckets,
+} from '../auth/loginThrottle';
 
 interface TranslatorLoginInput {
     programId?: string;
@@ -92,6 +100,21 @@ export async function handleTranslatorRoutes(
                 return translatorLoginResponse(programExpired());
             }
 
+            const throttleTable = 'translator_login_attempts' as const;
+            ensureLoginThrottleTable(env.DB, throttleTable);
+            const buckets = await translatorLoginBuckets(
+                resolvedProgram.programId,
+                input.email,
+                clientIp(request),
+                env.TRANSLATOR_SESSION_SECRET,
+            );
+            const throttle = loginThrottleStatus(env.DB, buckets, throttleTable);
+            if (throttle.locked) {
+                const response = json({ error: 'too_many_attempts' }, { status: 429 });
+                response.headers.set('retry-after', String(throttle.retryAfterSeconds));
+                return translatorLoginResponse(response);
+            }
+
             const translator = await translators.authenticate(
                 resolvedProgram.programId,
                 input.email,
@@ -99,8 +122,16 @@ export async function handleTranslatorRoutes(
                 env.TRANSLATOR_PASSWORD_PEPPER,
             );
             if (!translator) {
+                const failure = recordLoginFailure(env.DB, buckets, throttleTable);
+                if (failure.locked) {
+                    const response = json({ error: 'too_many_attempts' }, { status: 429 });
+                    response.headers.set('retry-after', String(failure.retryAfterSeconds));
+                    return translatorLoginResponse(response);
+                }
                 return translatorLoginResponse(invalidCredentials());
             }
+
+            clearLoginFailures(env.DB, buckets, throttleTable);
 
             const userAgent = request.headers.get('User-Agent')?.slice(0, 512) ?? null;
 

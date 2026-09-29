@@ -130,6 +130,18 @@ CREATE TABLE admin_sessions (
   user_id TEXT REFERENCES users(id)
 );
 CREATE INDEX idx_admin_sessions_user_id ON admin_sessions(user_id);
+CREATE TABLE admin_login_attempts (
+  bucket TEXT PRIMARY KEY,
+  window_start TEXT NOT NULL,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  locked_until TEXT
+);
+CREATE TABLE translator_login_attempts (
+  bucket TEXT PRIMARY KEY,
+  window_start TEXT NOT NULL,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  locked_until TEXT
+);
 
 CREATE TABLE translator_sessions (
   id TEXT PRIMARY KEY,

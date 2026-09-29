@@ -23,6 +23,7 @@ describe('admin auth (username + password, single-tier user model)', () => {
     beforeEach(async () => {
         // Self-contained isolation: clear sessions, then users (FK order).
         await testEnv.DB.exec('DELETE FROM admin_sessions');
+        await testEnv.DB.exec('DELETE FROM admin_login_attempts');
         await testEnv.DB.exec('DELETE FROM users');
     });
 
@@ -148,6 +149,81 @@ describe('admin auth (username + password, single-tier user model)', () => {
 
         expect(login.status).toBe(401);
         expect(await login.json()).toEqual({ error: 'invalid_admin_password' });
+    });
+
+    it('throttles repeated admin login failures by client IP', async () => {
+        await seedAdmin(testEnv);
+        const headers = { 'x-forwarded-for': '198.51.100.44' };
+
+        for (let attempt = 1; attempt <= 4; attempt += 1) {
+            const response = await request('/api/admin/login', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    username: ADMIN_TEST_USERNAME,
+                    password: 'wrong-password',
+                }),
+            });
+            expect(response.status).toBe(401);
+        }
+
+        const locked = await request('/api/admin/login', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                username: ADMIN_TEST_USERNAME,
+                password: 'wrong-password',
+            }),
+        });
+        expect(locked.status).toBe(429);
+        expect(await locked.json()).toEqual({ error: 'too_many_attempts' });
+        expect(Number(locked.headers.get('retry-after'))).toBeGreaterThan(0);
+
+        const correctWhileLocked = await request('/api/admin/login', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                username: ADMIN_TEST_USERNAME,
+                password: testEnv.TEST_PASSWORD,
+            }),
+        });
+        expect(correctWhileLocked.status).toBe(429);
+    });
+
+    it('clears admin login failures after a successful login', async () => {
+        await seedAdmin(testEnv);
+        const headers = { 'x-forwarded-for': '198.51.100.45' };
+
+        for (let attempt = 1; attempt <= 4; attempt += 1) {
+            await request('/api/admin/login', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    username: ADMIN_TEST_USERNAME,
+                    password: 'wrong-password',
+                }),
+            });
+        }
+
+        const success = await request('/api/admin/login', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                username: ADMIN_TEST_USERNAME,
+                password: testEnv.TEST_PASSWORD,
+            }),
+        });
+        expect(success.status).toBe(200);
+
+        const nextFailure = await request('/api/admin/login', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                username: ADMIN_TEST_USERNAME,
+                password: 'wrong-password',
+            }),
+        });
+        expect(nextFailure.status).toBe(401);
     });
 
     it('rejects login after a user is deleted', async () => {

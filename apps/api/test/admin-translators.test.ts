@@ -149,6 +149,7 @@ describe('admin translator API', () => {
         testEnv.DB.exec('DELETE FROM listener_realtime_cleanup_targets');
         testEnv.DB.exec('DELETE FROM realtime_publish_sessions');
         testEnv.DB.exec('DELETE FROM translator_sessions');
+        testEnv.DB.exec('DELETE FROM translator_login_attempts');
         testEnv.DB.exec('DELETE FROM admin_sessions');
         testEnv.DB.exec('DELETE FROM stream_events');
         testEnv.DB.exec('DELETE FROM listener_connections');

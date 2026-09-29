@@ -185,6 +185,7 @@ describe('translator auth', () => {
     beforeEach(() => {
         testEnv.DB.exec('DELETE FROM realtime_publish_sessions');
         testEnv.DB.exec('DELETE FROM translator_sessions');
+        testEnv.DB.exec('DELETE FROM translator_login_attempts');
         testEnv.DB.exec('DELETE FROM stream_events');
         testEnv.DB.exec('DELETE FROM listener_connections');
         testEnv.DB.exec('DELETE FROM admin_sessions');
@@ -383,6 +384,43 @@ describe('translator auth', () => {
         expect(await response.json()).toEqual({
             error: 'invalid_translator_credentials',
         });
+    });
+
+    it('throttles repeated translator login failures per program', async () => {
+        const { programId, email } = await seedTranslatorWithAssignment('translator-pass');
+        const headers = { 'x-forwarded-for': '198.51.100.55' };
+
+        for (let attempt = 1; attempt <= 9; attempt += 1) {
+            const response = await request('/api/translator/login', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ programId, email, password: 'wrong-password' }),
+            });
+            expect(response.status).toBe(401);
+        }
+
+        const locked = await request('/api/translator/login', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ programId, email, password: 'wrong-password' }),
+        });
+        expect(locked.status).toBe(429);
+        expect(await locked.json()).toEqual({ error: 'too_many_attempts' });
+        expect(Number(locked.headers.get('retry-after'))).toBeGreaterThan(0);
+
+        // A successful login from another program is independent of this
+        // program's limiter, proving the throttle scope is not global.
+        const other = await seedTranslatorWithAssignment('other-pass');
+        const otherLogin = await request('/api/translator/login', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                programId: other.programId,
+                email: other.email,
+                password: 'other-pass',
+            }),
+        });
+        expect(otherLogin.status).toBe(200);
     });
 
     it('returns the current translator session', async () => {
