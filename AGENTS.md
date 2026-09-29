@@ -10,16 +10,14 @@ Core product principle:
 
 The system is voice-only. Translators publish microphone audio. Participants are listen-only and must never receive audio/video publishing permissions.
 
-Before planning or implementing product work, read:
+Before planning or implementing product work, read `README.md`. It is the product and
+architecture source of truth unless the user gives newer written instructions. For
+production debugging or recovery scenarios, also see `docs/runbook.md` (not required
+reading for ordinary feature/bug-fix work).
 
-- `docs/Requirements.pdf` (original product brief — note its suggested tech stack is
-  Cloudflare-based and predates the migration described below)
-- `docs/architecture.md`
-
-Use those files as the product and architecture source of truth unless the user gives newer written instructions.
-
-Current stack decision (migrated off Cloudflare — see `docs/archive/` for the pre-migration
-Cloudflare Workers/D1/Durable Objects/Realtime docs, kept for historical context):
+Current stack decision (migrated off Cloudflare; the pre-migration Cloudflare
+Workers/D1/Durable Objects/Realtime docs and the original product-brief PDF were not
+preserved past the migration):
 
 - React + Vite frontend (`apps/web`), built to static `dist/` and served by the API process.
 - Node.js + Hono for the API (`apps/api`).
@@ -159,7 +157,7 @@ the repository.
 ## Codex Working Rules
 
 - Start with a concise progress update when tool work is needed, and keep the user informed during long-running work.
-- Read `docs/Requirements.pdf` and `docs/architecture.md` before planning or implementing product work. For library, SDK, API, CLI, or deployment questions, use the current documentation lookup process above rather than relying on memory.
+- Read `README.md` before planning or implementing product work. For library, SDK, API, CLI, or deployment questions, use the current documentation lookup process above rather than relying on memory.
 - Prefer `rg`/`rg --files` for repository searches. Use `apply_patch` for local edits. Preserve unrelated user changes in a dirty worktree.
 - Use the least powerful tool that can safely complete the task. Read-only investigation does not require delegation or a worktree.
 - For direct implementation by Claude Code or Codex, run the narrowest relevant tests first, then type checks and broader checks when appropriate. The canonical workspace commands are:

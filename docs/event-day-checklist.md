@@ -8,8 +8,8 @@
 - [ ] Verify the listener QR opens the expected public listener URL.
 - [ ] Run the realtime smoke test from the target environment.
 - [ ] Complete iPhone Safari and Android Chrome checks in `docs/mobile-field-test-report.md`.
-- [ ] Run load testing or record the exact blocker (see `docs/archive/load-test-report.md` for the format used by the last Cloudflare-era report; no current-stack load-test report exists yet).
-- [ ] Verify current Cloudflare Realtime, Workers, Pages, D1, Durable Objects, and TURN limits in Cloudflare docs/dashboard.
+- [ ] Run load testing or record the exact blocker (no current-stack load-test report exists yet).
+- [ ] Verify the self-hosted LiveKit VM has enough CPU/bandwidth headroom and room/participant capacity for the expected listener count.
 
 ## Day Before Event
 
@@ -57,7 +57,7 @@
 
 - [ ] If a translator stream is Offline, ask the translator to press Reconnect.
 - [ ] If a stream is Silent, verify the translator is unmuted and speaking into the selected microphone.
-- [ ] If listener counts drop sharply, check venue network and Cloudflare dashboard status.
+- [ ] If listener counts drop sharply, check venue network and `docker compose logs -f livekit` for errors.
 - [ ] If listeners report no audio, verify they tapped a language and browser audio is not muted.
 - [ ] If QR scanning fails, share the listener URL directly.
 
