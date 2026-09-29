@@ -160,6 +160,35 @@ function TrashIcon() {
         </svg>
     );
 }
+
+function ListenerApprovalIcon() {
+    return (
+        <span
+            aria-label="Listener approval required"
+            className="admin-listener-approval-icon"
+            role="img"
+            title="Listener approval required"
+        >
+            <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+                <path
+                    d="M12 3.5 19 6v5.1c0 4.8-2.9 7.8-7 9.4-4.1-1.6-7-4.6-7-9.4V6l7-2.5Z"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.8"
+                />
+                <path
+                    d="m9.2 12 1.8 1.8 3.8-4"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.8"
+                />
+            </svg>
+        </span>
+    );
+}
+
 const EMPTY_EVENT_FILTERS: EventFiltersState = {
     eventTypes: [],
     translatorId: '',
@@ -2221,9 +2250,9 @@ function ProgramCard({
             tabIndex={onOpen ? 0 : undefined}
             withBorder
         >
-            <Badge className="admin-program-slug-badge" color="gray" size="sm" variant="light">
+            <Text className="admin-program-slug" component="span" size="sm">
                 {program.slug}
-            </Badge>
+            </Text>
             <Stack gap="xs">
                 <Group className="admin-program-meta" justify="space-between" wrap="nowrap">
                     <Text c="dimmed" size="sm">
@@ -2231,6 +2260,7 @@ function ProgramCard({
                     </Text>
                 </Group>
                 <Group className="admin-program-heading" gap="xs" wrap="nowrap">
+                    {program.accessControlEnabled ? <ListenerApprovalIcon /> : null}
                     <Title order={3} size="h4">
                         {program.name}
                     </Title>

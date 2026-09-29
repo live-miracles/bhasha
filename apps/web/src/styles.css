@@ -2052,10 +2052,12 @@ body {
     background-color: #651818;
 }
 
-.admin-program-slug-badge {
+.admin-program-slug {
     position: absolute;
     top: 1rem;
     right: 1rem;
+    color: var(--hp-terracotta);
+    font-weight: 600;
     max-width: calc(100% - 2rem);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2070,6 +2072,12 @@ body {
     min-width: 0;
     overflow: hidden;
     padding-right: 7rem;
+}
+
+.admin-listener-approval-icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+    color: #2f855a;
 }
 
 .admin-program-heading .mantine-Title-root {
