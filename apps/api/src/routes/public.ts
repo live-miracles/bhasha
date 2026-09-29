@@ -7,6 +7,7 @@ import { json, type WaitUntilCtx } from '../http';
 import { readPresenceStatusSnapshot } from '../presence/status';
 import { deriveStreamState } from '../presence/streamState';
 import { isProgramExpired } from '../domain/programExpiry';
+import { publicOrigin } from './publicOrigin';
 
 // Listener /status is polled frequently at scale; a short in-process cache
 // collapses concurrent cache-misses into one build per TTL window. Degraded
@@ -153,6 +154,7 @@ export async function handlePublicRoutes(
         const programStatusFlags = getProgramListenability(program.endDate);
         const streams = await programs.listActiveStreams(program.id);
         const publicPath = `/${encodeURIComponent(program.slug)}`;
+        const origin = publicOrigin(env, url);
 
         return json(
             {
@@ -174,9 +176,9 @@ export async function handlePublicRoutes(
                     isActive: stream.isActive,
                 })),
                 urls: {
-                    listenerUrl: `${url.origin}${publicPath}`,
-                    translatorUrl: `${url.origin}${publicPath}/translate`,
-                    approverUrl: `${url.origin}${publicPath}/approver`,
+                    listenerUrl: `${origin}${publicPath}`,
+                    translatorUrl: `${origin}${publicPath}/translate`,
+                    approverUrl: `${origin}${publicPath}/approver`,
                 },
             },
             {

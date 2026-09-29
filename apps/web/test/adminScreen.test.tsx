@@ -910,6 +910,7 @@ describe('AdminScreen', () => {
             programNameInput.compareDocumentPosition(approverHeading) &
                 Node.DOCUMENT_POSITION_FOLLOWING,
         ).toBeTruthy();
+        expect(screen.getAllByText('Overview')).toHaveLength(1);
         expect(screen.queryByRole('heading', { name: 'Share / QR' })).not.toBeInTheDocument();
         expect(screen.queryByRole('img', { name: 'Listener QR' })).not.toBeInTheDocument();
 

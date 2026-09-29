@@ -1,7 +1,6 @@
 import {
     AppShell,
     Badge,
-    Breadcrumbs,
     Burger,
     Button,
     Group,
@@ -14,7 +13,7 @@ import {
     ThemeIcon,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { Fragment, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import type { AdminRole } from '../../api/admin';
 import { bhashaTheme } from '../../app/theme';
 
@@ -52,11 +51,6 @@ type SidebarAppProps = {
     activeSection: AppNavSection;
     onNavigate: (section: AppNavSection) => void;
     role?: AdminRole;
-};
-
-type TopBarProps = {
-    crumbs: string[];
-    action?: ReactNode;
 };
 
 type AdminLayoutProps = {
@@ -204,27 +198,6 @@ export function SidebarApp({ activeSection, onNavigate, role }: SidebarAppProps)
                 ))}
             </Stack>
         </Stack>
-    );
-}
-
-export function TopBar({ crumbs, action }: TopBarProps) {
-    return (
-        <Group align="center" justify="space-between" mb="lg" wrap="wrap">
-            <Breadcrumbs separator="›">
-                {crumbs.map((crumb, index) => (
-                    <Fragment key={`${crumb}-${index}`}>
-                        <Text
-                            c={index === crumbs.length - 1 ? 'dark' : 'dimmed'}
-                            fw={index === crumbs.length - 1 ? 700 : 400}
-                            size="sm"
-                        >
-                            {crumb}
-                        </Text>
-                    </Fragment>
-                ))}
-            </Breadcrumbs>
-            {action}
-        </Group>
     );
 }
 

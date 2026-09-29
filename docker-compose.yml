@@ -49,6 +49,7 @@ services:
             # override can't shadow apps/api/src/index.ts's built-in default with
             # an unusable path.
             WEB_DIST_PATH: '${WEB_DIST_PATH:-/app/apps/web/dist}'
+            PUBLIC_APP_URL: 'https://${DOMAIN}'
             LIVEKIT_URL: '${LIVEKIT_URL:?LIVEKIT_URL must be set (see .env.example)}'
             LIVEKIT_API_KEY: '${LIVEKIT_API_KEY:?LIVEKIT_API_KEY must be set (see .env.example)}'
             LIVEKIT_API_SECRET: '${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set (see .env.example)}'

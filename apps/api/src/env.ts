@@ -20,6 +20,9 @@ export type WorkerEnv = {
     // works both in a local/dev checkout and inside the Docker runtime image
     // (which mirrors the monorepo's apps/api + apps/web/dist layout).
     WEB_DIST_PATH?: string;
+    // Public origin used when generating listener, translator, approver, and
+    // QR URLs. Falls back to the incoming request origin when unset.
+    PUBLIC_APP_URL?: string;
     // LiveKit server-sdk configuration (Slice 3). All three are optional at the
     // type level -- and NOT required at boot via requireEnvVar in
     // buildEnvFromProcess -- so the app can still start before LiveKit is

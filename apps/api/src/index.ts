@@ -262,6 +262,9 @@ export async function buildEnvFromProcess(): Promise<Env> {
         ...(process.env.WEB_DIST_PATH !== undefined
             ? { WEB_DIST_PATH: process.env.WEB_DIST_PATH }
             : {}),
+        ...(process.env.PUBLIC_APP_URL !== undefined
+            ? { PUBLIC_APP_URL: process.env.PUBLIC_APP_URL }
+            : {}),
     };
 }
 

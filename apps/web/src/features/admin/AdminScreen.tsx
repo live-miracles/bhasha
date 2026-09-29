@@ -70,7 +70,6 @@ import {
     Sidebar,
     SidebarApp,
     StatusPill,
-    TopBar,
 } from './AdminShell';
 import { UsersPanel } from './UsersPanel';
 import { AccountPanel } from './AccountPanel';
@@ -1055,28 +1054,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         setActiveSection('programs');
     }
 
-    function sectionLabel(section: string) {
-        if (section === 'status') {
-            return 'Status';
-        }
-        if (section === 'streams') {
-            return 'Streams';
-        }
-        if (section === 'translators') {
-            return 'Translators';
-        }
-        if (section === 'share') {
-            return 'Share / QR';
-        }
-        if (section === 'readiness') {
-            return 'Readiness';
-        }
-        if (section === 'reports') {
-            return 'Reports';
-        }
-        return 'Overview';
-    }
-
     function handleDateRangeChange(next: ReportDateRangeValue) {
         setDateRange(next);
         setReportPage(1);
@@ -2004,14 +1981,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                         {error}
                                     </Alert>
                                 ) : null}
-                                <TopBar
-                                    crumbs={[
-                                        'Programs',
-                                        detail.program.name,
-                                        sectionLabel(activeSection),
-                                    ]}
-                                    action={null}
-                                />
                                 <div className="admin-content">{renderSection()}</div>
                             </AdminLayout>
                         )}

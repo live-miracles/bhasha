@@ -17,6 +17,7 @@ services:
         working_dir: /repo
         environment:
             WEB_DIST_PATH: /repo/apps/web/dist
+            PUBLIC_APP_URL: http://localhost:5173
             LIVEKIT_URL: ws://127.0.0.1:7880
             PORT: 8787
             # Bind-mount fs-change events from the Windows host don't always

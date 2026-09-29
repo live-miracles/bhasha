@@ -1234,6 +1234,30 @@ describe('program and stream admin API', () => {
         expect(await detail.json()).toEqual({ error: 'program_not_found' });
     });
 
+    it('uses the configured public origin for generated program URLs', async () => {
+        const cookie = await adminCookie();
+        const program = await seedProgram(buildTestEnv(), {
+            slug: 'configured-origin-event',
+            name: 'Configured Origin Event',
+        });
+
+        const detail = await request(
+            `/api/admin/programs/${program.id}`,
+            { headers: { Cookie: cookie } },
+            buildTestEnv({ PUBLIC_APP_URL: 'https://events.example.com/' }),
+        );
+
+        expect(detail.status).toBe(200);
+        expect(await detail.json()).toMatchObject({
+            urls: {
+                listenerUrl: 'https://events.example.com/configured-origin-event',
+                translatorUrl: 'https://events.example.com/configured-origin-event/translate',
+                approverUrl: 'https://events.example.com/configured-origin-event/approver',
+            },
+            qrPayload: 'https://events.example.com/configured-origin-event',
+        });
+    });
+
     it.skip('stamps first_live_at on first go-live and preserves it across cycles', async () => {
         const cookie = await adminCookie();
         const program = await createProgram(cookie);

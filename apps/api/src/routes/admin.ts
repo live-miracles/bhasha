@@ -59,6 +59,7 @@ import {
 } from '../domain/readiness';
 import type { Env } from '../env';
 import { json, readJson, type WaitUntilCtx } from '../http';
+import { publicOrigin } from './publicOrigin';
 import {
     createRoomServiceClient,
     deleteRoomBestEffort,
@@ -973,7 +974,11 @@ export async function handleAdminRoutes(
             }
 
             try {
-                return await adminProgramDetailResponse(programs, programId, url.origin);
+                return await adminProgramDetailResponse(
+                    programs,
+                    programId,
+                    publicOrigin(env, url),
+                );
             } catch (error) {
                 return repositoryErrorResponse(error);
             }
@@ -1005,7 +1010,11 @@ export async function handleAdminRoutes(
 
             try {
                 await programs.updateProgram(programId, input);
-                return await adminProgramDetailResponse(programs, programId, url.origin);
+                return await adminProgramDetailResponse(
+                    programs,
+                    programId,
+                    publicOrigin(env, url),
+                );
             } catch (error) {
                 return repositoryErrorResponse(error);
             }
