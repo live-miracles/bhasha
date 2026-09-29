@@ -37,6 +37,7 @@ services:
             - livekit
         environment:
             ADMIN_SESSION_SECRET: '${ADMIN_SESSION_SECRET:?ADMIN_SESSION_SECRET must be set (see .env.example)}'
+            ADMIN_INITIAL_PASSWORD: '${ADMIN_INITIAL_PASSWORD:-}'
             TRANSLATOR_PASSWORD_PEPPER: '${TRANSLATOR_PASSWORD_PEPPER:?TRANSLATOR_PASSWORD_PEPPER must be set (see .env.example)}'
             TRANSLATOR_SESSION_SECRET: '${TRANSLATOR_SESSION_SECRET:?TRANSLATOR_SESSION_SECRET must be set (see .env.example)}'
             APPROVER_SESSION_SECRET: '${APPROVER_SESSION_SECRET:-}'

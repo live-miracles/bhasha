@@ -73,6 +73,10 @@ containers share them (e.g. `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` are the
 one source of truth for the JWT trust relationship between the app and the
 LiveKit server).
 
+On the first startup with a new database, set `ADMIN_INITIAL_PASSWORD` in
+`.env`. The app creates the initial `admin` account with that password. Once an
+admin exists, the value is ignored and changing it does not reset the account.
+
 ## Install
 
     npm ci

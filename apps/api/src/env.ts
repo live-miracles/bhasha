@@ -3,6 +3,9 @@ import type { Database } from './db/sqlite';
 export type WorkerEnv = {
     DB: Database;
     ADMIN_SESSION_SECRET: string;
+    // Used only during first-time startup when the database has no admin.
+    // Existing admin accounts ignore this value on later boots.
+    ADMIN_INITIAL_PASSWORD?: string;
     TRANSLATOR_PASSWORD_PEPPER: string;
     TRANSLATOR_SESSION_SECRET: string;
     APPROVER_SESSION_SECRET?: string | undefined;

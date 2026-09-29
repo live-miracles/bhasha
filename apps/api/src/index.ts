@@ -225,18 +225,21 @@ function requireEnvVar(name: string): string {
  * better-sqlite3 database. Used by `main()`; tests build their own `Env`
  * around a `:memory:` database instead (see test/test-env.ts).
  *
- * Also ensures the singleton admin account exists (username/password
- * "admin"/"admin" the first time it's created) so the app always has a
- * working admin login without any env var configuration.
+ * Also ensures the singleton admin account exists. On a fresh database the
+ * account is created with ADMIN_INITIAL_PASSWORD; there is intentionally no
+ * built-in/default admin password.
  */
 export async function buildEnvFromProcess(): Promise<Env> {
     const db = openDatabase(process.env.DATABASE_PATH);
     runMigrations(db);
-    await new UsersRepository(db).ensureDefaultAdmin();
+    await new UsersRepository(db).ensureDefaultAdmin(process.env.ADMIN_INITIAL_PASSWORD);
 
     return {
         DB: db,
         ADMIN_SESSION_SECRET: requireEnvVar('ADMIN_SESSION_SECRET'),
+        ...(process.env.ADMIN_INITIAL_PASSWORD !== undefined
+            ? { ADMIN_INITIAL_PASSWORD: process.env.ADMIN_INITIAL_PASSWORD }
+            : {}),
         TRANSLATOR_PASSWORD_PEPPER: requireEnvVar('TRANSLATOR_PASSWORD_PEPPER'),
         TRANSLATOR_SESSION_SECRET: requireEnvVar('TRANSLATOR_SESSION_SECRET'),
         APPROVER_SESSION_SECRET: process.env.APPROVER_SESSION_SECRET,

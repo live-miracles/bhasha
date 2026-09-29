@@ -25,11 +25,10 @@ export type UpdateUserInput = {
     role?: UserRole;
 };
 
-// The fixed singleton admin account's identity, seeded automatically at
-// startup (see ensureDefaultAdmin) with password "admin" so the app always
-// has a working admin login without any env var configuration.
+// The fixed singleton admin account's identity. Its initial password is supplied
+// explicitly through ADMIN_INITIAL_PASSWORD during first-time setup; there is
+// intentionally no built-in/default password.
 export const DEFAULT_ADMIN_USERNAME = 'admin';
-export const DEFAULT_ADMIN_PASSWORD = 'admin';
 
 // PBKDF2-HMAC-SHA-256 password parameters. Iterations is stored per-user
 // (password_iterations) so the work factor can be raised without invalidating
@@ -242,22 +241,27 @@ export class UsersRepository {
     }
 
     /**
-     * Ensure exactly one admin account exists, seeded as username "admin" /
-     * password "admin". Called once at startup (see index.ts). Idempotent and
-     * safe to call on every boot — it only creates the row the first time; an
-     * admin who has since changed the password is never reset.
+     * Ensure the singleton admin account exists. Called once at startup (see
+     * index.ts). It is idempotent and safe to call on every boot: the supplied
+     * initial password is used only when the database has no admin account.
      */
-    async ensureDefaultAdmin(): Promise<void> {
+    async ensureDefaultAdmin(initialPassword?: string): Promise<void> {
         const existing = await this.listUsers({ role: 'admin' });
         if (existing.length > 0) {
             return;
+        }
+
+        if (!initialPassword || initialPassword.length < 8) {
+            throw new Error(
+                'No admin account exists. Set ADMIN_INITIAL_PASSWORD to a password of at least 8 characters before starting the application.',
+            );
         }
 
         const admin = await this.createUser({
             username: DEFAULT_ADMIN_USERNAME,
             role: 'admin',
         });
-        await this.setPassword(admin.id, DEFAULT_ADMIN_PASSWORD);
+        await this.setPassword(admin.id, initialPassword);
     }
 
     // ----- passwords -----

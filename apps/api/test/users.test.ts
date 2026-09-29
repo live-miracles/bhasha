@@ -23,6 +23,35 @@ describe('admin user management APIs', () => {
         await testEnv.DB.exec('DELETE FROM users');
     });
 
+    it('creates the initial admin from an explicit password and ignores it afterward', async () => {
+        const users = new UsersRepository(testEnv.DB);
+
+        await users.ensureDefaultAdmin('initial-admin-password');
+
+        const initial = await users.getUserByUsername('admin');
+        expect(initial?.role).toBe('admin');
+        expect(initial && (await users.verifyPassword(initial, 'initial-admin-password'))).toBe(
+            true,
+        );
+
+        await users.ensureDefaultAdmin('different-password');
+
+        const afterRestart = await users.getUserByUsername('admin');
+        expect(
+            afterRestart && (await users.verifyPassword(afterRestart, 'initial-admin-password')),
+        ).toBe(true);
+        expect(
+            afterRestart && (await users.verifyPassword(afterRestart, 'different-password')),
+        ).toBe(false);
+    });
+
+    it('refuses to create an initial admin without an explicit password', async () => {
+        const users = new UsersRepository(testEnv.DB);
+
+        await expect(users.ensureDefaultAdmin()).rejects.toThrow('ADMIN_INITIAL_PASSWORD');
+        expect(await users.listUsers({ role: 'admin' })).toHaveLength(0);
+    });
+
     it('returns identity for /api/admin/me for both admin and user roles', async () => {
         const adminId = await seedAdmin(buildTestEnv());
         const adminCookieValue = await adminCookie(ADMIN_TEST_USERNAME);
