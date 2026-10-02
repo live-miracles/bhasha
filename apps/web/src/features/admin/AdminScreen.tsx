@@ -75,7 +75,7 @@ interface AdminScreenProps {
 type LoadState = 'checking' | 'login' | 'ready' | 'error';
 type AppSection = 'programs' | 'deleted' | 'users' | 'account';
 type AdminSection =
-    'status' | 'streams' | 'translators' | 'overview' | 'share' | 'readiness' | 'reports';
+    'status' | 'languages' | 'approver' | 'overview' | 'share' | 'readiness' | 'reports';
 type ActiveSection = AppSection | AdminSection;
 type ReportFiltersState = {
     states: string[];
@@ -389,6 +389,9 @@ export function mapUrlSection(urlSection: string | undefined): AdminSection {
     }
     if (
         urlSection === 'status' ||
+        urlSection === 'languages' ||
+        urlSection === 'approver' ||
+        // Keep old bookmarks working while the UI presents one combined section.
         urlSection === 'streams' ||
         urlSection === 'translators' ||
         urlSection === 'overview' ||
@@ -396,7 +399,7 @@ export function mapUrlSection(urlSection: string | undefined): AdminSection {
         urlSection === 'readiness' ||
         urlSection === 'reports'
     ) {
-        return urlSection;
+        return urlSection === 'streams' || urlSection === 'translators' ? 'languages' : urlSection;
     }
     return 'overview';
 }
@@ -665,11 +668,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         languageCode: '',
         displayOrder: '0',
         translatorPassword: '',
-    });
-    const [translatorForm, setTranslatorForm] = useState({
-        email: '',
-        name: '',
-        password: '',
     });
     const [editForm, setEditForm] = useState({
         name: '',
@@ -948,6 +946,11 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         }
         if (!slug) {
             suppressRouteLoad.current = false;
+            pendingRouteLoad.current = null;
+            selectedProgramIdRef.current = null;
+            setSelectedProgramId(null);
+            setDetail(null);
+            setActiveSection('programs');
             return;
         }
 
@@ -1054,16 +1057,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         }
     }
 
-    function backToPrograms() {
-        pendingRouteLoad.current = null;
-        suppressRouteLoad.current = true;
-        navigate('/manage');
-        selectedProgramIdRef.current = null;
-        setSelectedProgramId(null);
-        setDetail(null);
-        setActiveSection('programs');
-    }
-
     function handleDateRangeChange(next: ReportDateRangeValue) {
         setDateRange(next);
         setReportPage(1);
@@ -1107,41 +1100,30 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             );
         }
 
-        if (section === 'streams') {
+        if (section === 'languages') {
             return (
-                <StreamsPanel
+                <LanguagesPanel
                     readOnly={false}
                     streams={detail.streams}
+                    translators={detail.translators}
                     onAdd={() => setCreateLanguageOpen(true)}
                     onReorder={(ordered) => void reorderStreams(ordered)}
                     onDelete={(stream) => void deleteStream(stream)}
                     onToggle={(stream) => void toggleStream(stream)}
+                    onResetPassword={(translator) => void resetPassword(translator)}
                 />
             );
         }
 
-        if (section === 'translators') {
-            return (
-                <TranslatorsPanel
+        if (section === 'approver') {
+            return detail.program.accessControlEnabled ? (
+                <ApproverAccessPanel
                     adminApi={adminApi}
-                    readOnly={false}
                     onAuthExpired={handleAuthExpired}
-                    streams={detail.streams}
                     programId={detail.program.id}
-                    translatorUrl={detail.urls.translatorUrl}
-                    translators={detail.translators}
-                    form={translatorForm}
-                    onChange={setTranslatorForm}
-                    onSubmit={submitTranslator}
-                    onAddAssignment={(translator, stream) => void addAssignment(translator, stream)}
-                    onRemoveAssignment={(translator, streamId) =>
-                        void removeAssignment(translator, streamId)
-                    }
-                    onRename={(translator) => void renameTranslator(translator)}
-                    onDelete={(translator) => void deleteTranslator(translator)}
-                    onResetPassword={(translator) => void resetPassword(translator)}
+                    readOnly={false}
                 />
-            );
+            ) : null;
         }
 
         if (section === 'share') {
@@ -1328,22 +1310,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                         onSubmit={updateSelectedProgram}
                         ownerOptions={adminUsers}
                     />
-                    <StreamsPanel
-                        streams={detail.streams}
-                        onDelete={(stream) => void deleteStream(stream)}
-                        onToggle={(stream) => void toggleStream(stream)}
-                        onAdd={() => setCreateLanguageOpen(true)}
-                        onReorder={(ordered) => void reorderStreams(ordered)}
-                        readOnly={false}
-                    />
-                    {detail.program.accessControlEnabled ? (
-                        <ApproverAccessPanel
-                            adminApi={adminApi}
-                            onAuthExpired={handleAuthExpired}
-                            programId={detail.program.id}
-                            readOnly={false}
-                        />
-                    ) : null}
                 </>
             );
         }
@@ -1396,7 +1362,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             setLoginUsername('');
             setLoginPassword('');
             await loadPrograms();
-        } catch (loginError) {
+        } catch (_loginError) {
             setError('Invalid username or password');
         }
     }
@@ -1576,87 +1542,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         }
     }
 
-    async function submitTranslator(event: FormEvent<HTMLFormElement>) {
-        event.preventDefault();
-        if (!selectedProgramId) {
-            return;
-        }
-        setError(null);
-        try {
-            await adminApi.createTranslator(selectedProgramId, {
-                email: translatorForm.email,
-                name: translatorForm.name,
-                password: translatorForm.password,
-            });
-            setTranslatorForm({ email: '', name: '', password: '' });
-            await refreshDetail();
-        } catch (translatorError) {
-            setError(errorCode(translatorError));
-        }
-    }
-
-    async function addAssignment(translator: AdminTranslator, stream: AdminStream) {
-        if (!selectedProgramId) {
-            return;
-        }
-        setError(null);
-        try {
-            await adminApi.addTranslatorAssignment(selectedProgramId, translator.id, stream.id);
-            await refreshDetail();
-        } catch (assignmentError) {
-            setError(errorCode(assignmentError));
-        }
-    }
-
-    async function renameTranslator(translator: AdminTranslator) {
-        if (!selectedProgramId) {
-            return;
-        }
-        const name = window.prompt(`New name for ${translator.name}`, translator.name);
-        if (!name) {
-            return;
-        }
-        setError(null);
-        try {
-            await adminApi.updateTranslator(selectedProgramId, translator.id, {
-                name,
-            });
-            await refreshDetail();
-        } catch (translatorError) {
-            setError(errorCode(translatorError));
-        }
-    }
-
-    async function deleteTranslator(translator: AdminTranslator) {
-        if (!selectedProgramId) {
-            return;
-        }
-        setError(null);
-        try {
-            await adminApi.deleteTranslator(selectedProgramId, translator.id);
-            await refreshDetail();
-        } catch (translatorError) {
-            setError(errorCode(translatorError));
-        }
-    }
-
-    async function removeAssignment(translator: AdminTranslator, assignmentStreamId: string) {
-        if (!selectedProgramId) {
-            return;
-        }
-        setError(null);
-        try {
-            await adminApi.removeTranslatorAssignment(
-                selectedProgramId,
-                translator.id,
-                assignmentStreamId,
-            );
-            await refreshDetail();
-        } catch (assignmentError) {
-            setError(errorCode(assignmentError));
-        }
-    }
-
     async function resetPassword(translator: AdminTranslator) {
         if (!selectedProgramId) {
             return;
@@ -1667,7 +1552,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         }
         setError(null);
         try {
-            await adminApi.resetTranslatorPassword(selectedProgramId, translator.id, password);
+            await adminApi.resetLanguagePassword(selectedProgramId, translator.id, password);
             await refreshDetail();
         } catch (passwordError) {
             setError(errorCode(passwordError));
@@ -2162,22 +2047,14 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                     </Alert>
                                 ) : null}
                                 <div className="admin-content">
-                                    <div className="admin-program-heading">
-                                        <Button
-                                            onClick={backToPrograms}
-                                            type="button"
-                                            variant="subtle"
-                                        >
-                                            ← Programs
-                                        </Button>
-                                        <Title order={1}>{detail.program.name}</Title>
-                                    </div>
                                     {(
                                         [
                                             ['overview', 'Overview'],
+                                            ['languages', 'Languages'],
+                                            ...(detail.program.accessControlEnabled
+                                                ? ([['approver', 'Approver access']] as const)
+                                                : []),
                                             ['status', 'Status'],
-                                            ['streams', 'Language streams'],
-                                            ['translators', 'Translators'],
                                             ['share', 'Share / QR'],
                                             ['readiness', 'Readiness'],
                                             ['reports', 'Reports'],
@@ -2760,7 +2637,6 @@ function ApproverAccessPanel({
     onAuthExpired: () => void;
 }) {
     const [access, setAccess] = useState<AdminProgramApproverAccess | null>(null);
-    const [loginId, setLoginId] = useState('');
     const [password, setPassword] = useState('');
     const [pending, setPending] = useState(false);
     const [panelError, setPanelError] = useState<string | null>(null);
@@ -2771,7 +2647,6 @@ function ApproverAccessPanel({
     useEffect(() => {
         let cancelled = false;
         setAccess(null);
-        setLoginId('');
         setPassword('');
         setPending(false);
         setPanelError(null);
@@ -2782,7 +2657,6 @@ function ApproverAccessPanel({
             .then((response) => {
                 if (cancelled) return;
                 setAccess(response);
-                setLoginId(response.loginId ?? '');
             })
             .catch((loadError: unknown) => {
                 if (cancelled) return;
@@ -2800,7 +2674,7 @@ function ApproverAccessPanel({
 
     async function save(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
-        if (readOnly || pending || loginId.trim().length === 0) return;
+        if (readOnly || pending) return;
 
         const submittedProgramId = programId;
         const submittedPassword = password;
@@ -2808,12 +2682,10 @@ function ApproverAccessPanel({
         setPanelError(null);
         try {
             const response = await adminApi.updateApproverAccess(programId, {
-                loginId: loginId.trim(),
                 ...(submittedPassword ? { password: submittedPassword } : {}),
             });
             if (currentProgramId.current !== submittedProgramId) return;
             setAccess(response);
-            setLoginId(response.loginId ?? '');
             setPassword('');
             const passwordToShow = response.generatedPassword ?? submittedPassword;
             if (passwordToShow) {
@@ -2855,15 +2727,6 @@ function ApproverAccessPanel({
             {access ? (
                 <Paper component="form" mt="md" onSubmit={save} p="md" radius="md" withBorder>
                     <Stack gap="md">
-                        <TextInput
-                            aria-label="Approver login ID"
-                            autoComplete="username"
-                            disabled={readOnly || pending}
-                            label="Approver login ID"
-                            onChange={(event) => setLoginId(event.target.value)}
-                            required
-                            value={loginId}
-                        />
                         <TextInput
                             aria-label="Approver password"
                             autoComplete="new-password"
@@ -3196,19 +3059,23 @@ function LanguageCreateForm({
     );
 }
 
-function StreamsPanel({
+function LanguagesPanel({
     streams,
+    translators,
     onAdd,
     onReorder,
     onDelete,
     onToggle,
+    onResetPassword,
     readOnly,
 }: {
     streams: AdminStream[];
+    translators: AdminTranslator[];
     onAdd: () => void;
     onReorder: (streams: AdminStream[]) => void;
     onDelete: (stream: AdminStream) => void;
     onToggle: (stream: AdminStream) => void;
+    onResetPassword: (translator: AdminTranslator) => void;
     readOnly: boolean;
 }) {
     const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -3247,58 +3114,103 @@ function StreamsPanel({
                 <thead>
                     <tr>
                         <th>Language</th>
+                        <th>Translator</th>
                         {readOnly ? null : <th>Active</th>}
+                        {readOnly ? null : <th>Password</th>}
                         {readOnly ? null : <th>Delete</th>}
                     </tr>
                 </thead>
                 <tbody>
-                    {streams.map((stream) => (
-                        <tr
-                            draggable={!readOnly}
-                            key={stream.id}
-                            onDragEnd={() => setDraggedId(null)}
-                            onDragOver={(event) => event.preventDefault()}
-                            onDragStart={() => setDraggedId(stream.id)}
-                            onDrop={() => moveBefore(stream.id)}
-                        >
-                            <td>
-                                {stream.languageName} ({stream.languageCode})
-                            </td>
-                            {readOnly ? null : (
-                                <td>
-                                    <Button
-                                        onClick={() => onToggle(stream)}
-                                        size="compact-sm"
-                                        variant="light"
-                                        type="button"
-                                    >
-                                        {stream.isActive ? 'Deactivate' : 'Activate'}{' '}
-                                        {stream.languageName}
-                                    </Button>
-                                </td>
-                            )}
-                            {readOnly ? null : (
-                                <td>
-                                    <Button
-                                        color="red"
-                                        onClick={() => onDelete(stream)}
-                                        size="compact-sm"
-                                        type="button"
-                                        variant="subtle"
-                                    >
-                                        Delete {stream.languageName} language
-                                    </Button>
-                                </td>
-                            )}
-                        </tr>
-                    ))}
+                    {streams.map((stream) =>
+                        (() => {
+                            const translator = translators.find(
+                                (candidate) =>
+                                    candidate.id === stream.id ||
+                                    candidate.assignments.some(
+                                        (assignment) => assignment.streamId === stream.id,
+                                    ),
+                            );
+                            return (
+                                <tr
+                                    draggable={!readOnly}
+                                    key={stream.id}
+                                    onDragEnd={() => setDraggedId(null)}
+                                    onDragOver={(event) => event.preventDefault()}
+                                    onDragStart={() => setDraggedId(stream.id)}
+                                    onDrop={() => moveBefore(stream.id)}
+                                >
+                                    <td>
+                                        {stream.languageName} ({stream.languageCode})
+                                    </td>
+                                    <td>
+                                        {translator ? (
+                                            <>
+                                                <Text>{translator.name}</Text>
+                                                {translator.email &&
+                                                translator.email !==
+                                                    `${stream.id}@language.invalid` ? (
+                                                    <Text c="dimmed" size="sm">
+                                                        {translator.email}
+                                                    </Text>
+                                                ) : null}
+                                            </>
+                                        ) : (
+                                            '—'
+                                        )}
+                                    </td>
+                                    {readOnly ? null : (
+                                        <td>
+                                            <Button
+                                                onClick={() => onToggle(stream)}
+                                                size="compact-sm"
+                                                variant="light"
+                                                type="button"
+                                            >
+                                                {stream.isActive ? 'Deactivate' : 'Activate'}{' '}
+                                                {stream.languageName}
+                                            </Button>
+                                        </td>
+                                    )}
+                                    {readOnly ? null : (
+                                        <td>
+                                            {translator ? (
+                                                <Button
+                                                    onClick={() => onResetPassword(translator)}
+                                                    size="compact-sm"
+                                                    type="button"
+                                                    variant="default"
+                                                >
+                                                    Reset password
+                                                </Button>
+                                            ) : (
+                                                '—'
+                                            )}
+                                        </td>
+                                    )}
+                                    {readOnly ? null : (
+                                        <td>
+                                            <Button
+                                                color="red"
+                                                onClick={() => onDelete(stream)}
+                                                size="compact-sm"
+                                                type="button"
+                                                variant="subtle"
+                                            >
+                                                Delete {stream.languageName} language
+                                            </Button>
+                                        </td>
+                                    )}
+                                </tr>
+                            );
+                        })(),
+                    )}
                 </tbody>
             </table>
         </section>
     );
 }
 
-function TranslatorsPanel({
+function _TranslatorsPanel({
     adminApi,
     onAuthExpired,
     programId,

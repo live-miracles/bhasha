@@ -170,22 +170,25 @@ export class ApproverRepository {
         };
     }
 
-    async authenticate(programId: string, loginId: string, password: string): Promise<boolean> {
+    async authenticate(
+        programId: string,
+        passwordOrLegacyLoginId: string,
+        legacyPassword?: string,
+    ): Promise<boolean> {
         if (!this.passwordPepper) {
             throw new Error('approver password pepper is not configured');
         }
 
-        const account = await this.getAccountWithPasswordForLogin(
-            programId,
-            normalizeLoginId(loginId),
-        );
-        const loginIdKnown = Boolean(account);
+        // Approver credentials are scoped to the program; the old login ID is
+        // accepted only as a compatibility argument for existing callers.
+        const account = await this.getAccountWithPassword(programId);
+        const password = legacyPassword ?? passwordOrLegacyLoginId;
         const candidate = await sha256Hex(password + this.passwordPepper);
         const expected = account
             ? account.passwordHash.slice(PASSWORD_HASH_PREFIX.length)
             : DUMMY_PASSWORD_HASH;
         const passwordMatches = await timingSafeEqualPasswordHash(candidate, expected);
-        return loginIdKnown && passwordMatches;
+        return Boolean(account) && passwordMatches;
     }
 
     async createSession(

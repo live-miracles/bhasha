@@ -15,7 +15,6 @@ import { clientIp } from '../auth/clientIp';
 
 interface ApproverLoginInput {
     programSlug: string;
-    loginId: string;
     password: string;
 }
 
@@ -68,11 +67,7 @@ export async function handleApproverRoutes(
             // Full request serialization with a Durable Object is deferred to the WP
             // follow-up; successful authentication rolls this reservation back.
             const failure = await approvers.recordFailure(program.id, ipHash);
-            const authenticated = await approvers.authenticate(
-                program.id,
-                input.loginId,
-                input.password,
-            );
+            const authenticated = await approvers.authenticate(program.id, input.password);
             if (!authenticated) {
                 return approverResponse(
                     failure.locked
@@ -195,7 +190,6 @@ async function parseBody<T>(request: Request, parse: (body: unknown) => T): Prom
 function parseApproverLoginInput(body: unknown): ApproverLoginInput {
     return {
         programSlug: requiredString(body, 'programSlug'),
-        loginId: requiredString(body, 'loginId'),
         password: requiredString(body, 'password', false),
     };
 }

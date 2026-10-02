@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Alert, Badge, Button, Group, Paper, Stack, Text, TextInput, Tooltip } from '@mantine/core';
+import { Link } from 'react-router-dom';
 
 import { ApiError } from '../../api/client';
 import { type AdminApi, type AdminRole } from '../../api/admin';
@@ -90,7 +91,9 @@ export function AdminAccountHeader({ adminApi, username, role, onSignOut }: Acco
 
     return (
         <header aria-label="Account" className="admin-account-header">
-            <AdminBrand />
+            <Link aria-label="Bhasha home" className="admin-brand-link" to="/manage">
+                <AdminBrand />
+            </Link>
             <Group className="admin-account-actions" gap="sm" wrap="wrap">
                 <div className="admin-account-identity">
                     <Text fw={700} size="sm">

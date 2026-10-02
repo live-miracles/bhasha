@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, MantineProvider, Paper, Stack, TextInput, Title } from '@mantine/core';
+import { Button, MantineProvider, Paper, TextInput, Title } from '@mantine/core';
 
 import { ApiError } from '../api/client';
 import { createPublicApi, type PublicApi } from '../api/public';
@@ -59,7 +59,6 @@ export function ApproverRoute({
     const [auth, setAuth] = useState<AuthState>('checking');
     const [programName, setProgramName] = useState(programSlug);
     const [approvedCount, setApprovedCount] = useState(0);
-    const [loginId, setLoginId] = useState('');
     const [password, setPassword] = useState('');
     const [loginError, setLoginError] = useState<string | null>(null);
     const [loginPending, setLoginPending] = useState(false);
@@ -286,7 +285,6 @@ export function ApproverRoute({
         try {
             await approverApi.login({
                 programSlug,
-                loginId: loginId.trim(),
                 password,
             });
             const currentSession = await approverApi.session();
@@ -371,9 +369,7 @@ export function ApproverRoute({
                         <LoginPage
                             eyebrow="Approver access"
                             heading={programName}
-                            identityLabel="Login ID"
-                            identityValue={loginId}
-                            onIdentityChange={setLoginId}
+                            hideIdentity
                             onPasswordChange={setPassword}
                             onSubmit={submitLogin}
                             passwordValue={password}

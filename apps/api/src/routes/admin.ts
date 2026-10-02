@@ -26,24 +26,14 @@ import {
 } from '../db/programRepository';
 import { ListenerAccessRepository } from '../db/listenerAccessRepository';
 import { UsersRepository, isUsernameConflict, type UserRecord } from '../db/usersRepository';
-import {
-    TranslatorAssignmentExistsError,
-    TranslatorAssignmentNotFoundError,
-    TranslatorDeleteLockedError,
-    TranslatorExistsError,
-    TranslatorNotFoundError,
-    TranslatorRepository,
-} from '../db/translatorRepository';
+import { TranslatorNotFoundError, TranslatorRepository } from '../db/translatorRepository';
 import { ApproverPasswordTooShortError, ApproverRepository } from '../db/approverRepository';
 import {
     parseCreateProgramInput,
     parseCreateStreamInput,
-    parseCreateTranslatorAssignmentInput,
-    parseCreateTranslatorInput,
     parseResetTranslatorPasswordInput,
     parseUpdateProgramInput,
     parseUpdateStreamInput,
-    parseUpdateTranslatorInput,
     type UpdateProgramInput,
 } from '../domain/programs';
 import {
@@ -303,7 +293,7 @@ async function parseBody<T>(request: Request, parse: (input: unknown) => T): Pro
 
 async function parseApproverAccessBody(request: Request): Promise<
     | {
-          loginId: string;
+          loginId?: string;
           password?: string;
       }
     | Response
@@ -319,14 +309,12 @@ async function parseApproverAccessBody(request: Request): Promise<
         return json({ error: 'validation_error' }, { status: 400 });
     }
     const record = body as Record<string, unknown>;
-    if (typeof record.loginId !== 'string' || record.loginId.trim().length === 0) {
-        return json({ error: 'validation_error' }, { status: 400 });
-    }
+    const loginId = typeof record.loginId === 'string' ? record.loginId.trim() : undefined;
     if (record.password !== undefined && typeof record.password !== 'string') {
         return json({ error: 'validation_error' }, { status: 400 });
     }
     return {
-        loginId: record.loginId,
+        ...(loginId ? { loginId } : {}),
         ...(typeof record.password === 'string' ? { password: record.password } : {}),
     };
 }
@@ -413,22 +401,6 @@ function repositoryErrorResponse(error: unknown): Response {
 
     if (error instanceof StreamNotFoundError) {
         return json({ error: 'stream_not_found' }, { status: 404 });
-    }
-
-    if (error instanceof TranslatorExistsError) {
-        return json({ error: 'translator_exists' }, { status: 409 });
-    }
-
-    if (error instanceof TranslatorDeleteLockedError) {
-        return json({ error: 'translator_delete_locked' }, { status: 409 });
-    }
-
-    if (error instanceof TranslatorAssignmentExistsError) {
-        return json({ error: 'translator_assignment_exists' }, { status: 409 });
-    }
-
-    if (error instanceof TranslatorAssignmentNotFoundError) {
-        return json({ error: 'translator_assignment_not_found' }, { status: 404 });
     }
 
     if (error instanceof TranslatorNotFoundError) {
@@ -639,7 +611,6 @@ export async function handleAdminRoutes(
                 return approverAccessResponse(
                     json({
                         configured: account !== null,
-                        loginId: account?.loginId ?? null,
                         passwordUpdatedAt: account?.passwordUpdatedAt ?? null,
                         activeSessionCount,
                     }),
@@ -666,13 +637,12 @@ export async function handleAdminRoutes(
             try {
                 const result = await approvers.rotateCredential(
                     programId,
-                    input.loginId,
+                    input.loginId ?? 'approver',
                     input.password,
                 );
                 return approverAccessResponse(
                     json({
                         configured: true,
-                        loginId: result.account.loginId,
                         passwordUpdatedAt: result.account.passwordUpdatedAt,
                         activeSessionCount: 0,
                         ...(result.generatedPassword
@@ -1775,68 +1745,12 @@ export async function handleAdminRoutes(
         }
     }
 
-    const translatorCollectionMatch = url.pathname.match(
-        /^\/api\/admin\/programs\/([^/]+)\/translators$/,
-    );
-    if (translatorCollectionMatch) {
-        const programId = translatorCollectionMatch[1];
-        if (!programId) {
-            return null;
-        }
-
-        if (request.method === 'GET') {
-            const access = await requireProgramAccess(programs, programId, auth!, {
-                write: false,
-                includeDeleted: false,
-            });
-            if (access instanceof Response) {
-                return access;
-            }
-
-            try {
-                return json({
-                    translators: await translators.listAdminTranslators(programId),
-                });
-            } catch (error) {
-                return repositoryErrorResponse(error);
-            }
-        }
-
-        if (request.method === 'POST') {
-            const access = await requireProgramAccess(programs, programId, auth!, {
-                write: true,
-                includeDeleted: false,
-            });
-            if (access instanceof Response) {
-                return access;
-            }
-
-            const input = await parseBody(request, parseCreateTranslatorInput);
-            if (input instanceof Response) {
-                return input;
-            }
-
-            try {
-                return json(
-                    await translators.createAdminTranslator(
-                        programId,
-                        input,
-                        env.TRANSLATOR_PASSWORD_PEPPER,
-                    ),
-                    { status: 201 },
-                );
-            } catch (error) {
-                return repositoryErrorResponse(error);
-            }
-        }
-    }
-
     const translatorResetPasswordMatch = url.pathname.match(
-        /^\/api\/admin\/programs\/([^/]+)\/translators\/([^/]+)\/reset-password$/,
+        /^\/api\/admin\/programs\/([^/]+)\/streams\/([^/]+)\/reset-password$/,
     );
     if (request.method === 'POST' && translatorResetPasswordMatch) {
-        const [, programId, translatorId] = translatorResetPasswordMatch;
-        if (!programId || !translatorId) {
+        const [, programId, streamId] = translatorResetPasswordMatch;
+        if (!programId || !streamId) {
             return null;
         }
 
@@ -1857,125 +1771,13 @@ export async function handleAdminRoutes(
             return json(
                 await translators.resetAdminTranslatorPassword(
                     programId,
-                    translatorId,
+                    streamId,
                     input,
                     env.TRANSLATOR_PASSWORD_PEPPER,
                 ),
             );
         } catch (error) {
             return repositoryErrorResponse(error);
-        }
-    }
-
-    const translatorAssignmentCollectionMatch = url.pathname.match(
-        /^\/api\/admin\/programs\/([^/]+)\/translators\/([^/]+)\/assignments$/,
-    );
-    if (request.method === 'POST' && translatorAssignmentCollectionMatch) {
-        const [, programId, translatorId] = translatorAssignmentCollectionMatch;
-        if (!programId || !translatorId) {
-            return null;
-        }
-
-        const access = await requireProgramAccess(programs, programId, auth!, {
-            write: true,
-            includeDeleted: false,
-        });
-        if (access instanceof Response) {
-            return access;
-        }
-
-        const input = await parseBody(request, parseCreateTranslatorAssignmentInput);
-        if (input instanceof Response) {
-            return input;
-        }
-
-        try {
-            return json(
-                await translators.createAdminTranslatorAssignment(programId, translatorId, input),
-                { status: 201 },
-            );
-        } catch (error) {
-            return repositoryErrorResponse(error);
-        }
-    }
-
-    const translatorAssignmentItemMatch = url.pathname.match(
-        /^\/api\/admin\/programs\/([^/]+)\/translators\/([^/]+)\/assignments\/([^/]+)$/,
-    );
-    if (request.method === 'DELETE' && translatorAssignmentItemMatch) {
-        const [, programId, translatorId, streamId] = translatorAssignmentItemMatch;
-        if (!programId || !translatorId || !streamId) {
-            return null;
-        }
-
-        const access = await requireProgramAccess(programs, programId, auth!, {
-            write: true,
-            includeDeleted: false,
-        });
-        if (access instanceof Response) {
-            return access;
-        }
-
-        try {
-            return json(
-                await translators.deleteAdminTranslatorAssignment(
-                    programId,
-                    translatorId,
-                    streamId,
-                ),
-            );
-        } catch (error) {
-            return repositoryErrorResponse(error);
-        }
-    }
-
-    const translatorItemMatch = url.pathname.match(
-        /^\/api\/admin\/programs\/([^/]+)\/translators\/([^/]+)$/,
-    );
-    if (translatorItemMatch) {
-        const [, programId, translatorId] = translatorItemMatch;
-        if (!programId || !translatorId) {
-            return null;
-        }
-
-        if (request.method === 'PATCH') {
-            const access = await requireProgramAccess(programs, programId, auth!, {
-                write: true,
-                includeDeleted: false,
-            });
-            if (access instanceof Response) {
-                return access;
-            }
-
-            const input = await parseBody(request, parseUpdateTranslatorInput);
-            if (input instanceof Response) {
-                return input;
-            }
-
-            try {
-                return json(
-                    await translators.updateAdminTranslator(programId, translatorId, input),
-                );
-            } catch (error) {
-                return repositoryErrorResponse(error);
-            }
-        }
-
-        if (request.method === 'DELETE') {
-            const access = await requireProgramAccess(programs, programId, auth!, {
-                write: true,
-                includeDeleted: false,
-            });
-            if (access instanceof Response) {
-                return access;
-            }
-
-            try {
-                await translators.deleteAdminTranslator(programId, translatorId);
-                return new Response(null, { status: 204 });
-            } catch (error) {
-                return repositoryErrorResponse(error);
-            }
         }
     }
 

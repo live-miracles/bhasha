@@ -5,11 +5,12 @@ type LoginPageProps = {
     eyebrow?: ReactNode;
     heading?: ReactNode;
     title: ReactNode;
-    identityLabel: string;
+    identityLabel?: string;
     identityType?: 'email' | 'text';
     identityOptions?: Array<{ value: string; label: string }>;
-    identityValue: string;
-    onIdentityChange: (value: string) => void;
+    identityValue?: string;
+    onIdentityChange?: (value: string) => void;
+    hideIdentity?: boolean;
     passwordValue: string;
     onPasswordChange: (value: string) => void;
     passwordLabel?: string;
@@ -52,6 +53,7 @@ export function LoginPage({
     identityOptions,
     identityValue,
     onIdentityChange,
+    hideIdentity = false,
     passwordValue,
     onPasswordChange,
     passwordLabel = 'Password',
@@ -82,27 +84,29 @@ export function LoginPage({
                             </Alert>
                         ) : null}
                         <Stack mt="md">
-                            {identityOptions ? (
-                                <NativeSelect
-                                    aria-label={identityLabel}
-                                    data={identityOptions}
-                                    label={identityLabel}
-                                    onChange={(event) => onIdentityChange(event.target.value)}
-                                    required
-                                    value={identityValue}
-                                />
-                            ) : (
-                                <TextInput
-                                    aria-label={identityLabel}
-                                    autoComplete="username"
-                                    label={identityLabel}
-                                    name="username"
-                                    onChange={(event) => onIdentityChange(event.target.value)}
-                                    required
-                                    type={identityType}
-                                    value={identityValue}
-                                />
-                            )}
+                            {!hideIdentity && identityLabel && onIdentityChange ? (
+                                identityOptions ? (
+                                    <NativeSelect
+                                        aria-label={identityLabel}
+                                        data={identityOptions}
+                                        label={identityLabel}
+                                        onChange={(event) => onIdentityChange(event.target.value)}
+                                        required
+                                        value={identityValue}
+                                    />
+                                ) : (
+                                    <TextInput
+                                        aria-label={identityLabel}
+                                        autoComplete="username"
+                                        label={identityLabel}
+                                        name="username"
+                                        onChange={(event) => onIdentityChange(event.target.value)}
+                                        required
+                                        type={identityType}
+                                        value={identityValue}
+                                    />
+                                )
+                            ) : null}
                             <TextInput
                                 aria-describedby={`${passwordInputId}-visibility`}
                                 aria-label={passwordLabel}

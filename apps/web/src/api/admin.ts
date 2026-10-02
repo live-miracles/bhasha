@@ -79,7 +79,6 @@ export interface AdminProgramDetail {
 
 export interface AdminProgramApproverAccess {
     configured: boolean;
-    loginId: string | null;
     passwordUpdatedAt: string | null;
     activeSessionCount: number;
 }
@@ -298,12 +297,6 @@ export interface UpdateStreamPayload {
     isActive?: boolean;
 }
 
-export interface CreateTranslatorPayload {
-    email: string;
-    name: string;
-    password: string;
-}
-
 export interface AdminApi {
     login(username: string, password: string): Promise<{ ok: true }>;
     logout(): Promise<{ ok: true }>;
@@ -327,7 +320,7 @@ export interface AdminApi {
     getApproverAccess(programId: string): Promise<AdminProgramApproverAccess>;
     updateApproverAccess(
         programId: string,
-        payload: { loginId: string; password?: string },
+        payload: { password?: string },
     ): Promise<AdminProgramApproverAccessUpdate>;
     getProgramStatus(programId: string): Promise<AdminProgramStatus>;
     getListenerReport(programId: string, query?: ListenerReportQuery): Promise<AdminListenerReport>;
@@ -356,27 +349,10 @@ export interface AdminApi {
         payload: UpdateStreamPayload,
     ): Promise<AdminStream>;
     deleteStream(programId: string, streamId: string): Promise<void>;
-    createTranslator(programId: string, payload: CreateTranslatorPayload): Promise<AdminTranslator>;
-    updateTranslator(
+    resetLanguagePassword(
         programId: string,
-        translatorId: string,
-        payload: { name: string },
-    ): Promise<AdminTranslator>;
-    resetTranslatorPassword(
-        programId: string,
-        translatorId: string,
+        streamId: string,
         password: string,
-    ): Promise<AdminTranslator>;
-    deleteTranslator(programId: string, translatorId: string): Promise<void>;
-    addTranslatorAssignment(
-        programId: string,
-        translatorId: string,
-        streamId: string,
-    ): Promise<AdminTranslator>;
-    removeTranslatorAssignment(
-        programId: string,
-        translatorId: string,
-        streamId: string,
     ): Promise<AdminTranslator>;
     getTranslatorSessions?(
         programId: string,
@@ -476,7 +452,7 @@ export function createAdminApi(client: AdminHttpClient = apiClient): AdminApi {
                 `${programPath(programId)}/approver-access`,
             );
         },
-        updateApproverAccess(programId: string, payload: { loginId: string; password?: string }) {
+        updateApproverAccess(programId: string, payload: { password?: string }) {
             return client.put<AdminProgramApproverAccessUpdate>(
                 `${programPath(programId)}/approver-access`,
                 payload,
@@ -630,32 +606,10 @@ export function createAdminApi(client: AdminHttpClient = apiClient): AdminApi {
         deleteStream(programId: string, streamId: string) {
             return client.delete(streamPath(programId, streamId));
         },
-        createTranslator(programId: string, payload: CreateTranslatorPayload) {
-            return client.post<AdminTranslator>(`${programPath(programId)}/translators`, payload);
-        },
-        updateTranslator(programId: string, translatorId: string, payload: { name: string }) {
-            return client.patch<AdminTranslator>(translatorPath(programId, translatorId), payload);
-        },
-        resetTranslatorPassword(programId: string, translatorId: string, password: string) {
+        resetLanguagePassword(programId: string, streamId: string, password: string) {
             return client.post<AdminTranslator>(
-                `${translatorPath(programId, translatorId)}/reset-password`,
+                `${streamPath(programId, streamId)}/reset-password`,
                 { password },
-            );
-        },
-        deleteTranslator(programId: string, translatorId: string) {
-            return client.delete(translatorPath(programId, translatorId));
-        },
-        addTranslatorAssignment(programId: string, translatorId: string, streamId: string) {
-            return client.post<AdminTranslator>(
-                `${translatorPath(programId, translatorId)}/assignments`,
-                { streamId },
-            );
-        },
-        removeTranslatorAssignment(programId: string, translatorId: string, streamId: string) {
-            return client.delete<AdminTranslator>(
-                `${translatorPath(programId, translatorId)}/assignments/${encodeURIComponent(
-                    streamId,
-                )}`,
             );
         },
         getTranslatorSessions(programId: string, translatorId: string) {

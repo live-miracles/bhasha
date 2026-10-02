@@ -11,7 +11,6 @@ export type ApproverApiErrorCode =
 
 export interface ApproverLoginInput {
     programSlug: string;
-    loginId: string;
     password: string;
 }
 
