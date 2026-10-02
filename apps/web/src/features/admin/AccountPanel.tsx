@@ -1,20 +1,10 @@
 import { FormEvent, useState } from 'react';
-import {
-    ActionIcon,
-    Alert,
-    Button,
-    Group,
-    Paper,
-    Stack,
-    Text,
-    TextInput,
-    Title,
-    Tooltip,
-} from '@mantine/core';
+import { Alert, Badge, Button, Group, Paper, Stack, Text, TextInput, Tooltip } from '@mantine/core';
 
 import { ApiError } from '../../api/client';
 import { type AdminApi, type AdminRole } from '../../api/admin';
 import { AdminDialog } from './AdminDialog';
+import { AdminBrand } from './AdminShell';
 
 interface AccountPanelProps {
     adminApi: Pick<AdminApi, 'changeMyPassword'>;
@@ -36,7 +26,7 @@ function errorText(error: unknown): string {
     return String(error);
 }
 
-export function AccountPanel({ adminApi, username, role, onSignOut }: AccountPanelProps) {
+export function AdminAccountHeader({ adminApi, username, role, onSignOut }: AccountPanelProps) {
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -99,48 +89,44 @@ export function AccountPanel({ adminApi, username, role, onSignOut }: AccountPan
     }
 
     return (
-        <section aria-label="Account" className="admin-section">
-            <Group justify="space-between" mb="lg">
-                <Title order={2}>Account</Title>
-                <Tooltip label="Sign out">
-                    <ActionIcon
-                        aria-label="Sign out"
+        <header aria-label="Account" className="admin-account-header">
+            <AdminBrand />
+            <Group className="admin-account-actions" gap="sm" wrap="wrap">
+                <div className="admin-account-identity">
+                    <Text fw={700} size="sm">
+                        {username ?? 'Account'}
+                    </Text>
+                    {role ? (
+                        <Badge size="sm" variant="light">
+                            {role}
+                        </Badge>
+                    ) : null}
+                </div>
+                <Button
+                    leftSection={<KeyIcon />}
+                    onClick={openPasswordDialog}
+                    size="compact-sm"
+                    type="button"
+                    variant="default"
+                >
+                    Reset
+                </Button>
+                <Tooltip label="Log out">
+                    <Button
+                        aria-label="Log out"
                         color="red"
                         disabled={signingOut}
                         loading={signingOut}
                         onClick={() => void signOut()}
-                        size={36}
+                        px="xs"
+                        size="compact-sm"
+                        type="button"
                         variant="light"
                     >
                         <SignOutIcon />
-                    </ActionIcon>
+                    </Button>
                 </Tooltip>
             </Group>
-
-            <Paper p="md" radius="md" withBorder>
-                <Stack gap={4}>
-                    {username ? (
-                        <Text>
-                            <strong>Username:</strong> {username}
-                        </Text>
-                    ) : null}
-                    {role ? (
-                        <Text>
-                            <strong>Role:</strong> {role}
-                        </Text>
-                    ) : null}
-                </Stack>
-                <Button
-                    leftSection={<KeyIcon />}
-                    mt="md"
-                    onClick={openPasswordDialog}
-                    size="compact-xs"
-                    type="button"
-                    variant="default"
-                >
-                    Reset password
-                </Button>
-            </Paper>
 
             {success ? (
                 <Alert color="green" mt="md">
@@ -203,7 +189,7 @@ export function AccountPanel({ adminApi, username, role, onSignOut }: AccountPan
                     </form>
                 </Paper>
             </AdminDialog>
-        </section>
+        </header>
     );
 }
 

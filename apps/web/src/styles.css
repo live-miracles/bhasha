@@ -1692,6 +1692,57 @@ body {
     margin: 0 auto;
 }
 
+.admin-layout {
+    width: 100%;
+}
+
+.admin-account-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    min-height: 64px;
+    margin-bottom: 24px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--adm-border);
+}
+
+.admin-account-actions,
+.admin-account-identity {
+    display: flex;
+    align-items: center;
+}
+
+.admin-account-identity {
+    gap: 8px;
+}
+
+.admin-program-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.admin-program-heading h1 {
+    margin: 0;
+}
+
+.admin-continuous-section {
+    display: grid;
+    gap: 16px;
+    max-height: min(720px, calc(100vh - 152px));
+    margin-bottom: 24px;
+    overflow: auto;
+}
+
+.admin-continuous-section > .admin-section-head h2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+}
+
 .admin-header {
     margin-bottom: 20px;
 }
@@ -1719,6 +1770,8 @@ body {
 .admin-section {
     display: grid;
     gap: 16px;
+    max-height: min(720px, calc(100vh - 152px));
+    overflow: auto;
     padding: 16px;
 }
 
@@ -1819,6 +1872,19 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+}
+
+.admin-section-head h2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.admin-count-badge {
+    min-width: 24px;
+    height: 22px;
+    padding-inline: 6px;
+    line-height: 20px;
 }
 
 .admin-alert {
@@ -2053,6 +2119,10 @@ body {
     min-width: 0;
     overflow: hidden;
     padding-right: 7rem;
+}
+
+.admin-program-card .admin-program-heading {
+    margin-bottom: 0;
 }
 
 .admin-listener-approval-icon {
@@ -2866,8 +2936,22 @@ body {
         padding: 8px 6px;
     }
 
+    .admin-account-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .admin-account-actions {
+        width: 100%;
+    }
+
     .admin-section {
+        max-height: calc(100vh - 128px);
         padding: 10px;
+    }
+
+    .admin-continuous-section {
+        max-height: calc(100vh - 128px);
     }
 
     .admin-section-head {

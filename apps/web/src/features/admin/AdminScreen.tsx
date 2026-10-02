@@ -1,6 +1,6 @@
 import {
     FormEvent,
-    KeyboardEvent,
+    MouseEvent,
     ReactNode,
     useCallback,
     useEffect,
@@ -63,16 +63,9 @@ import { formatISTDateTime, formatISTTime, formatLocalTime } from './formatTime'
 import { ConfirmDialog } from './ConfirmDialog';
 import { AdminDialog } from './AdminDialog';
 import { KickConfirmDialog } from './KickConfirmDialog';
-import {
-    AdminLayout,
-    AdminUiProvider,
-    KpiTile,
-    Sidebar,
-    SidebarApp,
-    StatusPill,
-} from './AdminShell';
+import { AdminLayout, AdminUiProvider, KpiTile, StatusPill } from './AdminShell';
 import { UsersPanel } from './UsersPanel';
-import { AccountPanel } from './AccountPanel';
+import { AdminAccountHeader } from './AccountPanel';
 import { LoginPage } from '../../components/LoginPage';
 
 interface AdminScreenProps {
@@ -126,6 +119,20 @@ function RestoreIcon() {
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth="1.8"
+            />
+        </svg>
+    );
+}
+
+function CollapseIcon({ expanded }: { expanded: boolean }) {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <path
+                d={expanded ? 'm6 14 6-6 6 6' : 'm6 10 6 6 6-6'}
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
             />
         </svg>
     );
@@ -673,6 +680,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         createdBy: '',
     });
     const [activeSection, setActiveSection] = useState<ActiveSection>('programs');
+    const [deletedProgramsOpen, setDeletedProgramsOpen] = useState(false);
     const reportDateRangeRef = useRef<HTMLDivElement | null>(null);
 
     const handleAuthExpired = useCallback(() => {
@@ -1077,12 +1085,12 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         target.querySelector<HTMLElement>('select, input, button')?.focus();
     }
 
-    function renderSection() {
+    function renderSection(section: AdminSection) {
         if (!detail) {
             return null;
         }
 
-        if (activeSection === 'status') {
+        if (section === 'status') {
             return status ? (
                 <StatusPanel
                     status={status}
@@ -1099,7 +1107,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             );
         }
 
-        if (activeSection === 'streams') {
+        if (section === 'streams') {
             return (
                 <StreamsPanel
                     readOnly={false}
@@ -1112,7 +1120,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             );
         }
 
-        if (activeSection === 'translators') {
+        if (section === 'translators') {
             return (
                 <TranslatorsPanel
                     adminApi={adminApi}
@@ -1136,11 +1144,11 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             );
         }
 
-        if (activeSection === 'share') {
+        if (section === 'share') {
             return <QrPanel detail={detail} />;
         }
 
-        if (activeSection === 'readiness') {
+        if (section === 'readiness') {
             return (
                 <ReadinessPanel
                     readiness={readiness}
@@ -1151,7 +1159,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             );
         }
 
-        if (activeSection === 'reports') {
+        if (section === 'reports') {
             const computedRange = computeRange(dateRangePreset, dateRange.from, dateRange.to);
             const rangeActive =
                 dateRangePreset !== 'All time' &&
@@ -1295,7 +1303,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             );
         }
 
-        if (activeSection === 'overview') {
+        if (section === 'overview') {
             return (
                 <>
                     <div className="admin-kpi-strip">
@@ -1876,22 +1884,13 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                 {loadState === 'ready' ? (
                     <>
                         {detail === null ? (
-                            <AdminLayout
-                                sidebar={
-                                    <SidebarApp
-                                        activeSection={
-                                            activeSection === 'programs' ||
-                                            activeSection === 'deleted' ||
-                                            activeSection === 'users' ||
-                                            activeSection === 'account'
-                                                ? activeSection
-                                                : 'programs'
-                                        }
-                                        onNavigate={setActiveSection}
-                                        {...(identity ? { role: identity.role } : {})}
-                                    />
-                                }
-                            >
+                            <AdminLayout>
+                                <AdminAccountHeader
+                                    adminApi={adminApi}
+                                    username={identity?.username}
+                                    role={identity?.role}
+                                    onSignOut={handleSignOut}
+                                />
                                 {error && !createProgramOpen ? (
                                     <Alert color="red" role="alert">
                                         {error}
@@ -1904,37 +1903,67 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                             className="admin-section"
                                         >
                                             <div className="admin-section-head">
-                                                <h2>Recently deleted</h2>
+                                                <h2>
+                                                    Recently deleted{' '}
+                                                    <Badge
+                                                        className="admin-count-badge"
+                                                        color="gray"
+                                                        radius="sm"
+                                                        variant="outline"
+                                                    >
+                                                        {deletedPrograms.length}
+                                                    </Badge>
+                                                </h2>
+                                                <Button
+                                                    aria-label={
+                                                        deletedProgramsOpen
+                                                            ? 'Collapse recently deleted programs'
+                                                            : 'Expand recently deleted programs'
+                                                    }
+                                                    onClick={() =>
+                                                        setDeletedProgramsOpen((open) => !open)
+                                                    }
+                                                    px="xs"
+                                                    type="button"
+                                                    variant="subtle"
+                                                >
+                                                    <CollapseIcon expanded={deletedProgramsOpen} />
+                                                </Button>
                                             </div>
-                                            <ProgramGrid
-                                                adminUsers={adminUsers}
-                                                currentOwnerId={identity?.id ?? null}
-                                                currentOwnerName={identity?.username ?? null}
-                                                emptyMessage="No recently deleted programs."
-                                                programs={sortProgramsByDeletedAtDesc(
-                                                    deletedPrograms,
-                                                )}
-                                                onRestore={(programId: string) => {
-                                                    void restoreProgram(programId);
-                                                }}
-                                            />
+                                            {deletedProgramsOpen ? (
+                                                <ProgramGrid
+                                                    adminUsers={adminUsers}
+                                                    currentOwnerId={identity?.id ?? null}
+                                                    currentOwnerName={identity?.username ?? null}
+                                                    emptyMessage="No recently deleted programs."
+                                                    programs={sortProgramsByDeletedAtDesc(
+                                                        deletedPrograms,
+                                                    )}
+                                                    onRestore={(programId: string) => {
+                                                        void restoreProgram(programId);
+                                                    }}
+                                                />
+                                            ) : null}
                                         </section>
                                     ) : activeSection === 'users' && identity?.role === 'admin' ? (
                                         <UsersPanel
                                             adminApi={adminApi}
                                             currentUserId={identity?.id ?? ''}
                                         />
-                                    ) : activeSection === 'account' ? (
-                                        <AccountPanel
-                                            adminApi={adminApi}
-                                            username={identity?.username}
-                                            role={identity?.role}
-                                            onSignOut={handleSignOut}
-                                        />
                                     ) : (
                                         <section aria-label="Programs" className="admin-section">
                                             <div className="admin-section-head">
-                                                <h2>Programs</h2>
+                                                <h2>
+                                                    Programs{' '}
+                                                    <Badge
+                                                        className="admin-count-badge"
+                                                        color="gray"
+                                                        radius="sm"
+                                                        variant="outline"
+                                                    >
+                                                        {programs.length}
+                                                    </Badge>
+                                                </h2>
                                                 <Button
                                                     aria-label="Add program"
                                                     className="admin-add-program-button"
@@ -1962,9 +1991,26 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                                 <>
                                                     <section aria-label="Current programs">
                                                         <Stack gap="md" mt="md">
-                                                            <Title order={3}>
-                                                                Current programs
-                                                            </Title>
+                                                            <Group gap="sm" justify="flex-start">
+                                                                <Title order={3}>
+                                                                    Current programs
+                                                                </Title>
+                                                                <Badge
+                                                                    className="admin-count-badge"
+                                                                    color="gray"
+                                                                    radius="sm"
+                                                                    variant="outline"
+                                                                >
+                                                                    {
+                                                                        programs.filter(
+                                                                            (program) =>
+                                                                                !isPastProgram(
+                                                                                    program.endDate,
+                                                                                ),
+                                                                        ).length
+                                                                    }
+                                                                </Badge>
+                                                            </Group>
                                                             <ProgramGrid
                                                                 adminUsers={adminUsers}
                                                                 currentOwnerId={
@@ -1995,7 +2041,25 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                                     </section>
                                                     <section aria-label="Past programs">
                                                         <Stack gap="md" mt="xl">
-                                                            <Title order={3}>Past programs</Title>
+                                                            <Group gap="sm" justify="flex-start">
+                                                                <Title order={3}>
+                                                                    Past programs
+                                                                </Title>
+                                                                <Badge
+                                                                    className="admin-count-badge"
+                                                                    color="gray"
+                                                                    radius="sm"
+                                                                    variant="outline"
+                                                                >
+                                                                    {
+                                                                        programs.filter((program) =>
+                                                                            isPastProgram(
+                                                                                program.endDate,
+                                                                            ),
+                                                                        ).length
+                                                                    }
+                                                                </Badge>
+                                                            </Group>
                                                             <ProgramGrid
                                                                 adminUsers={adminUsers}
                                                                 currentOwnerId={
@@ -2027,31 +2091,110 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                             )}
                                         </section>
                                     )}
+                                    {activeSection !== 'deleted' ? (
+                                        <section
+                                            aria-label="Recently deleted"
+                                            className="admin-section"
+                                        >
+                                            <div className="admin-section-head">
+                                                <h2>
+                                                    Recently deleted{' '}
+                                                    <Badge
+                                                        className="admin-count-badge"
+                                                        color="gray"
+                                                        radius="sm"
+                                                        variant="outline"
+                                                    >
+                                                        {deletedPrograms.length}
+                                                    </Badge>
+                                                </h2>
+                                                <Button
+                                                    aria-label={
+                                                        deletedProgramsOpen
+                                                            ? 'Collapse recently deleted programs'
+                                                            : 'Expand recently deleted programs'
+                                                    }
+                                                    onClick={() =>
+                                                        setDeletedProgramsOpen((open) => !open)
+                                                    }
+                                                    px="xs"
+                                                    type="button"
+                                                    variant="subtle"
+                                                >
+                                                    <CollapseIcon expanded={deletedProgramsOpen} />
+                                                </Button>
+                                            </div>
+                                            {deletedProgramsOpen ? (
+                                                <ProgramGrid
+                                                    adminUsers={adminUsers}
+                                                    currentOwnerId={identity?.id ?? null}
+                                                    currentOwnerName={identity?.username ?? null}
+                                                    emptyMessage="No recently deleted programs."
+                                                    programs={sortProgramsByDeletedAtDesc(
+                                                        deletedPrograms,
+                                                    )}
+                                                    onRestore={(programId: string) => {
+                                                        void restoreProgram(programId);
+                                                    }}
+                                                />
+                                            ) : null}
+                                        </section>
+                                    ) : null}
+                                    {identity?.role === 'admin' && activeSection !== 'users' ? (
+                                        <UsersPanel
+                                            adminApi={adminApi}
+                                            currentUserId={identity.id}
+                                        />
+                                    ) : null}
                                 </div>
                             </AdminLayout>
                         ) : (
-                            <AdminLayout
-                                sidebar={
-                                    <Sidebar
-                                        programName={detail.program.name}
-                                        activeSection={activeSection}
-                                        onNavigate={(nextSection) => {
-                                            suppressRouteLoad.current = true;
-                                            setActiveSection(nextSection);
-                                            navigate(
-                                                adminProgramPath(detail.program.slug, nextSection),
-                                            );
-                                        }}
-                                        onBack={backToPrograms}
-                                    />
-                                }
-                            >
+                            <AdminLayout>
+                                <AdminAccountHeader
+                                    adminApi={adminApi}
+                                    username={identity?.username}
+                                    role={identity?.role}
+                                    onSignOut={handleSignOut}
+                                />
                                 {error ? (
                                     <Alert color="red" role="alert">
                                         {error}
                                     </Alert>
                                 ) : null}
-                                <div className="admin-content">{renderSection()}</div>
+                                <div className="admin-content">
+                                    <div className="admin-program-heading">
+                                        <Button
+                                            onClick={backToPrograms}
+                                            type="button"
+                                            variant="subtle"
+                                        >
+                                            ← Programs
+                                        </Button>
+                                        <Title order={1}>{detail.program.name}</Title>
+                                    </div>
+                                    {(
+                                        [
+                                            ['overview', 'Overview'],
+                                            ['status', 'Status'],
+                                            ['streams', 'Language streams'],
+                                            ['translators', 'Translators'],
+                                            ['share', 'Share / QR'],
+                                            ['readiness', 'Readiness'],
+                                            ['reports', 'Reports'],
+                                        ] as const
+                                    ).map(([section, title]) => (
+                                        <section
+                                            aria-label={title}
+                                            className="admin-continuous-section"
+                                            key={section}
+                                        >
+                                            <div className="admin-section-head">
+                                                <h2>{title}</h2>
+                                            </div>
+                                            {renderSection(section)}
+                                        </section>
+                                    ))}
+                                </div>
                             </AdminLayout>
                         )}
                         <AdminDialog
@@ -2283,24 +2426,30 @@ function ProgramCard({
     onOpen?: ((program: AdminProgram) => void) | undefined;
     onRestore?: ((programId: string) => void) | undefined;
 }) {
-    function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
-        if (!onOpen) return;
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            onOpen(program);
+    function handleClick(event: MouseEvent<HTMLAnchorElement>) {
+        if (
+            !onOpen ||
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+        ) {
+            return;
         }
+        event.preventDefault();
+        onOpen(program);
     }
 
     return (
         <Paper
             className={`admin-card admin-program-card${onOpen ? ' admin-card-clickable' : ''}`}
-            component="article"
-            onClick={onOpen ? () => onOpen(program) : undefined}
-            onKeyDown={onOpen ? handleKeyDown : undefined}
+            component={onOpen ? 'a' : 'article'}
+            href={onOpen ? adminProgramPath(program.slug) : undefined}
+            onClick={onOpen ? handleClick : undefined}
             p="lg"
             radius="md"
-            role={onOpen ? 'button' : undefined}
-            tabIndex={onOpen ? 0 : undefined}
             withBorder
         >
             <Text className="admin-program-slug" component="span" size="sm">
