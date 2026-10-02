@@ -1328,12 +1328,14 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                         onReorder={(ordered) => void reorderStreams(ordered)}
                         readOnly={false}
                     />
-                    <ApproverAccessPanel
-                        adminApi={adminApi}
-                        onAuthExpired={handleAuthExpired}
-                        programId={detail.program.id}
-                        readOnly={false}
-                    />
+                    {detail.program.accessControlEnabled ? (
+                        <ApproverAccessPanel
+                            adminApi={adminApi}
+                            onAuthExpired={handleAuthExpired}
+                            programId={detail.program.id}
+                            readOnly={false}
+                        />
+                    ) : null}
                 </>
             );
         }
@@ -1362,12 +1364,14 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                     onSubmit={updateSelectedProgram}
                     ownerOptions={adminUsers}
                 />
-                <ApproverAccessPanel
-                    adminApi={adminApi}
-                    onAuthExpired={handleAuthExpired}
-                    programId={detail.program.id}
-                    readOnly={false}
-                />
+                {detail.program.accessControlEnabled ? (
+                    <ApproverAccessPanel
+                        adminApi={adminApi}
+                        onAuthExpired={handleAuthExpired}
+                        programId={detail.program.id}
+                        readOnly={false}
+                    />
+                ) : null}
             </>
         );
     }

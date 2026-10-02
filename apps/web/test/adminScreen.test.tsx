@@ -99,7 +99,7 @@ function programList(): AdminProgramList {
                 name: 'Patna Event 2026',
                 startDate: '2027-07-01',
                 endDate: '2027-07-01',
-                accessControlEnabled: false,
+                accessControlEnabled: true,
                 createdBy: null,
                 createdAt: '2026-06-01T10:00:00.000Z',
                 updatedAt: '2026-06-01T10:00:00.000Z',
@@ -917,6 +917,22 @@ describe('AdminScreen', () => {
         await goToSection('Share / QR');
         expect(screen.getAllByRole('heading', { name: 'Share / QR' })).toHaveLength(1);
         expect(screen.getAllByRole('img', { name: 'Listener QR' })).toHaveLength(1);
+    });
+
+    it('hides approver access when listener approval is not required', async () => {
+        const detail = programDetail();
+        const api = makeApi({
+            getProgramDetail: vi.fn(async () => ({
+                ...detail,
+                program: { ...detail.program, accessControlEnabled: false },
+            })),
+        });
+
+        renderAdmin(<AdminScreen adminApi={api} />);
+        await openFirstProgram();
+
+        expect(screen.queryByRole('heading', { name: 'Approver access' })).not.toBeInTheDocument();
+        expect(api.getApproverAccess).not.toHaveBeenCalled();
     });
 
     it('shows the submitted custom approver password in the password-once dialog', async () => {
