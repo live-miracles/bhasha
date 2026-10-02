@@ -120,6 +120,55 @@ function isUniqueConstraint(error: unknown): boolean {
 export class TranslatorRepository {
     constructor(private readonly db: Database) {}
 
+    /**
+     * Languages own their translator credential. The legacy translator records
+     * are kept as an internal compatibility projection for existing session and
+     * event data; callers never need to manage a translator or an assignment.
+     */
+    async ensureAutomaticTranslator(
+        programId: string,
+        streamId: string,
+        languageName: string,
+        password: string,
+        passwordPepper: string,
+    ): Promise<void> {
+        const timestamp = nowIso();
+        const passwordHash = await this.passwordHash(password, passwordPepper);
+        const email = `${streamId}@language.invalid`;
+        this.db
+            .prepare(
+                `INSERT INTO translators (id, program_id, name, email, password_hash, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(program_id, id) DO UPDATE SET
+               name = excluded.name, password_hash = excluded.password_hash, updated_at = excluded.updated_at`,
+            )
+            .run(streamId, programId, languageName, email, passwordHash, timestamp, timestamp);
+        this.db
+            .prepare(
+                `INSERT OR IGNORE INTO translator_stream_assignments
+             (program_id, translator_id, language_stream_id, created_at)
+             VALUES (?, ?, ?, ?)`,
+            )
+            .run(programId, streamId, streamId, timestamp);
+    }
+
+    async authenticateByStream(
+        programId: string,
+        streamId: string,
+        password: string,
+        passwordPepper: string,
+    ): Promise<TranslatorRecord | null> {
+        const stream = this.db
+            .prepare(
+                `SELECT id, language_name as languageName FROM language_streams
+             WHERE program_id = ? AND id = ? AND is_active = 1`,
+            )
+            .get(programId, streamId) as { id: string; languageName: string } | undefined;
+        if (!stream) return null;
+        const translator = await this.authenticate(programId, streamId, password, passwordPepper);
+        return translator ? { ...translator, name: stream.languageName, email: '' } : null;
+    }
+
     async listAdminTranslators(programId: string): Promise<AdminProgramTranslatorRecord[]> {
         if (!(await this.programExists(programId))) {
             throw new ProgramNotFoundError();

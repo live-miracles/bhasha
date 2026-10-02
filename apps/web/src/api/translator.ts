@@ -54,7 +54,11 @@ export interface TranslatorHeartbeatResponse {
 }
 
 export interface TranslatorApi {
-    login(programSlug: string, email: string, password: string): Promise<TranslatorLoginResponse>;
+    login(
+        programSlug: string,
+        streamId: string,
+        password: string,
+    ): Promise<TranslatorLoginResponse>;
     session(): Promise<TranslatorSessionResponse>;
     realtimeToken(
         streamId: string,
@@ -80,10 +84,10 @@ export interface TranslatorHttpClient {
 
 export function createTranslatorApi(client: TranslatorHttpClient = apiClient): TranslatorApi {
     return {
-        login(programSlug, email, password) {
+        login(programSlug, streamId, password) {
             return client.post<TranslatorLoginResponse>('/api/translator/login', {
                 programSlug,
-                email,
+                streamId,
                 password,
             });
         },

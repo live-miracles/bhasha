@@ -129,6 +129,7 @@ type PublishState =
 type PublishErrorMessage = {
     title: string;
     detail: string;
+    canSwitch?: boolean;
 };
 
 const DEFAULT_METER_POLL_MS = 500;
@@ -261,6 +262,7 @@ export function TranslatorRoute({
     const [justRecovered, setJustRecovered] = useState(false);
     const [endedMessage, setEndedMessage] = useState<string | null>(null);
     const [loginEmail, setLoginEmail] = useState('');
+    const [loginLanguages, setLoginLanguages] = useState<AssignedStream[]>([]);
     const [loginPassword, setLoginPassword] = useState('');
     const [loginError, setLoginError] = useState<string | null>(null);
     const [meterLevel, setMeterLevel] = useState(0);
@@ -635,6 +637,7 @@ export function TranslatorRoute({
         void (async () => {
             try {
                 const metadata = await publicApi.fetchProgram(programSlug);
+                setLoginLanguages(metadata.streams);
                 if (!metadata.program.listenable) {
                     setAuth({ status: 'programExpired' });
                     return;
@@ -984,11 +987,7 @@ export function TranslatorRoute({
         event.preventDefault();
         setLoginError(null);
         try {
-            const response = await translatorApi.login(
-                programSlug,
-                loginEmail.trim(),
-                loginPassword,
-            );
+            const response = await translatorApi.login(programSlug, loginEmail, loginPassword);
             setLoginPassword('');
             applySession(response.translator, response.assignedStreams);
         } catch (error) {
@@ -996,13 +995,13 @@ export function TranslatorRoute({
                 error instanceof ApiError && error.code === 'program_not_found'
                     ? 'This program does not exist.'
                     : error instanceof ApiError && error.code === 'invalid_translator_credentials'
-                      ? 'Invalid email or password.'
+                      ? 'Invalid language or password.'
                       : 'Login failed. Please try again.',
             );
         }
     }
 
-    async function handleGoLive() {
+    async function handleGoLive(reclaim = false) {
         if (!selectedStreamId || isBusy(publish)) {
             return;
         }
@@ -1025,7 +1024,7 @@ export function TranslatorRoute({
             const session = await realtimeClient.publish({
                 streamId: selectedStreamId,
                 track,
-                reclaim: true,
+                reclaim,
             });
             onLive(session);
         } catch (error) {
@@ -1286,8 +1285,11 @@ export function TranslatorRoute({
                             <LoginPage
                                 eyebrow={programSlug}
                                 heading="Live translation"
-                                identityLabel="Email"
-                                identityType="email"
+                                identityLabel="Language"
+                                identityOptions={loginLanguages.map((stream) => ({
+                                    value: stream.id,
+                                    label: `${stream.nativeName} — ${stream.languageName}`,
+                                }))}
                                 identityValue={loginEmail}
                                 onIdentityChange={setLoginEmail}
                                 onPasswordChange={setLoginPassword}
@@ -1305,6 +1307,7 @@ export function TranslatorRoute({
                             assignedStreams={auth.assignedStreams}
                             muted={muted}
                             onGoLive={() => void handleGoLive()}
+                            onSwitchSession={() => void handleGoLive(true)}
                             onMute={handleMute}
                             onReconnect={() => void handleReconnect()}
                             onSelectStream={setSelectedStreamId}
@@ -1345,6 +1348,7 @@ function PublishPanel({
     muted,
     onSignOut,
     onGoLive,
+    onSwitchSession,
     onMute,
     onReconnect,
     onSelectStream,
@@ -1376,6 +1380,7 @@ function PublishPanel({
     muted: boolean;
     onSignOut: () => void;
     onGoLive: () => void;
+    onSwitchSession: () => void;
     onMute: (muted: boolean) => void;
     onReconnect: () => void;
     onSelectStream: (streamId: string) => void;
@@ -1456,6 +1461,7 @@ function PublishPanel({
                 elapsedMs={elapsedMs}
                 muted={muted}
                 publish={publish}
+                onSwitchSession={onSwitchSession}
                 silent={silent}
                 stale={stale}
                 recoveryExhausted={recoveryExhausted}
@@ -1768,6 +1774,7 @@ function PublishStatus({
     recoveryExhausted,
     justRecovered,
     endedMessage,
+    onSwitchSession,
 }: {
     elapsedLabel: string;
     elapsedMs: number;
@@ -1778,6 +1785,7 @@ function PublishStatus({
     recoveryExhausted: boolean;
     justRecovered: boolean;
     endedMessage: string | null;
+    onSwitchSession: () => void;
 }) {
     if (endedMessage) {
         return (
@@ -1896,6 +1904,15 @@ function PublishStatus({
                     <div className="translator-error-banner-content">
                         <p className="translator-error-banner-title">{publish.message.title}</p>
                         <p className="translator-error-banner-detail">{publish.message.detail}</p>
+                        {publish.message.canSwitch ? (
+                            <button
+                                className="translator-control-btn translator-control-btn--reconnect"
+                                onClick={onSwitchSession}
+                                type="button"
+                            >
+                                Switch session
+                            </button>
+                        ) : null}
                     </div>
                 </div>
                 <p className="translator-status translator-status--muted">
@@ -2076,8 +2093,9 @@ function messageForPublishError(error: unknown): PublishErrorMessage {
     if (error instanceof ApiError) {
         if (error.code === 'stream_already_published') {
             return {
-                title: 'This language is already being published.',
-                detail: 'Another device may be publishing it. Try reconnecting.',
+                title: 'This language is already in use.',
+                detail: 'Another translator is already live on this language.',
+                canSwitch: true,
             };
         }
         if (error.code === 'stream_not_assigned') {

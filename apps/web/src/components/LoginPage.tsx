@@ -1,5 +1,5 @@
 import { FormEvent, ReactNode, useId, useState } from 'react';
-import { Alert, Button, Paper, Stack, TextInput, Title } from '@mantine/core';
+import { Alert, Button, NativeSelect, Paper, Stack, TextInput, Title } from '@mantine/core';
 
 type LoginPageProps = {
     eyebrow?: ReactNode;
@@ -7,6 +7,7 @@ type LoginPageProps = {
     title: ReactNode;
     identityLabel: string;
     identityType?: 'email' | 'text';
+    identityOptions?: Array<{ value: string; label: string }>;
     identityValue: string;
     onIdentityChange: (value: string) => void;
     passwordValue: string;
@@ -48,6 +49,7 @@ export function LoginPage({
     title,
     identityLabel,
     identityType = 'text',
+    identityOptions,
     identityValue,
     onIdentityChange,
     passwordValue,
@@ -80,16 +82,27 @@ export function LoginPage({
                             </Alert>
                         ) : null}
                         <Stack mt="md">
-                            <TextInput
-                                aria-label={identityLabel}
-                                autoComplete="username"
-                                label={identityLabel}
-                                name="username"
-                                onChange={(event) => onIdentityChange(event.target.value)}
-                                required
-                                type={identityType}
-                                value={identityValue}
-                            />
+                            {identityOptions ? (
+                                <NativeSelect
+                                    aria-label={identityLabel}
+                                    data={identityOptions}
+                                    label={identityLabel}
+                                    onChange={(event) => onIdentityChange(event.target.value)}
+                                    required
+                                    value={identityValue}
+                                />
+                            ) : (
+                                <TextInput
+                                    aria-label={identityLabel}
+                                    autoComplete="username"
+                                    label={identityLabel}
+                                    name="username"
+                                    onChange={(event) => onIdentityChange(event.target.value)}
+                                    required
+                                    type={identityType}
+                                    value={identityValue}
+                                />
+                            )}
                             <TextInput
                                 aria-describedby={`${passwordInputId}-visibility`}
                                 aria-label={passwordLabel}

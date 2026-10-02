@@ -1703,6 +1703,15 @@ export async function handleAdminRoutes(
 
             try {
                 const stream = await programs.createStream(programId, input);
+                if (input.translatorPassword) {
+                    await translators.ensureAutomaticTranslator(
+                        programId,
+                        stream.id,
+                        stream.languageName,
+                        input.translatorPassword,
+                        env.TRANSLATOR_PASSWORD_PEPPER,
+                    );
+                }
                 // No explicit LiveKit room creation needed here (unlike the old
                 // Cloudflare-Realtime ensureStreamRelay, which had to synchronously
                 // provision relay state) -- the room is created implicitly the

@@ -27,7 +27,16 @@ const defaultProgramMetadata = {
         listenable: true,
         notListenableReason: null,
     },
-    streams: [],
+    streams: [
+        {
+            id: 'stream_hi',
+            languageName: 'Hindi',
+            nativeName: 'हिन्दी',
+            languageCode: 'hi',
+            displayOrder: 0,
+            isActive: true,
+        },
+    ],
     urls: {
         listenerUrl: '/program/patna-event-2026',
         translatorUrl: '/program/patna-event-2026/translate',
@@ -497,8 +506,8 @@ describe('TranslatorRoute', () => {
 
         renderRoute({ translatorApi: api });
 
-        fireEvent.change(await screen.findByLabelText('Email'), {
-            target: { value: 'hi@example.com' },
+        fireEvent.change(await screen.findByLabelText('Language'), {
+            target: { value: 'stream_hi' },
         });
         fireEvent.change(screen.getByLabelText('Password'), {
             target: { value: 'secret-pass' },
@@ -506,11 +515,7 @@ describe('TranslatorRoute', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
 
         await waitFor(() => {
-            expect(api.login).toHaveBeenCalledWith(
-                'patna-event-2026',
-                'hi@example.com',
-                'secret-pass',
-            );
+            expect(api.login).toHaveBeenCalledWith('patna-event-2026', 'stream_hi', 'secret-pass');
         });
         expect(await screen.findByRole('button', { name: 'Go live' })).toBeInTheDocument();
     });
@@ -535,15 +540,15 @@ describe('TranslatorRoute', () => {
 
         renderRoute({ translatorApi: api });
 
-        fireEvent.change(await screen.findByLabelText('Email'), {
-            target: { value: 'hi@example.com' },
+        fireEvent.change(await screen.findByLabelText('Language'), {
+            target: { value: 'stream_hi' },
         });
         fireEvent.change(screen.getByLabelText('Password'), {
             target: { value: 'wrong' },
         });
         fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
 
-        expect(await screen.findByText('Invalid email or password.')).toBeInTheDocument();
+        expect(await screen.findByText('Invalid language or password.')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
     });
 
@@ -567,8 +572,8 @@ describe('TranslatorRoute', () => {
 
         renderRoute({ translatorApi: api });
 
-        fireEvent.change(await screen.findByLabelText('Email'), {
-            target: { value: 'hi@example.com' },
+        fireEvent.change(await screen.findByLabelText('Language'), {
+            target: { value: 'stream_hi' },
         });
         fireEvent.change(screen.getByLabelText('Password'), {
             target: { value: 'secret-pass' },
@@ -604,7 +609,7 @@ describe('TranslatorRoute', () => {
         expect(realtime.publish).toHaveBeenCalledWith({
             streamId: 'stream_hi',
             track: lastPublishedTrack,
-            reclaim: true,
+            reclaim: false,
         });
     });
 
@@ -619,7 +624,7 @@ describe('TranslatorRoute', () => {
         expect(realtime.publish).toHaveBeenCalledTimes(1);
     });
 
-    it('surfaces stream_already_published and offers reconnect', async () => {
+    it('surfaces stream_already_published and offers a session switch', async () => {
         let attempts = 0;
         const realtime = realtimeClient({
             publish: vi.fn(async (input) => {
@@ -644,15 +649,13 @@ describe('TranslatorRoute', () => {
 
         fireEvent.click(await screen.findByRole('button', { name: 'Go live' }));
 
+        expect(await screen.findByText('This language is already in use.')).toBeInTheDocument();
         expect(
-            await screen.findByText('This language is already being published.'),
+            screen.getByText('Another translator is already live on this language.'),
         ).toBeInTheDocument();
-        expect(
-            screen.getByText('Another device may be publishing it. Try reconnecting.'),
-        ).toBeInTheDocument();
-        const reconnect = await screen.findByRole('button', { name: 'Reconnect' });
+        const switchSession = await screen.findByRole('button', { name: 'Switch session' });
 
-        fireEvent.click(reconnect);
+        fireEvent.click(switchSession);
         await screen.findByText('ON AIR');
         expect(realtime.publish).toHaveBeenCalledTimes(2);
     });
@@ -1057,7 +1060,7 @@ describe('TranslatorRoute', () => {
         expect(realtime.publish).toHaveBeenCalledWith({
             streamId: 'stream_hi',
             track: graph.publishedTrack,
-            reclaim: true,
+            reclaim: false,
         });
         expect(graph.publishedTrack).toBe(lastPublishedTrack);
         expect(graph.publishedTrack).not.toBe(lastTrack);
@@ -1845,9 +1848,7 @@ describe('TranslatorRoute', () => {
 
         await goLive();
 
-        expect(api.realtimeToken).toHaveBeenCalledWith('stream_hi', {
-            reclaim: true,
-        });
+        expect(api.realtimeToken).toHaveBeenCalledWith('stream_hi', {});
         const room = FakeRoom.instances[0]!;
         expect(room.connectCalls).toEqual([
             { url: 'wss://livekit.example.test', token: 'livekit-jwt' },

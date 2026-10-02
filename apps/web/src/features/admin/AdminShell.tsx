@@ -84,8 +84,6 @@ const NAV_ICON: Record<ProgramNavSection, ReactNode> = {
 const PROGRAM_NAV_ITEMS: Array<{ section: ProgramNavSection; label: string }> = [
     { section: 'overview', label: 'Overview' },
     { section: 'status', label: 'Status' },
-    { section: 'streams', label: 'Streams' },
-    { section: 'translators', label: 'Translators' },
     { section: 'share', label: 'Share / QR' },
     { section: 'readiness', label: 'Readiness' },
     { section: 'reports', label: 'Reports' },

@@ -641,6 +641,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     const [loginUsername, setLoginUsername] = useState('');
     const [loginPassword, setLoginPassword] = useState('');
     const [createProgramOpen, setCreateProgramOpen] = useState(false);
+    const [createLanguageOpen, setCreateLanguageOpen] = useState(false);
     const [editProgramOpen, setEditProgramOpen] = useState(false);
     const [identity, setIdentity] = useState<AdminMe | null>(null);
     const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
@@ -656,6 +657,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         languageName: '',
         languageCode: '',
         displayOrder: '0',
+        translatorPassword: '',
     });
     const [translatorForm, setTranslatorForm] = useState({
         email: '',
@@ -1101,10 +1103,9 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             return (
                 <StreamsPanel
                     readOnly={false}
-                    form={streamForm}
-                    onChange={setStreamForm}
-                    onSubmit={submitStream}
                     streams={detail.streams}
+                    onAdd={() => setCreateLanguageOpen(true)}
+                    onReorder={(ordered) => void reorderStreams(ordered)}
                     onDelete={(stream) => void deleteStream(stream)}
                     onToggle={(stream) => void toggleStream(stream)}
                 />
@@ -1294,6 +1295,49 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             );
         }
 
+        if (activeSection === 'overview') {
+            return (
+                <>
+                    <div className="admin-kpi-strip">
+                        <KpiTile
+                            label="Active listeners"
+                            value={status ? String(status.totalActiveListeners) : '—'}
+                        />
+                    </div>
+                    <ProgramDetailForm
+                        currentOwnerId={identity?.id ?? null}
+                        currentOwnerName={identity?.username ?? null}
+                        form={editForm}
+                        isAdmin={identity?.role === 'admin'}
+                        onEdit={() => {
+                            setError(null);
+                            setEditProgramOpen(true);
+                        }}
+                        readOnly
+                        slugLocked={false}
+                        onChange={setEditForm}
+                        onDelete={() => void deleteSelectedProgram()}
+                        onSubmit={updateSelectedProgram}
+                        ownerOptions={adminUsers}
+                    />
+                    <StreamsPanel
+                        streams={detail.streams}
+                        onDelete={(stream) => void deleteStream(stream)}
+                        onToggle={(stream) => void toggleStream(stream)}
+                        onAdd={() => setCreateLanguageOpen(true)}
+                        onReorder={(ordered) => void reorderStreams(ordered)}
+                        readOnly={false}
+                    />
+                    <ApproverAccessPanel
+                        adminApi={adminApi}
+                        onAuthExpired={handleAuthExpired}
+                        programId={detail.program.id}
+                        readOnly={false}
+                    />
+                </>
+            );
+        }
+
         return (
             <>
                 <div className="admin-kpi-strip">
@@ -1460,10 +1504,17 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             await adminApi.createStream(selectedProgramId, {
                 languageName: streamForm.languageName,
                 languageCode: streamForm.languageCode,
-                displayOrder: Number(streamForm.displayOrder),
+                displayOrder: detail?.streams.length ?? 0,
                 isActive: true,
+                translatorPassword: streamForm.translatorPassword,
             });
-            setStreamForm({ languageName: '', languageCode: '', displayOrder: '0' });
+            setStreamForm({
+                languageName: '',
+                languageCode: '',
+                displayOrder: '0',
+                translatorPassword: '',
+            });
+            setCreateLanguageOpen(false);
             await refreshDetail({ includeStatus: true });
         } catch (streamError) {
             setError(errorCode(streamError));
@@ -1482,6 +1533,21 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             await refreshDetail({ includeStatus: true });
         } catch (streamError) {
             setError(errorCode(streamError));
+        }
+    }
+
+    async function reorderStreams(orderedStreams: AdminStream[]) {
+        if (!selectedProgramId) return;
+        setError(null);
+        try {
+            await Promise.all(
+                orderedStreams.map((stream, index) =>
+                    adminApi.updateStream(selectedProgramId, stream.id, { displayOrder: index }),
+                ),
+            );
+            await refreshDetail({ includeStatus: true });
+        } catch (reorderError) {
+            setError(errorCode(reorderError));
         }
     }
 
@@ -2000,6 +2066,20 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                 ownerOptions={adminUsers}
                                 onSubmit={submitProgram}
                                 readOnly={false}
+                            />
+                        </AdminDialog>
+                        <AdminDialog
+                            onClose={() => {
+                                setError(null);
+                                setCreateLanguageOpen(false);
+                            }}
+                            open={createLanguageOpen}
+                            title="Add language"
+                        >
+                            <LanguageCreateForm
+                                form={streamForm}
+                                onChange={setStreamForm}
+                                onSubmit={submitStream}
                             />
                         </AdminDialog>
                         <AdminDialog
@@ -2900,121 +2980,137 @@ function StatusPanel({
     );
 }
 
-function StreamsPanel({
+function LanguageCreateForm({
     form,
-    streams,
     onChange,
     onSubmit,
+}: {
+    form: {
+        languageName: string;
+        languageCode: string;
+        displayOrder: string;
+        translatorPassword: string;
+    };
+    onChange: (form: {
+        languageName: string;
+        languageCode: string;
+        displayOrder: string;
+        translatorPassword: string;
+    }) => void;
+    onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+    return (
+        <form onSubmit={onSubmit}>
+            <Stack gap="md">
+                <NativeSelect
+                    aria-label="Language"
+                    label="Language"
+                    onChange={(event) => {
+                        const languageCode = event.target.value;
+                        onChange({
+                            ...form,
+                            languageCode,
+                            languageName: getLanguageName(languageCode) ?? '',
+                        });
+                    }}
+                    required
+                    value={form.languageCode}
+                >
+                    <option disabled value="">
+                        Select language
+                    </option>
+                    {SUPPORTED_LANGUAGES.map((language) => (
+                        <option key={language.code} value={language.code}>
+                            {language.name} ({language.code})
+                        </option>
+                    ))}
+                </NativeSelect>
+                <TextInput
+                    aria-label="Translator password"
+                    label="Translator password"
+                    onChange={(event) =>
+                        onChange({ ...form, translatorPassword: event.target.value })
+                    }
+                    required
+                    type="password"
+                    value={form.translatorPassword}
+                />
+                <Button disabled={!form.languageCode} type="submit">
+                    Add language
+                </Button>
+            </Stack>
+        </form>
+    );
+}
+
+function StreamsPanel({
+    streams,
+    onAdd,
+    onReorder,
     onDelete,
     onToggle,
     readOnly,
 }: {
-    form: { languageName: string; languageCode: string; displayOrder: string };
     streams: AdminStream[];
-    onChange: (form: { languageName: string; languageCode: string; displayOrder: string }) => void;
-    onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+    onAdd: () => void;
+    onReorder: (streams: AdminStream[]) => void;
     onDelete: (stream: AdminStream) => void;
     onToggle: (stream: AdminStream) => void;
     readOnly: boolean;
 }) {
+    const [draggedId, setDraggedId] = useState<string | null>(null);
+
+    function moveBefore(targetId: string) {
+        if (!draggedId || draggedId === targetId) return;
+        const next = [...streams];
+        const from = next.findIndex((stream) => stream.id === draggedId);
+        const to = next.findIndex((stream) => stream.id === targetId);
+        if (from < 0 || to < 0) return;
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved!);
+        setDraggedId(null);
+        onReorder(next);
+    }
+
     return (
         <section className="admin-subsection">
-            <Title order={2}>Streams</Title>
-            {readOnly ? null : (
-                <Paper p="md" radius="md" withBorder>
-                    <form onSubmit={onSubmit}>
-                        <Stack gap="md">
-                            <SimpleGrid cols={{ base: 1, sm: 3 }}>
-                                <NativeSelect
-                                    aria-label="Stream language"
-                                    label="Stream language"
-                                    onChange={(event) => {
-                                        const languageCode = event.target.value;
-                                        onChange({
-                                            ...form,
-                                            languageCode,
-                                            languageName: getLanguageName(languageCode) ?? '',
-                                        });
-                                    }}
-                                    required
-                                    value={form.languageCode}
-                                >
-                                    <option disabled value="">
-                                        Select language
-                                    </option>
-                                    <optgroup label="Indian">
-                                        {SUPPORTED_LANGUAGES.filter(
-                                            (language) => language.region === 'Indian',
-                                        ).map((language) => (
-                                            <option key={language.code} value={language.code}>
-                                                {language.name} ({language.code})
-                                            </option>
-                                        ))}
-                                    </optgroup>
-                                    <optgroup label="European">
-                                        {SUPPORTED_LANGUAGES.filter(
-                                            (language) => language.region === 'European',
-                                        ).map((language) => (
-                                            <option key={language.code} value={language.code}>
-                                                {language.name} ({language.code})
-                                            </option>
-                                        ))}
-                                    </optgroup>
-                                    <optgroup label="East Asian">
-                                        {SUPPORTED_LANGUAGES.filter(
-                                            (language) => language.region === 'East Asian',
-                                        ).map((language) => (
-                                            <option key={language.code} value={language.code}>
-                                                {language.name} ({language.code})
-                                            </option>
-                                        ))}
-                                    </optgroup>
-                                    <optgroup label="Southeast Asian">
-                                        {SUPPORTED_LANGUAGES.filter(
-                                            (language) => language.region === 'Southeast Asian',
-                                        ).map((language) => (
-                                            <option key={language.code} value={language.code}>
-                                                {language.name} ({language.code})
-                                            </option>
-                                        ))}
-                                    </optgroup>
-                                </NativeSelect>
-                                <TextInput
-                                    aria-label="Stream display order"
-                                    label="Stream display order"
-                                    onChange={(event) =>
-                                        onChange({ ...form, displayOrder: event.target.value })
-                                    }
-                                    type="number"
-                                    required
-                                    value={form.displayOrder}
-                                />
-                                <Group align="end">
-                                    <Button disabled={!form.languageCode} type="submit">
-                                        Create stream
-                                    </Button>
-                                </Group>
-                            </SimpleGrid>
-                        </Stack>
-                    </form>
-                </Paper>
-            )}
+            <Group justify="space-between">
+                <Title order={2}>Languages</Title>
+                {readOnly ? null : (
+                    <Button
+                        aria-label="Add language"
+                        onClick={onAdd}
+                        size="compact-sm"
+                        type="button"
+                    >
+                        <PlusIcon />
+                    </Button>
+                )}
+            </Group>
+            {streams.length > 1 ? (
+                <p className="admin-hint">Drag and drop languages to change their order.</p>
+            ) : null}
             <table className="admin-table">
                 <thead>
                     <tr>
                         <th>Language</th>
-                        <th>Order</th>
                         {readOnly ? null : <th>Active</th>}
                         {readOnly ? null : <th>Delete</th>}
                     </tr>
                 </thead>
                 <tbody>
                     {streams.map((stream) => (
-                        <tr key={stream.id}>
+                        <tr
+                            draggable={!readOnly}
+                            key={stream.id}
+                            onDragEnd={() => setDraggedId(null)}
+                            onDragOver={(event) => event.preventDefault()}
+                            onDragStart={() => setDraggedId(stream.id)}
+                            onDrop={() => moveBefore(stream.id)}
+                        >
                             <td>
                                 {stream.languageName} ({stream.languageCode})
                             </td>
-                            <td>{stream.displayOrder ?? ''}</td>
                             {readOnly ? null : (
                                 <td>
                                     <Button
@@ -3037,7 +3133,7 @@ function StreamsPanel({
                                         type="button"
                                         variant="subtle"
                                     >
-                                        Delete {stream.languageName} stream
+                                        Delete {stream.languageName} language
                                     </Button>
                                 </td>
                             )}

@@ -2464,8 +2464,8 @@ describe('AdminScreen', () => {
         expect(within(select).getByRole('option', { name: 'Hindi (hi)' })).toBeInTheDocument();
         expect(within(select).getByRole('option', { name: 'Kannada (kn)' })).toBeInTheDocument();
         expect(within(select).getByRole('option', { name: 'Portuguese (pt)' })).toBeInTheDocument();
-        expect(within(select).getByRole('option', { name: 'Mandarin (zh)' })).toBeInTheDocument();
-        expect(within(select).getByRole('option', { name: 'Filipino (tl)' })).toBeInTheDocument();
+        expect(within(select).getByRole('option', { name: 'Chinese (zh)' })).toBeInTheDocument();
+        expect(within(select).getByRole('option', { name: 'Filipino (fil)' })).toBeInTheDocument();
         expect(select.querySelectorAll('optgroup')).toHaveLength(4);
 
         expect(screen.getByRole('button', { name: 'Create stream' })).toBeDisabled();

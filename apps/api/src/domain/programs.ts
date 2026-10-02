@@ -24,6 +24,7 @@ export interface CreateStreamInput {
     languageCode: string;
     displayOrder: number;
     isActive: boolean;
+    translatorPassword?: string;
 }
 
 export interface UpdateStreamInput {
@@ -200,6 +201,9 @@ export function parseCreateStreamInput(input: unknown): CreateStreamInput {
         languageCode: language.code,
         displayOrder: parseDisplayOrder(data.displayOrder),
         isActive: parseOptionalBoolean(data.isActive, 'isActive'),
+        ...(data.translatorPassword !== undefined
+            ? { translatorPassword: requireString(data.translatorPassword, 'translatorPassword') }
+            : {}),
     };
 }
 

@@ -43,7 +43,8 @@ import {
 interface TranslatorLoginInput {
     programId?: string;
     programSlug?: string;
-    email: string;
+    email?: string;
+    streamId?: string;
     password: string;
 }
 
@@ -104,7 +105,7 @@ export async function handleTranslatorRoutes(
             ensureLoginThrottleTable(env.DB, throttleTable);
             const buckets = await translatorLoginBuckets(
                 resolvedProgram.programId,
-                input.email,
+                input.streamId ?? input.email ?? '',
                 clientIp(request),
                 env.TRANSLATOR_SESSION_SECRET,
             );
@@ -115,12 +116,21 @@ export async function handleTranslatorRoutes(
                 return translatorLoginResponse(response);
             }
 
-            const translator = await translators.authenticate(
-                resolvedProgram.programId,
-                input.email,
-                input.password,
-                env.TRANSLATOR_PASSWORD_PEPPER,
-            );
+            const translator = input.streamId
+                ? await translators.authenticateByStream(
+                      resolvedProgram.programId,
+                      input.streamId,
+                      input.password,
+                      env.TRANSLATOR_PASSWORD_PEPPER,
+                  )
+                : input.email
+                  ? await translators.authenticate(
+                        resolvedProgram.programId,
+                        input.email,
+                        input.password,
+                        env.TRANSLATOR_PASSWORD_PEPPER,
+                    )
+                  : null;
             if (!translator) {
                 const failure = recordLoginFailure(env.DB, buckets, throttleTable);
                 if (failure.locked) {
@@ -184,7 +194,7 @@ export async function handleTranslatorRoutes(
     }
 
     if (request.method === 'POST' && url.pathname === '/api/translator/realtime/token') {
-        return handleTranslatorRealtimeToken(request, env, translators);
+        return handleTranslatorRealtimeToken(request, env, translators, roomService);
     }
 
     if (request.method === 'POST' && url.pathname === '/api/translator/realtime/stop') {
@@ -372,6 +382,7 @@ async function handleTranslatorRealtimeToken(
     request: Request,
     env: Env,
     translators: TranslatorRepository,
+    roomService: RoomServiceClient,
 ): Promise<Response> {
     const input = await parseRealtimeTokenInput(request);
     if (input instanceof Response) {
@@ -409,6 +420,7 @@ async function handleTranslatorRealtimeToken(
 
         const reservation = await reservePublisherForTranslator({
             realtime,
+            roomService,
             programId: auth.translator.programId,
             streamId: input.streamId,
             translatorId: auth.translator.id,
@@ -453,6 +465,7 @@ async function handleTranslatorRealtimeToken(
 
 async function reservePublisherForTranslator(input: {
     realtime: RealtimeStreamRepository;
+    roomService: RoomServiceClient;
     programId: string;
     streamId: string;
     translatorId: string;
@@ -476,11 +489,14 @@ async function reservePublisherForTranslator(input: {
             throw error;
         }
 
-        // No LiveKit removeParticipant call here -- the reclaiming translator is
-        // the same identity (`translator:${translatorId}`) that will immediately
-        // re-mint a token for the same room, so there's no stray participant to
-        // kick; just free the DB reservation the old session held so a reclaim
-        // can proceed.
+        // Explicitly remove the old participant before replacing the reservation.
+        // This makes the switch deterministic even if LiveKit briefly allows the
+        // replacement connection to coexist with the old one.
+        await removeParticipantBestEffort(
+            input.roomService,
+            roomNameForStream(input.programId, input.streamId),
+            translatorIdentity(input.translatorId),
+        );
         await input.realtime.clearPublisher({
             publishSessionId: blocking.id,
             translatorId: blocking.translatorId,
@@ -562,15 +578,17 @@ async function parseLoginInput(request: Request): Promise<TranslatorLoginInput |
     const programId = readTrimmedString(body, 'programId');
     const programSlug = readTrimmedString(body, 'programSlug');
     const email = readLoginEmail(body);
+    const streamId = readTrimmedString(body, 'streamId');
     const password = readPassword(body);
-    if ((!programId && !programSlug) || !email || !password) {
+    if ((!programId && !programSlug) || (!email && !streamId) || !password) {
         return null;
     }
 
     return {
         ...(programId ? { programId } : {}),
         ...(programSlug ? { programSlug } : {}),
-        email,
+        ...(email ? { email } : {}),
+        ...(streamId ? { streamId } : {}),
         password,
     };
 }

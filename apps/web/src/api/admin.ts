@@ -288,6 +288,7 @@ export interface CreateStreamPayload {
     languageCode: string;
     displayOrder: number;
     isActive: boolean;
+    translatorPassword?: string;
 }
 
 export interface UpdateStreamPayload {

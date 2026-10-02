@@ -52,6 +52,8 @@
     --adm-draft-bg: #f0ecf8;
     --adm-publishing-border: #5e7f4e80;
     --adm-publishing-shadow: #5e7f4e2e;
+    --adm-card-bg: #ffffff;
+    --adm-table-row-bg: #ffffff;
     --color-live: var(--lp-live);
 
     color: #202124;
@@ -116,6 +118,8 @@
     --adm-success-bg: #263521;
     --adm-draft: #c5a5eb;
     --adm-draft-bg: #302641;
+    --adm-card-bg: #1a1d21;
+    --adm-table-row-bg: #202327;
     color-scheme: dark;
 }
 
@@ -1709,7 +1713,7 @@ body {
 .admin-subsection {
     border: 1px solid #d2d9e1;
     border-radius: 8px;
-    background: #ffffff;
+    background: var(--adm-card-bg);
 }
 
 .admin-section {
@@ -2305,7 +2309,7 @@ body {
 .admin-table {
     width: 100%;
     border-collapse: collapse;
-    background: var(--hp-white);
+    background: var(--adm-table-row-bg);
     border: 1px solid var(--adm-border);
     border-radius: 12px;
     overflow: hidden;
@@ -2326,6 +2330,11 @@ body {
     border-top: 1px solid var(--adm-border);
     color: var(--hp-charcoal);
     font-size: 14px;
+    background: var(--adm-table-row-bg);
+}
+
+.admin-table td .mantine-Button-root {
+    color: var(--adm-danger);
 }
 
 .admin-link-danger {
