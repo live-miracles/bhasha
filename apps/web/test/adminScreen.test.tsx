@@ -2216,7 +2216,7 @@ describe('AdminScreen', () => {
         expect(panel).toHaveTextContent('Not available');
     });
 
-    it('renders QR from the exact payload, exposes the URL, pins SVG filename, and prints the same payload', async () => {
+    it('renders QR from the exact payload and downloads a branded PNG', async () => {
         const createObjectURL = vi.fn((_blob: Blob) => 'blob:qr');
         const revokeObjectURL = vi.fn();
         Object.defineProperty(URL, 'createObjectURL', {
@@ -2227,15 +2227,27 @@ describe('AdminScreen', () => {
             configurable: true,
             value: revokeObjectURL,
         });
-        const open = vi.fn(() => ({
-            document: {
-                close: vi.fn(),
-                write: vi.fn(),
-            },
-            focus: vi.fn(),
-            print: vi.fn(),
-        }));
-        vi.spyOn(window, 'open').mockImplementation(open as never);
+        const context = {
+            font: '',
+            fillStyle: '',
+            textAlign: '',
+            measureText: vi.fn(() => ({ width: 10 })),
+            fillRect: vi.fn(),
+            fillText: vi.fn(),
+            drawImage: vi.fn(),
+        } as unknown as CanvasRenderingContext2D;
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context);
+        vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => {
+            callback(new Blob(['png'], { type: 'image/png' }));
+        });
+        class MockImage {
+            onload: (() => void) | null = null;
+            onerror: (() => void) | null = null;
+            set src(_value: string) {
+                this.onload?.();
+            }
+        }
+        vi.stubGlobal('Image', MockImage);
 
         renderAdmin(<AdminScreen adminApi={makeApi()} />);
         await openFirstProgram();
@@ -2273,21 +2285,25 @@ describe('AdminScreen', () => {
 
         fireEvent.click(screen.getAllByRole('button', { name: 'Download QR SVG' })[0]!);
         expect(createdAnchors[0]).toHaveAttribute('download', 'patna-event-2026-listener-qr.svg');
-        expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
-        const downloadedBlob = createObjectURL.mock.calls[0]?.[0];
-        expect(downloadedBlob).toBeInstanceOf(Blob);
-        if (!downloadedBlob) {
-            throw new Error('QR download did not create a blob');
-        }
-        const downloadedSvg = await downloadedBlob.text();
-        expect(downloadedSvg).toContain('data-qr-value="https://bhasha.test/patna-event-2026"');
-        expect(downloadedSvg).not.toContain('<text');
+        expect(createObjectURL.mock.calls[0]?.[0]).toMatchObject({ type: 'image/svg+xml' });
 
-        fireEvent.click(screen.getAllByRole('button', { name: 'Print QR' })[0]!);
-        const popup = open.mock.results[0]?.value;
-        expect(popup.document.write).toHaveBeenCalledWith(
-            expect.stringContaining('https://bhasha.test/patna-event-2026'),
+        fireEvent.click(screen.getAllByRole('button', { name: 'Download PNG' })[0]!);
+        await waitFor(() => {
+            expect(createdAnchors[1]).toHaveAttribute(
+                'download',
+                'patna-event-2026-listener-qr.png',
+            );
+        });
+        expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+        expect(createObjectURL.mock.calls[1]?.[0]).toMatchObject({ type: 'image/png' });
+        expect(context.fillText).toHaveBeenCalledWith('Patna Event 2026', 360, expect.any(Number));
+        expect(context.fillText).toHaveBeenCalledWith('Listener QR', 360, expect.any(Number));
+        expect(context.fillText).toHaveBeenCalledWith(
+            'https://bhasha.test/patna-event-2026',
+            360,
+            expect.any(Number),
         );
+        expect(context.drawImage).toHaveBeenCalled();
     });
 
     it('shows the translator URL on the Translators tab', async () => {

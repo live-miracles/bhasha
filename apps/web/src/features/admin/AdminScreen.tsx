@@ -530,12 +530,8 @@ type EndSessionConfirmState =
           translator: AdminTranslator;
       };
 
-function escapeHtml(value: string): string {
-    return value
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;');
+function pngFilename(filename: string): string {
+    return filename.replace(/\.[^.]+$/, '') + '.png';
 }
 
 function svgFilename(filename: string): string {
@@ -548,6 +544,14 @@ function translatorSvgFilename(filename: string): string {
 
 function approverSvgFilename(filename: string): string {
     return svgFilename(filename).replace(/\.svg$/, '-approver.svg');
+}
+
+function translatorPngFilename(filename: string): string {
+    return pngFilename(filename).replace(/\.png$/, '-translator.png');
+}
+
+function approverPngFilename(filename: string): string {
+    return pngFilename(filename).replace(/\.png$/, '-approver.png');
 }
 
 function editFormFromProgram(program: AdminProgram) {
@@ -2836,7 +2840,39 @@ function ApproverPasswordOnceDialog({
     );
 }
 
-function QrCard({ title, value, filename }: { title: string; value: string; filename: string }) {
+function wrapCanvasText(
+    context: CanvasRenderingContext2D,
+    text: string,
+    maxWidth: number,
+): string[] {
+    const lines: string[] = [];
+    let line = '';
+    for (const character of text) {
+        const candidate = line + character;
+        if (line && context.measureText(candidate).width > maxWidth) {
+            lines.push(line);
+            line = character;
+        } else {
+            line = candidate;
+        }
+    }
+    if (line) lines.push(line);
+    return lines;
+}
+
+function QrCard({
+    programTitle,
+    title,
+    value,
+    svgDownloadFilename,
+    pngDownloadFilename,
+}: {
+    programTitle: string;
+    title: string;
+    value: string;
+    svgDownloadFilename: string;
+    pngDownloadFilename: string;
+}) {
     const qrRef = useRef<HTMLDivElement | null>(null);
 
     function currentQrSvg(): string {
@@ -2847,26 +2883,82 @@ function QrCard({ title, value, filename }: { title: string; value: string; file
         return new XMLSerializer().serializeToString(svg);
     }
 
-    function downloadQr() {
+    function downloadSvg() {
         const svg = currentQrSvg();
+        if (!svg) return;
         const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
         const link = document.createElement('a');
         link.href = url;
-        link.download = filename;
+        link.download = svgDownloadFilename;
         link.click();
         URL.revokeObjectURL(url);
     }
 
-    function printQr() {
-        const popup = window.open('', `admin-${filename}`, 'width=420,height=520');
-        if (!popup) {
-            return;
-        }
+    async function downloadPng() {
         const svg = currentQrSvg();
-        popup.document.write(`<html><body><p>${escapeHtml(value)}</p>${svg}</body></html>`);
-        popup.document.close();
-        popup.focus();
-        popup.print();
+        if (!svg) return;
+
+        const svgUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+        try {
+            const image = new Image();
+            await new Promise<void>((resolve, reject) => {
+                image.onload = () => resolve();
+                image.onerror = () => reject(new Error('Unable to render QR code'));
+                image.src = svgUrl;
+            });
+
+            const canvas = document.createElement('canvas');
+            const width = 720;
+            const qrSize = 480;
+            const context = canvas.getContext('2d');
+            if (!context) return;
+
+            context.font = '700 36px sans-serif';
+            const programTitleLines = wrapCanvasText(context, programTitle, width - 80);
+            context.font = '500 24px sans-serif';
+            const linkLines = wrapCanvasText(context, value, width - 80);
+            const topPadding = 56;
+            const titleLineHeight = 44;
+            const typeLineHeight = 34;
+            const qrTop =
+                topPadding + programTitleLines.length * titleLineHeight + 28 + typeLineHeight + 12;
+            const linkTop = qrTop + qrSize + 42;
+            canvas.width = width;
+            canvas.height = linkTop + linkLines.length * 30 + 46;
+
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.fillStyle = '#111111';
+            context.textAlign = 'center';
+            context.font = '700 36px sans-serif';
+            programTitleLines.forEach((line, index) => {
+                context.fillText(line, width / 2, topPadding + index * titleLineHeight);
+            });
+            context.font = '500 24px sans-serif';
+            context.fillText(
+                title,
+                width / 2,
+                topPadding + programTitleLines.length * titleLineHeight + 28,
+            );
+            context.drawImage(image, (width - qrSize) / 2, qrTop, qrSize, qrSize);
+            context.font = '500 24px sans-serif';
+            linkLines.forEach((line, index) => {
+                context.fillText(line, width / 2, linkTop + index * 30);
+            });
+
+            const blob = await new Promise<Blob | null>((resolve) =>
+                canvas.toBlob(resolve, 'image/png'),
+            );
+            if (!blob) return;
+            const downloadUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = pngDownloadFilename;
+            link.click();
+            URL.revokeObjectURL(downloadUrl);
+        } finally {
+            URL.revokeObjectURL(svgUrl);
+        }
     }
 
     return (
@@ -2884,11 +2976,11 @@ function QrCard({ title, value, filename }: { title: string; value: string; file
                     {value}
                 </Text>
                 <Group>
-                    <Button onClick={downloadQr} type="button" variant="default">
+                    <Button onClick={downloadSvg} type="button" variant="default">
                         Download QR SVG
                     </Button>
-                    <Button onClick={printQr} type="button" variant="default">
-                        Print QR
+                    <Button onClick={() => void downloadPng()} type="button" variant="default">
+                        Download PNG
                     </Button>
                 </Group>
             </Stack>
@@ -2902,17 +2994,23 @@ function QrPanel({ detail }: { detail: AdminProgramDetail }) {
             <Title order={2}>Share / QR</Title>
             <SimpleGrid cols={{ base: 1, sm: 3 }} mt="md">
                 <QrCard
-                    filename={svgFilename(detail.suggestedQrFilename)}
+                    programTitle={detail.program.name}
+                    svgDownloadFilename={svgFilename(detail.suggestedQrFilename)}
+                    pngDownloadFilename={pngFilename(detail.suggestedQrFilename)}
                     title="Listener QR"
                     value={detail.qrPayload}
                 />
                 <QrCard
-                    filename={translatorSvgFilename(detail.suggestedQrFilename)}
+                    programTitle={detail.program.name}
+                    svgDownloadFilename={translatorSvgFilename(detail.suggestedQrFilename)}
+                    pngDownloadFilename={translatorPngFilename(detail.suggestedQrFilename)}
                     title="Translator QR"
                     value={detail.urls.translatorUrl}
                 />
                 <QrCard
-                    filename={approverSvgFilename(detail.suggestedQrFilename)}
+                    programTitle={detail.program.name}
+                    svgDownloadFilename={approverSvgFilename(detail.suggestedQrFilename)}
+                    pngDownloadFilename={approverPngFilename(detail.suggestedQrFilename)}
                     title="Approver QR"
                     value={detail.urls.approverUrl}
                 />
