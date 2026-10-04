@@ -723,6 +723,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     const [activeSection, setActiveSection] = useState<ActiveSection>('programs');
     const [deletedProgramsOpen, setDeletedProgramsOpen] = useState(false);
     const reportDateRangeRef = useRef<HTMLDivElement | null>(null);
+    const statusInFlight = useRef(false);
 
     const handleAuthExpired = useCallback(() => {
         // Invalidate any auth/list probes still resolving. React can have an
@@ -972,6 +973,52 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         };
     }, [activeSection, selectedProgramId, loadState]);
 
+    const refetchStatus = useCallback(async () => {
+        if (!selectedProgramId || statusInFlight.current) {
+            return;
+        }
+        statusInFlight.current = true;
+        try {
+            const statusResponse = await adminApi.getProgramStatus(selectedProgramId);
+            setStatus(statusResponse);
+        } catch (statusError) {
+            if (!handleAuthError(statusError)) {
+                setError(errorCode(statusError));
+            }
+        } finally {
+            statusInFlight.current = false;
+        }
+    }, [adminApi, handleAuthError, selectedProgramId]);
+
+    useEffect(() => {
+        if (loadState !== 'ready' || activeSection !== 'status' || !selectedProgramId) {
+            return;
+        }
+        let cancelled = false;
+
+        const refreshVisibleStatus = () => {
+            if (cancelled || document.hidden) {
+                return;
+            }
+            void refetchStatus();
+        };
+
+        refreshVisibleStatus();
+        const intervalId = window.setInterval(refreshVisibleStatus, 10_000);
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                refreshVisibleStatus();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            cancelled = true;
+            window.clearInterval(intervalId);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [activeSection, loadState, refetchStatus, selectedProgramId]);
+
     useEffect(() => {
         if (loadState !== 'ready') {
             return;
@@ -1099,15 +1146,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         }
 
         if (section === 'status') {
-            return status ? (
-                <StatusPanel
-                    status={status}
-                    onRefresh={() => void refreshStatus()}
-                    refreshing={refreshing}
-                />
-            ) : (
-                <p>Loading status…</p>
-            );
+            return status ? <StatusPanel status={status} /> : <p>Loading status…</p>;
         }
 
         if (section === 'languages') {
@@ -3029,20 +3068,12 @@ function adminStreamStateLabel(state: 'live' | 'silent' | 'offline'): string {
     return 'Offline';
 }
 
-function StatusPanel({
-    status,
-    onRefresh,
-    refreshing,
-}: {
-    status: AdminProgramStatus;
-    onRefresh: () => void;
-    refreshing: boolean;
-}) {
+function StatusPanel({ status }: { status: AdminProgramStatus }) {
     return (
-        <section aria-label="Listener counts" className="admin-subsection">
+        <section aria-label="Listeners" className="admin-subsection">
             <Group justify="space-between" mb="md">
                 <Group align="center" gap="sm">
-                    <Title order={2}>Listener counts</Title>
+                    <Title order={2}>Listeners</Title>
                     <Badge
                         aria-label={`${status.totalActiveListeners} active listeners`}
                         color={status.totalActiveListeners > 0 ? 'green' : 'gray'}
@@ -3051,9 +3082,6 @@ function StatusPanel({
                         {status.totalActiveListeners} active
                     </Badge>
                 </Group>
-                <Button disabled={refreshing} onClick={onRefresh} type="button" variant="default">
-                    {refreshing ? 'Refreshing…' : 'Refresh'}
-                </Button>
             </Group>
             <table className="admin-table">
                 <thead>

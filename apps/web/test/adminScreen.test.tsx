@@ -392,7 +392,7 @@ async function goToSection(name: string) {
     await screen.findByRole('button', { name });
     fireEvent.click(screen.getByRole('button', { name }));
     const headingName =
-        name === 'Reports' ? 'Report summary' : name === 'Status' ? 'Listener counts' : name;
+        name === 'Reports' ? 'Report summary' : name === 'Status' ? 'Listeners' : name;
     await screen.findByRole('heading', { name: headingName });
 }
 
@@ -829,7 +829,7 @@ describe('AdminScreen', () => {
         });
         await goToSection('Status');
         expect((await screen.findAllByText('Hindi')).length).toBeGreaterThan(0);
-        expect(screen.getByText('Listener counts')).toBeInTheDocument();
+        expect(screen.getByText('Listeners')).toBeInTheDocument();
     });
 
     it('renders approver access in Overview and renders the QR panel only in Share', async () => {
@@ -992,17 +992,24 @@ describe('AdminScreen', () => {
         expect(screen.queryByRole('dialog', { name: 'Approver password' })).not.toBeInTheDocument();
     });
 
-    it('refreshes listener counts from the Status tab', async () => {
+    it('automatically refreshes listeners while the Listeners tab is visible', async () => {
         const getProgramDetail = vi.fn(async () => programDetail());
         const getProgramStatus = vi.fn(async () => status());
         const api = makeApi({ getProgramDetail, getProgramStatus });
+        const setIntervalSpy = vi.spyOn(window, 'setInterval');
 
         renderAdmin(<AdminScreen adminApi={api} />);
         await openFirstProgram();
         await goToSection('Status');
 
+        expect(screen.queryByRole('button', { name: 'Refresh' })).not.toBeInTheDocument();
+        expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 10_000);
+        const refreshStatus = setIntervalSpy.mock.calls.at(-1)?.[0];
+        if (typeof refreshStatus !== 'function') {
+            throw new Error('Listeners polling interval was not registered');
+        }
         const before = getProgramStatus.mock.calls.length;
-        fireEvent.click(await screen.findByRole('button', { name: 'Refresh' }));
+        await act(async () => refreshStatus());
 
         await waitFor(() => {
             expect(getProgramStatus).toHaveBeenCalledTimes(before + 1);
@@ -2089,7 +2096,7 @@ describe('AdminScreen', () => {
         await openFirstProgram();
         await goToSection('Status');
 
-        const panel = await screen.findByLabelText('Listener counts');
+        const panel = await screen.findByLabelText('Listeners');
         expect(panel).toHaveTextContent('42');
         expect(panel).toHaveTextContent('Hindi');
         expect(panel).toHaveTextContent('30');
@@ -2109,7 +2116,7 @@ describe('AdminScreen', () => {
         await openFirstProgram();
         await goToSection('Status');
 
-        const panel = await screen.findByLabelText('Listener counts');
+        const panel = await screen.findByLabelText('Listeners');
         const hindiRow = within(panel).getByText('Hindi').closest('tr');
         const englishRow = within(panel).getByText('English').closest('tr');
 
@@ -2127,7 +2134,7 @@ describe('AdminScreen', () => {
         await openFirstProgram();
         await goToSection('Status');
 
-        const panel = await screen.findByLabelText('Listener counts');
+        const panel = await screen.findByLabelText('Listeners');
         const hindiRow = within(panel).getByText('Hindi').closest('tr');
         fireEvent.click(within(hindiRow!).getByRole('button', { name: 'Kick publisher' }));
 
@@ -2152,7 +2159,7 @@ describe('AdminScreen', () => {
         await openFirstProgram();
         await goToSection('Status');
 
-        const panel = await screen.findByLabelText('Listener counts');
+        const panel = await screen.findByLabelText('Listeners');
         const hindiRow = within(panel).getByText('Hindi').closest('tr');
         fireEvent.click(within(hindiRow!).getByRole('button', { name: 'Kick publisher' }));
 
@@ -2183,7 +2190,7 @@ describe('AdminScreen', () => {
         await openFirstProgram();
         await goToSection('Status');
 
-        const panel = await screen.findByLabelText('Listener counts');
+        const panel = await screen.findByLabelText('Listeners');
         const hindiRow = within(panel).getByText('Hindi').closest('tr');
         fireEvent.click(within(hindiRow!).getByRole('button', { name: 'Kick publisher' }));
 
@@ -2210,7 +2217,7 @@ describe('AdminScreen', () => {
         await openFirstProgram();
         await goToSection('Status');
 
-        const panel = await screen.findByLabelText('Listener counts');
+        const panel = await screen.findByLabelText('Listeners');
         expect(panel).toHaveTextContent('Stale');
         expect(panel).toHaveTextContent('Degraded');
         expect(panel).toHaveTextContent('Not available');
