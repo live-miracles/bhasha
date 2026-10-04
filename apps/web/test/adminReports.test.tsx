@@ -15,12 +15,10 @@ import type {
     AdminEventFeed,
     AdminListenerReport,
     AdminProgramDetail,
-    AdminReadiness,
     AdminReportSummary,
     ListenerReportQuery,
 } from '../src/api/admin';
 import { CsvDownloadButton } from '../src/features/admin/reports/CsvDownloadButton';
-import { ReadinessPanel } from '../src/features/admin/readiness/ReadinessPanel';
 import { EventFeedPanel } from '../src/features/admin/reports/EventFeedPanel';
 import { ListenerReportPanel, buildListenerReportKey } from '../src/features/admin/AdminScreen';
 import {
@@ -189,58 +187,6 @@ describe('ReportSummaryPanel', () => {
         expect(body).toHaveStyle({ opacity: '0.6', pointerEvents: 'none' });
         expect(screen.getByText('Active now')).toBeInTheDocument();
         expect(screen.queryByText('Loading report summary...')).not.toBeInTheDocument();
-    });
-});
-
-describe('ReadinessPanel', () => {
-    it('renders status cards and summary count chips for mixed readiness states', () => {
-        const readiness: AdminReadiness = {
-            programId: 'program_1',
-            items: [
-                {
-                    id: 'program_setup',
-                    label: 'Program setup',
-                    status: 'green',
-                    detail: 'Program details are configured.',
-                },
-                {
-                    id: 'turn_configured',
-                    label: 'TURN credentials configured',
-                    status: 'blocker',
-                    detail: 'Cloudflare TURN is not configured.',
-                },
-                {
-                    id: 'turn_analytics_tagging',
-                    label: 'TURN analytics tagging',
-                    status: 'warning',
-                    detail: 'TURN usage analytics tagging is not enabled.',
-                },
-                {
-                    id: 'realtime_smoke_tested',
-                    label: 'Realtime smoke tested',
-                    status: 'blocker',
-                    detail: 'No realtime smoke test has been confirmed yet.',
-                },
-            ],
-        };
-
-        render(<ReadinessPanel readiness={readiness} onConfirm={vi.fn()} pendingItemId={null} />);
-
-        const panel = screen.getByRole('region', { name: 'Event readiness' });
-        const summary = panel.querySelector('.admin-readiness-summary');
-        expect(summary).not.toBeNull();
-        expect(summary).toHaveTextContent('1 Ready');
-        expect(summary).toHaveTextContent('1 Warning');
-        expect(summary).toHaveTextContent('2 Blocker');
-
-        const cards = panel.querySelectorAll('.admin-readiness-card');
-        expect(cards).toHaveLength(4);
-        expect(cards[0]).toHaveAttribute('data-status', 'green');
-        expect(cards[1]).toHaveAttribute('data-status', 'blocker');
-        expect(cards[2]).toHaveAttribute('data-status', 'warning');
-        expect(within(cards[0] as HTMLElement).getByText('Ready')).toBeInTheDocument();
-        expect(within(cards[1] as HTMLElement).getByText('Blocker')).toBeInTheDocument();
-        expect(within(cards[2] as HTMLElement).getByText('Warning')).toBeInTheDocument();
     });
 });
 

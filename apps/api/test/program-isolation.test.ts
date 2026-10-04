@@ -79,18 +79,6 @@ const ENDPOINT_CASES: EndpointCase[] = [
         path: ({ programId }) => `/api/admin/programs/${programId}/events`,
     },
     {
-        name: 'POST /api/admin/programs/:id/readiness/confirm',
-        method: 'POST',
-        write: true,
-        path: ({ programId }) => `/api/admin/programs/${programId}/readiness/confirm`,
-    },
-    {
-        name: 'GET /api/admin/programs/:id/readiness',
-        method: 'GET',
-        write: false,
-        path: ({ programId }) => `/api/admin/programs/${programId}/readiness`,
-    },
-    {
         name: 'POST /api/admin/programs/:id/retention/run',
         method: 'POST',
         write: true,

@@ -70,7 +70,6 @@ const CASCADE_TABLES_IN_ORDER = [
     'translator_stream_assignments',
     'stream_events',
     'listener_connections',
-    'program_readiness_checks',
     'translators',
     'language_streams',
     'programs',
@@ -92,7 +91,6 @@ async function resetDb(): Promise<void> {
     await testEnv.DB.exec('DELETE FROM translator_stream_assignments');
     await testEnv.DB.exec('DELETE FROM translators');
     await testEnv.DB.exec('DELETE FROM language_streams');
-    await testEnv.DB.exec('DELETE FROM program_readiness_checks');
     await testEnv.DB.exec('DELETE FROM programs');
 }
 
@@ -222,12 +220,6 @@ async function seedProgram(input?: { deletedAt?: string }): Promise<{
         'listener_subscribed',
         now,
     );
-
-    await testEnv.DB.prepare(
-        `INSERT INTO program_readiness_checks
-    (program_id, realtime_smoke_tested_at, mobile_field_tested_at, updated_at)
-    VALUES (?, ?, ?, ?)`,
-    ).run(programId, now, now, now);
 
     await testEnv.DB.prepare(
         `INSERT INTO translator_sessions

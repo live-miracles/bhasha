@@ -14,7 +14,6 @@ import type {
     AdminProgramApproverAccess,
     AdminProgramList,
     AdminProgramStatus,
-    AdminReadiness,
     AdminRole,
     AdminReportSummary,
     AdminRetentionRun,
@@ -301,61 +300,6 @@ function deferred<T>() {
     return { promise, resolve, reject };
 }
 
-function readiness(): AdminReadiness {
-    return {
-        programId: 'program_1',
-        items: [
-            {
-                id: 'program_setup',
-                label: 'Program setup',
-                status: 'green',
-                detail: 'Program details are configured.',
-            },
-            {
-                id: 'turn_configured',
-                label: 'TURN credentials configured',
-                status: 'blocker',
-                detail: 'Cloudflare TURN is not configured.',
-            },
-            {
-                id: 'turn_analytics_tagging',
-                label: 'TURN analytics tagging',
-                status: 'warning',
-                detail: 'TURN usage analytics tagging is not enabled.',
-            },
-            {
-                id: 'realtime_smoke_tested',
-                label: 'Realtime smoke tested',
-                status: 'blocker',
-                detail: 'No realtime smoke test has been confirmed yet.',
-            },
-            {
-                id: 'mobile_field_tested',
-                label: 'Mobile field tested',
-                status: 'blocker',
-                detail: 'No mobile field test has been confirmed yet.',
-            },
-        ],
-    };
-}
-
-function readinessConfirmed(): AdminReadiness {
-    const base = readiness();
-    return {
-        programId: base.programId,
-        items: base.items.map((item) =>
-            item.id === 'realtime_smoke_tested'
-                ? {
-                      ...item,
-                      status: 'green',
-                      detail: 'Operator confirmed a realtime smoke test.',
-                      checkedAt: '2026-06-21T11:00:00.000Z',
-                  }
-                : item,
-        ),
-    };
-}
-
 function retentionRun(): AdminRetentionRun {
     return {
         programId: 'program_1',
@@ -421,8 +365,6 @@ function makeApi(overrides: Partial<AdminApi> = {}): AdminApi {
         getProgramDetail: vi.fn(async () => programDetail()),
         getApproverAccess: vi.fn(async () => approverAccess()),
         getProgramStatus: vi.fn(async () => status()),
-        getReadiness: vi.fn(async () => readiness()),
-        confirmReadiness: vi.fn(async () => readinessConfirmed()),
         getReportSummary: vi.fn(async () => reportSummary()),
         listPrograms: vi.fn(async () => programList()),
         restoreProgram: vi.fn(async () => undefined),
@@ -450,13 +392,7 @@ async function goToSection(name: string) {
     await screen.findByRole('button', { name });
     fireEvent.click(screen.getByRole('button', { name }));
     const headingName =
-        name === 'Reports'
-            ? 'Report summary'
-            : name === 'Status'
-              ? 'Listener counts'
-              : name === 'Readiness'
-                ? 'Event readiness'
-                : name;
+        name === 'Reports' ? 'Report summary' : name === 'Status' ? 'Listener counts' : name;
     await screen.findByRole('heading', { name: headingName });
 }
 
@@ -1954,42 +1890,6 @@ describe('AdminScreen', () => {
         expect(screen.queryByRole('heading', { name: 'Management login' })).not.toBeInTheDocument();
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
         expect(screen.getByLabelText('Report summary')).toHaveTextContent('42');
-    });
-
-    it('loads event readiness and confirms operator checks', async () => {
-        const api = makeApi();
-
-        renderAdmin(<AdminScreen adminApi={api} />);
-        await openFirstProgram();
-
-        await waitFor(() => {
-            expect(api.getReadiness).toHaveBeenCalledWith('program_1');
-        });
-        await goToSection('Readiness');
-
-        const readinessPanel = await screen.findByRole('region', {
-            name: 'Event readiness',
-        });
-        expect(readinessPanel).toHaveTextContent('Blocker');
-        expect(readinessPanel).toHaveTextContent('Warning');
-
-        fireEvent.click(
-            within(readinessPanel).getByRole('button', {
-                name: /confirm realtime smoke test/i,
-            }),
-        );
-
-        await waitFor(() => {
-            expect(api.confirmReadiness).toHaveBeenCalledWith('program_1', 'realtime_smoke_tested');
-        });
-
-        await waitFor(() => {
-            expect(
-                within(screen.getByRole('region', { name: 'Event readiness' })).getByText(
-                    'Operator confirmed a realtime smoke test.',
-                ),
-            ).toBeInTheDocument();
-        });
     });
 
     it('clears the previous report summary before showing a newly selected program', async () => {

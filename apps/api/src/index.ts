@@ -101,22 +101,6 @@ export function createApp(env: Env): Hono {
                 return json({ ok: true });
             }
 
-            if (request.method === 'GET' && url.pathname === '/smoke/realtime') {
-                // TODO(slice-3): the Cloudflare-Realtime debug smoke page was deleted
-                // along with the rest of realtime/ (it only ever exercised the
-                // Cloudflare Realtime SFU directly). Re-add a LiveKit-flavored
-                // equivalent here if/when it's needed again.
-                return canServeRealtimeSmokePage(url, env)
-                    ? json(
-                          {
-                              error: 'not_implemented',
-                              message: 'Realtime smoke page lands with LiveKit in a later slice',
-                          },
-                          { status: 501 },
-                      )
-                    : notFound();
-            }
-
             if (request.method === 'POST' && url.pathname === '/api/livekit/webhook') {
                 return handleLiveKitWebhook(request, env);
             }
@@ -194,24 +178,6 @@ export function createApp(env: Env): Hono {
     return app;
 }
 
-function canServeRealtimeSmokePage(url: URL, env: Env): boolean {
-    if (isLocalhost(url.hostname)) {
-        return true;
-    }
-
-    return env.REALTIME_SMOKE_ENABLED === 'true' || env.REALTIME_SMOKE_ENABLED === '1';
-}
-
-function isLocalhost(hostname: string): boolean {
-    const normalized = hostname.toLowerCase();
-    return (
-        normalized === 'localhost' ||
-        normalized === '127.0.0.1' ||
-        normalized === '::1' ||
-        normalized === '[::1]'
-    );
-}
-
 function requireEnvVar(name: string): string {
     const value = process.env[name];
     if (!value) {
@@ -243,9 +209,6 @@ export async function buildEnvFromProcess(): Promise<Env> {
         TRANSLATOR_PASSWORD_PEPPER: requireEnvVar('TRANSLATOR_PASSWORD_PEPPER'),
         TRANSLATOR_SESSION_SECRET: requireEnvVar('TRANSLATOR_SESSION_SECRET'),
         APPROVER_SESSION_SECRET: process.env.APPROVER_SESSION_SECRET,
-        ...(process.env.REALTIME_SMOKE_ENABLED !== undefined
-            ? { REALTIME_SMOKE_ENABLED: process.env.REALTIME_SMOKE_ENABLED }
-            : {}),
         ...(process.env.PRESENCE_LIVE_COUNT !== undefined
             ? { PRESENCE_LIVE_COUNT: process.env.PRESENCE_LIVE_COUNT }
             : {}),

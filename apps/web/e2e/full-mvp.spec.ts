@@ -244,23 +244,6 @@ async function installAdminMocks(page: Page): Promise<void> {
         });
     });
 
-    await page.route('**/api/admin/programs/program_1/readiness', async (route) => {
-        await route.fulfill({
-            contentType: 'application/json',
-            json: {
-                programId: 'program_1',
-                items: [
-                    {
-                        id: 'program_setup',
-                        label: 'Program setup',
-                        status: 'green',
-                        detail: 'Program details are configured.',
-                    },
-                ],
-            },
-        });
-    });
-
     await page.route('**/api/admin/programs/program_1/approver-access', async (route) => {
         await route.fulfill({
             contentType: 'application/json',

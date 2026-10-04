@@ -108,9 +108,6 @@ export class RetentionRepository {
         this.deleteInChunks('listener_connections', programId);
 
         this.db.transaction(() => {
-            this.db
-                .prepare('DELETE FROM program_readiness_checks WHERE program_id = ?')
-                .run(programId);
             this.db.prepare('DELETE FROM translators WHERE program_id = ?').run(programId);
             this.db.prepare('DELETE FROM language_streams WHERE program_id = ?').run(programId);
         })();

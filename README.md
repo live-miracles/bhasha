@@ -156,8 +156,8 @@ admin exists, the value is ignored and changing it does not reset the account.
 
 `LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` are optional at the type
 level and not required at process boot, so the app can start before LiveKit
-is provisioned — the program manager's readiness check reports this as a
-blocker until all three are set.
+is provisioned — management actions that require realtime access report a
+configuration error until all three are set.
 
 ## Install
 

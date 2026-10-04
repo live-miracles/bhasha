@@ -42,18 +42,12 @@ import {
     parseUpdateUserInput,
 } from '../domain/users';
 import { RealtimeStreamRepository } from '../db/realtimeStreamRepository';
-import {
-    buildReadinessItems,
-    isConfirmableReadinessItem,
-    type AdminReadinessResponse,
-} from '../domain/readiness';
 import type { Env } from '../env';
 import { json, readJson, type WaitUntilCtx } from '../http';
 import { publicOrigin } from './publicOrigin';
 import {
     createRoomServiceClient,
     deleteRoomBestEffort,
-    isLiveKitConfigured,
     removeParticipantBestEffort,
 } from '../livekit/client';
 import { roomNameForStream, translatorIdentity } from '../livekit/tokens';
@@ -354,21 +348,6 @@ function listenerAccessResponse(response: Response): Response {
     return response;
 }
 
-function parseReadinessConfirmInput(body: unknown): {
-    itemId: 'realtime_smoke_tested' | 'mobile_field_tested';
-} {
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-        throw new Error('itemId is required');
-    }
-
-    const itemId = (body as Record<string, unknown>).itemId;
-    if (typeof itemId !== 'string' || !isConfirmableReadinessItem(itemId)) {
-        throw new Error('itemId must be realtime_smoke_tested or mobile_field_tested');
-    }
-
-    return { itemId };
-}
-
 async function translatorExistsInProgram(
     translators: TranslatorRepository,
     programId: string,
@@ -497,55 +476,6 @@ async function adminProgramDetailResponse(
 ): Promise<Response> {
     const detail = await programs.getAdminProgramDetail(programId);
     return json(adminProgramPayload(detail, origin));
-}
-
-function isRealtimeConfigured(env: Env): boolean {
-    return isLiveKitConfigured(env);
-}
-
-// LiveKit bundles its own built-in TURN server -- there is no separate TURN
-// credential to configure/check the way Cloudflare Realtime needed
-// (CLOUDFLARE_TURN_KEY_ID/TOKEN). This mirrors isRealtimeConfigured() rather
-// than being removed outright because the readiness checklist
-// (domain/readiness.ts) still surfaces "TURN credentials configured" as its
-// own line item for operators -- keeping a second (identical) function here
-// documents *why* the two flags happen to always agree now, instead of
-// leaving a caller to wonder if that's a bug.
-function isTurnConfigured(env: Env): boolean {
-    return isLiveKitConfigured(env);
-}
-
-async function buildReadinessResponse(
-    programs: ProgramRepository,
-    env: Env,
-    programId: string,
-): Promise<AdminReadinessResponse> {
-    const detail = await programs.getAdminProgramDetail(programId);
-    const row = await programs.getReadinessChecks(programId);
-
-    const items = buildReadinessItems({
-        programName: detail.program.name,
-        streams: detail.streams.map((stream) => ({
-            id: stream.id,
-            languageName: stream.languageName,
-            isActive: stream.isActive,
-        })),
-        translators: detail.translators.map((translator) => ({
-            assignments: translator.assignments.map((assignment) => ({
-                streamId: assignment.streamId,
-            })),
-        })),
-        realtimeConfigured: isRealtimeConfigured(env),
-        turnConfigured: isTurnConfigured(env),
-        row: row
-            ? {
-                  realtimeSmokeTestedAt: row.realtimeSmokeTestedAt,
-                  mobileFieldTestedAt: row.mobileFieldTestedAt,
-              }
-            : null,
-    });
-
-    return { programId, items };
 }
 
 export async function handleAdminRoutes(
@@ -1236,63 +1166,6 @@ export async function handleAdminRoutes(
                     parseEventFeedQuery(url.searchParams),
                 ),
             );
-        } catch (error) {
-            return repositoryErrorResponse(error);
-        }
-    }
-
-    const readinessConfirmMatch = url.pathname.match(
-        /^\/api\/admin\/programs\/([^/]+)\/readiness\/confirm$/,
-    );
-    if (request.method === 'POST' && readinessConfirmMatch) {
-        const programId = readinessConfirmMatch[1];
-        if (!programId) {
-            return null;
-        }
-
-        const access = await requireProgramAccess(programs, programId, auth!, {
-            write: true,
-            includeDeleted: false,
-        });
-        if (access instanceof Response) {
-            return access;
-        }
-
-        const input = await parseBody(request, parseReadinessConfirmInput);
-        if (input instanceof Response) {
-            return input;
-        }
-
-        try {
-            const column =
-                input.itemId === 'realtime_smoke_tested'
-                    ? 'realtime_smoke_tested_at'
-                    : 'mobile_field_tested_at';
-            await programs.confirmReadinessCheck(programId, column, new Date().toISOString());
-
-            return json(await buildReadinessResponse(programs, env, programId));
-        } catch (error) {
-            return repositoryErrorResponse(error);
-        }
-    }
-
-    const readinessMatch = url.pathname.match(/^\/api\/admin\/programs\/([^/]+)\/readiness$/);
-    if (request.method === 'GET' && readinessMatch) {
-        const programId = readinessMatch[1];
-        if (!programId) {
-            return null;
-        }
-
-        const access = await requireProgramAccess(programs, programId, auth!, {
-            write: false,
-            includeDeleted: false,
-        });
-        if (access instanceof Response) {
-            return access;
-        }
-
-        try {
-            return json(await buildReadinessResponse(programs, env, programId));
         } catch (error) {
             return repositoryErrorResponse(error);
         }

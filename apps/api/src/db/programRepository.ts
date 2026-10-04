@@ -82,13 +82,6 @@ export interface AdminProgramDetail {
     translators: AdminProgramTranslatorRecord[];
 }
 
-export interface ProgramReadinessRow {
-    programId: string;
-    realtimeSmokeTestedAt: string | null;
-    mobileFieldTestedAt: string | null;
-    updatedAt: string;
-}
-
 export class ProgramSlugExistsError extends Error {
     constructor() {
         super('program slug already exists');
@@ -386,39 +379,6 @@ export class ProgramRepository {
         WHERE id = ?`,
             )
             .run(processedAt, processedAt, programId);
-    }
-
-    async getReadinessChecks(programId: string): Promise<ProgramReadinessRow | null> {
-        const row =
-            (this.db
-                .prepare(
-                    `SELECT program_id as programId,
-          realtime_smoke_tested_at as realtimeSmokeTestedAt,
-          mobile_field_tested_at as mobileFieldTestedAt,
-          updated_at as updatedAt
-        FROM program_readiness_checks
-        WHERE program_id = ?`,
-                )
-                .get(programId) as ProgramReadinessRow | undefined) ?? null;
-
-        return row;
-    }
-
-    async confirmReadinessCheck(
-        programId: string,
-        column: 'realtime_smoke_tested_at' | 'mobile_field_tested_at',
-        timestamp: string,
-    ): Promise<void> {
-        this.db
-            .prepare(
-                `INSERT INTO program_readiness_checks (
-          program_id, ${column}, updated_at
-        ) VALUES (?, ?, ?)
-        ON CONFLICT (program_id) DO UPDATE SET
-          ${column} = excluded.${column},
-          updated_at = excluded.updated_at`,
-            )
-            .run(programId, timestamp, timestamp);
     }
 
     async deleteDraftProgram(programId: string): Promise<void> {

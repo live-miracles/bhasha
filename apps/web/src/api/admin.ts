@@ -229,34 +229,6 @@ export interface AdminEventFeed {
     totalPages: number;
 }
 
-export type ReadinessItemId =
-    | 'program_setup'
-    | 'streams'
-    | 'translator_assignments'
-    | 'qr_generated'
-    | 'realtime_configured'
-    | 'turn_configured'
-    | 'turn_analytics_tagging'
-    | 'realtime_smoke_tested'
-    | 'mobile_field_tested';
-
-export type ReadinessStatus = 'green' | 'warning' | 'blocker';
-
-export type ConfirmableReadinessItemId = 'realtime_smoke_tested' | 'mobile_field_tested';
-
-export interface AdminReadinessItem {
-    id: ReadinessItemId;
-    label: string;
-    status: ReadinessStatus;
-    detail: string;
-    checkedAt?: string;
-}
-
-export interface AdminReadiness {
-    programId: string;
-    items: AdminReadinessItem[];
-}
-
 export interface AdminRetentionRun {
     programId: string;
     processed: boolean;
@@ -337,11 +309,6 @@ export interface AdminApi {
         currentPassword?: string;
         newPassword: string;
     }): Promise<{ ok: true }>;
-    getReadiness(programId: string): Promise<AdminReadiness>;
-    confirmReadiness(
-        programId: string,
-        itemId: ConfirmableReadinessItemId,
-    ): Promise<AdminReadiness>;
     createStream(programId: string, payload: CreateStreamPayload): Promise<AdminStream>;
     updateStream(
         programId: string,
@@ -588,14 +555,6 @@ export function createAdminApi(client: AdminHttpClient = apiClient): AdminApi {
         },
         changeMyPassword(payload: { currentPassword?: string; newPassword: string }) {
             return client.post<{ ok: true }>('/api/admin/me/password', payload);
-        },
-        getReadiness(programId: string) {
-            return client.get<AdminReadiness>(`${programPath(programId)}/readiness`);
-        },
-        confirmReadiness(programId: string, itemId: ConfirmableReadinessItemId) {
-            return client.post<AdminReadiness>(`${programPath(programId)}/readiness/confirm`, {
-                itemId,
-            });
         },
         createStream(programId: string, payload: CreateStreamPayload) {
             return client.post<AdminStream>(`${programPath(programId)}/streams`, payload);

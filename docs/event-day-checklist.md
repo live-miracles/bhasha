@@ -6,7 +6,6 @@
 - [ ] Add every language stream in the management workspace.
 - [ ] Create translator logins and assign each translator to the correct stream.
 - [ ] Verify the listener QR opens the expected public listener URL.
-- [ ] Run the realtime smoke test from the target environment.
 - [ ] Complete iPhone Safari and Android Chrome checks in `docs/mobile-field-test-report.md`.
 - [ ] Run load testing or record the exact blocker (no current-stack load-test report exists yet).
 - [ ] Verify the self-hosted LiveKit VM has enough CPU/bandwidth headroom and room/participant capacity for the expected listener count.
@@ -15,7 +14,6 @@
 
 - [ ] Print listener QR signage with the program name and help contact.
 - [ ] Confirm translator IDs, passwords, and assigned languages.
-- [ ] Confirm the readiness panel has no unhandled blocker.
 - [ ] Confirm CSV export works for the program.
 - [ ] Confirm event feed and listener counts load in the management workspace.
 - [ ] Prepare backup internet for translator devices and the admin operator.

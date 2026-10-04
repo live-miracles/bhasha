@@ -189,14 +189,6 @@ CREATE TABLE listener_realtime_cleanup_targets (
   FOREIGN KEY (connection_id) REFERENCES listener_connections(id) ON DELETE CASCADE
 );
 
-CREATE TABLE program_readiness_checks (
-  program_id TEXT PRIMARY KEY,
-  realtime_smoke_tested_at TEXT,
-  mobile_field_tested_at TEXT,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (program_id) REFERENCES programs(id) ON DELETE CASCADE
-);
-
 CREATE TABLE approver_accounts (
   program_id TEXT PRIMARY KEY,
   login_id TEXT NOT NULL,

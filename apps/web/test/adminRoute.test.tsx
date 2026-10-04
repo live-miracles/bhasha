@@ -11,7 +11,7 @@ describe('admin route URL helpers', () => {
         expect(mapUrlSection('report')).toBe('reports');
     });
 
-    it.each(['status', 'streams', 'translators', 'overview', 'share', 'readiness', 'reports'])(
+    it.each(['status', 'streams', 'translators', 'overview', 'share', 'reports'])(
         'passes through the %s section',
         (section) => {
             expect(mapUrlSection(section)).toBe(section);

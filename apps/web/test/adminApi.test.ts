@@ -341,25 +341,6 @@ describe('AdminApi', () => {
         expect(client.get).toHaveBeenCalledWith('/api/admin/programs/program_1/listener-report');
     });
 
-    it('maps readiness fetch and confirmation endpoints', async () => {
-        const client = {
-            delete: vi.fn(async () => undefined),
-            get: vi.fn(async () => ({ programId: 'program_1', items: [] })),
-            patch: vi.fn(async () => ({ ok: true })),
-            post: vi.fn(async () => ({ programId: 'program_1', items: [] })),
-        };
-        const api = createAdminApi(client as unknown as AdminHttpClient);
-
-        await api.getReadiness('program_1');
-        await api.confirmReadiness('program_1', 'realtime_smoke_tested');
-
-        expect(client.get).toHaveBeenCalledWith('/api/admin/programs/program_1/readiness');
-        expect(client.post).toHaveBeenCalledWith(
-            '/api/admin/programs/program_1/readiness/confirm',
-            { itemId: 'realtime_smoke_tested' },
-        );
-    });
-
     it('maps approver access fetch and put endpoints', async () => {
         const client = {
             delete: vi.fn(async () => undefined),

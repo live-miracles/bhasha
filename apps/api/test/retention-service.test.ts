@@ -26,7 +26,6 @@ async function resetDb(): Promise<void> {
     await testEnv.DB.exec('DELETE FROM translator_stream_assignments');
     await testEnv.DB.exec('DELETE FROM translators');
     await testEnv.DB.exec('DELETE FROM language_streams');
-    await testEnv.DB.exec('DELETE FROM program_readiness_checks');
     await testEnv.DB.exec('DELETE FROM programs');
 }
 

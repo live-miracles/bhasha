@@ -20,7 +20,6 @@ describe('fresh database schema', () => {
                 'listener_access',
                 'listener_connections',
                 'listener_realtime_cleanup_targets',
-                'program_readiness_checks',
                 'programs',
                 'realtime_publish_sessions',
                 'stream_events',

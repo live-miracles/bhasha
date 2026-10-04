@@ -9,6 +9,7 @@ import {
     useState,
 } from 'react';
 import {
+    ActionIcon,
     Alert,
     Badge,
     Button,
@@ -18,10 +19,12 @@ import {
     NativeSelect,
     SimpleGrid,
     Stack,
+    Switch,
     Text,
     Textarea,
     TextInput,
     Title,
+    Tooltip,
 } from '@mantine/core';
 import { QRCodeSVG } from 'qrcode.react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -40,18 +43,15 @@ import {
     type AdminProgramDetail,
     type AdminProgramApproverAccess,
     type AdminProgramStatus,
-    type AdminReadiness,
     type AdminReportSummary,
     type ReportDateRangeQuery,
     type AdminStream,
     type TranslatorSessionSummary,
     type AdminTranslator,
-    type ConfirmableReadinessItemId,
     LISTENER_DEVICE_LABELS,
 } from '../../api/admin';
 import { ApiError } from '../../api/client';
 import { getLanguageName, SUPPORTED_LANGUAGES } from './languages';
-import { ReadinessPanel } from './readiness/ReadinessPanel';
 import { EventFeedPanel, type EventFiltersState } from './reports/EventFeedPanel';
 import {
     ReportDateRangeControl,
@@ -59,7 +59,7 @@ import {
     type ReportDateRangeValue,
 } from './reports/ReportDateRangeControl';
 import { ReportSummaryPanel } from './reports/ReportSummaryPanel';
-import { formatISTDateTime, formatISTTime, formatLocalTime } from './formatTime';
+import { formatISTDateTime, formatISTTime } from './formatTime';
 import { ConfirmDialog } from './ConfirmDialog';
 import { AdminDialog } from './AdminDialog';
 import { KickConfirmDialog } from './KickConfirmDialog';
@@ -74,8 +74,7 @@ interface AdminScreenProps {
 
 type LoadState = 'checking' | 'login' | 'ready' | 'error';
 type AppSection = 'programs' | 'deleted' | 'users' | 'account';
-type AdminSection =
-    'status' | 'languages' | 'approver' | 'overview' | 'share' | 'readiness' | 'reports';
+type AdminSection = 'status' | 'languages' | 'approver' | 'overview' | 'share' | 'reports';
 type ActiveSection = AppSection | AdminSection;
 type ReportFiltersState = {
     states: string[];
@@ -138,6 +137,20 @@ function CollapseIcon({ expanded }: { expanded: boolean }) {
     );
 }
 
+function BackArrowIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <path
+                d="M19 12H5m7 7-7-7 7-7"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+            />
+        </svg>
+    );
+}
+
 function EditIcon() {
     return (
         <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
@@ -161,6 +174,36 @@ function TrashIcon() {
                 stroke="currentColor"
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                strokeWidth="1.8"
+            />
+        </svg>
+    );
+}
+
+function StopIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <rect
+                height="10"
+                rx="1"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                width="10"
+                x="7"
+                y="7"
+            />
+        </svg>
+    );
+}
+
+function KeyIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <circle cx="8" cy="15" r="3.5" stroke="currentColor" strokeWidth="1.8" />
+            <path
+                d="m10.5 12.5 8-8m-2 2 2 2m-4-0 2 2"
+                stroke="currentColor"
+                strokeLinecap="round"
                 strokeWidth="1.8"
             />
         </svg>
@@ -396,7 +439,6 @@ export function mapUrlSection(urlSection: string | undefined): AdminSection {
         urlSection === 'translators' ||
         urlSection === 'overview' ||
         urlSection === 'share' ||
-        urlSection === 'readiness' ||
         urlSection === 'reports'
     ) {
         return urlSection === 'streams' || urlSection === 'translators' ? 'languages' : urlSection;
@@ -638,9 +680,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     const [isFetchingReports, setIsFetchingReports] = useState(false);
     const [summary, setSummary] = useState<AdminReportSummary | null>(null);
     const [eventFeed, setEventFeed] = useState<AdminEventFeed | null>(null);
-    const [readiness, setReadiness] = useState<AdminReadiness | null>(null);
-    const [pendingReadinessItem, setPendingReadinessItem] =
-        useState<ConfirmableReadinessItemId | null>(null);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [kickedStream, setKickedStream] = useState<AdminProgramStatus['streams'][number] | null>(
@@ -709,8 +748,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         setIsFetchingReports(false);
         setSummary(null);
         setEventFeed(null);
-        setReadiness(null);
-        setPendingReadinessItem(null);
         setRefreshing(false);
         setActiveSection('programs');
         setIdentity(null);
@@ -797,32 +834,23 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             setListenerAccessSummaryFetching(false);
             setSummary(null);
             setEventFeed(null);
-            setReadiness(null);
-            setPendingReadinessItem(null);
             try {
-                const [
-                    detailResponse,
-                    statusResponse,
-                    summaryResponse,
-                    eventFeedResponse,
-                    readinessResponse,
-                ] = await Promise.all([
-                    adminApi.getProgramDetail(programId),
-                    adminApi.getProgramStatus(programId),
-                    adminApi.getReportSummary(programId, undefined),
-                    adminApi.getEventFeed(programId, {
-                        range: undefined,
-                        eventTypes: DEFAULT_EVENT_FILTERS.eventTypes,
-                        page: 1,
-                        pageSize: EVENT_FEED_PAGE_SIZE,
-                    }),
-                    adminApi.getReadiness(programId),
-                ]);
+                const [detailResponse, statusResponse, summaryResponse, eventFeedResponse] =
+                    await Promise.all([
+                        adminApi.getProgramDetail(programId),
+                        adminApi.getProgramStatus(programId),
+                        adminApi.getReportSummary(programId, undefined),
+                        adminApi.getEventFeed(programId, {
+                            range: undefined,
+                            eventTypes: DEFAULT_EVENT_FILTERS.eventTypes,
+                            page: 1,
+                            pageSize: EVENT_FEED_PAGE_SIZE,
+                        }),
+                    ]);
                 setDetail(detailResponse);
                 setStatus(statusResponse);
                 setSummary(summaryResponse);
                 setEventFeed(eventFeedResponse);
-                setReadiness(readinessResponse);
                 setEditForm(editFormFromProgram(detailResponse.program));
                 setActiveSection(targetSection);
             } catch (detailError) {
@@ -985,23 +1013,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         void loadDetail(program.id, targetSection);
     }, [programs, slug, section, loadState, detail, activeSection, loadDetail, navigate]);
 
-    async function confirmReadiness(itemId: ConfirmableReadinessItemId) {
-        // Viewers are read-only; the confirm buttons are hidden, but guard the
-        // mutation here too so a stale/forced call never fires a write that 403s.
-        if (!selectedProgramId) {
-            return;
-        }
-        setError(null);
-        setPendingReadinessItem(itemId);
-        try {
-            setReadiness(await adminApi.confirmReadiness(selectedProgramId, itemId));
-        } catch (confirmError) {
-            setError(errorCode(confirmError));
-        } finally {
-            setPendingReadinessItem(null);
-        }
-    }
-
     async function downloadCsv() {
         if (!selectedProgramId || !detail) {
             return;
@@ -1087,13 +1098,8 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             return status ? (
                 <StatusPanel
                     status={status}
-                    readOnly={false}
                     onRefresh={() => void refreshStatus()}
                     refreshing={refreshing}
-                    onKickStream={(stream) => {
-                        setKickError(null);
-                        setKickedStream(stream);
-                    }}
                 />
             ) : (
                 <p>Loading status…</p>
@@ -1111,6 +1117,17 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                     onDelete={(stream) => void deleteStream(stream)}
                     onToggle={(stream) => void toggleStream(stream)}
                     onResetPassword={(translator) => void resetPassword(translator)}
+                    liveStreams={
+                        new Map(
+                            (status?.streams ?? [])
+                                .filter((stream) => stream.state === 'live')
+                                .map((stream) => [stream.id, stream]),
+                        )
+                    }
+                    onKickStream={(stream) => {
+                        setKickError(null);
+                        setKickedStream(stream);
+                    }}
                 />
             );
         }
@@ -1128,17 +1145,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
 
         if (section === 'share') {
             return <QrPanel detail={detail} />;
-        }
-
-        if (section === 'readiness') {
-            return (
-                <ReadinessPanel
-                    readiness={readiness}
-                    onConfirm={(itemId) => void confirmReadiness(itemId)}
-                    pendingItemId={pendingReadinessItem}
-                    readOnly={false}
-                />
-            );
         }
 
         if (section === 'reports') {
@@ -1287,41 +1293,27 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
 
         if (section === 'overview') {
             return (
-                <>
-                    <div className="admin-kpi-strip">
-                        <KpiTile
-                            label="Active listeners"
-                            value={status ? String(status.totalActiveListeners) : '—'}
-                        />
-                    </div>
-                    <ProgramDetailForm
-                        currentOwnerId={identity?.id ?? null}
-                        currentOwnerName={identity?.username ?? null}
-                        form={editForm}
-                        isAdmin={identity?.role === 'admin'}
-                        onEdit={() => {
-                            setError(null);
-                            setEditProgramOpen(true);
-                        }}
-                        readOnly
-                        slugLocked={false}
-                        onChange={setEditForm}
-                        onDelete={() => void deleteSelectedProgram()}
-                        onSubmit={updateSelectedProgram}
-                        ownerOptions={adminUsers}
-                    />
-                </>
+                <ProgramDetailForm
+                    currentOwnerId={identity?.id ?? null}
+                    currentOwnerName={identity?.username ?? null}
+                    form={editForm}
+                    isAdmin={identity?.role === 'admin'}
+                    onEdit={() => {
+                        setError(null);
+                        setEditProgramOpen(true);
+                    }}
+                    readOnly
+                    slugLocked={false}
+                    onChange={setEditForm}
+                    onDelete={() => void deleteSelectedProgram()}
+                    onSubmit={updateSelectedProgram}
+                    ownerOptions={adminUsers}
+                />
             );
         }
 
         return (
             <>
-                <div className="admin-kpi-strip">
-                    <KpiTile
-                        label="Active listeners"
-                        value={status ? String(status.totalActiveListeners) : '—'}
-                    />
-                </div>
                 <ProgramDetailForm
                     currentOwnerId={identity?.id ?? null}
                     currentOwnerName={identity?.username ?? null}
@@ -1451,8 +1443,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             setEventsOpen(false);
             setSummary(null);
             setEventFeed(null);
-            setReadiness(null);
-            setPendingReadinessItem(null);
             pendingRouteLoad.current = null;
             suppressRouteLoad.current = true;
             navigate('/manage');
@@ -2047,6 +2037,16 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                     </Alert>
                                 ) : null}
                                 <div className="admin-content">
+                                    <Button
+                                        aria-label="← Programs"
+                                        className="admin-back-to-programs"
+                                        leftSection={<BackArrowIcon />}
+                                        onClick={() => navigate('/manage')}
+                                        type="button"
+                                        variant="subtle"
+                                    >
+                                        Programs
+                                    </Button>
                                     {(
                                         [
                                             ['overview', 'Overview'],
@@ -2056,7 +2056,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                                 : []),
                                             ['status', 'Status'],
                                             ['share', 'Share / QR'],
-                                            ['readiness', 'Readiness'],
                                             ['reports', 'Reports'],
                                         ] as const
                                     ).map(([section, title]) => (
@@ -2065,9 +2064,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                             className="admin-continuous-section"
                                             key={section}
                                         >
-                                            <div className="admin-section-head">
-                                                <h2>{title}</h2>
-                                            </div>
                                             {renderSection(section)}
                                         </section>
                                     ))}
@@ -2617,14 +2613,6 @@ function ProgramDetailForm({
     );
 }
 
-const APPROVER_PASSWORD_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-
-function generatedApproverPassword(): string {
-    const bytes = new Uint8Array(10);
-    crypto.getRandomValues(bytes);
-    return [...bytes].map((byte) => APPROVER_PASSWORD_ALPHABET[byte & 31]).join('');
-}
-
 function ApproverAccessPanel({
     adminApi,
     programId,
@@ -2641,6 +2629,7 @@ function ApproverAccessPanel({
     const [pending, setPending] = useState(false);
     const [panelError, setPanelError] = useState<string | null>(null);
     const [shownPassword, setShownPassword] = useState<string | null>(null);
+    const [resetOpen, setResetOpen] = useState(false);
     const currentProgramId = useRef(programId);
     currentProgramId.current = programId;
 
@@ -2651,6 +2640,7 @@ function ApproverAccessPanel({
         setPending(false);
         setPanelError(null);
         setShownPassword(null);
+        setResetOpen(false);
 
         void adminApi
             .getApproverAccess(programId)
@@ -2687,6 +2677,7 @@ function ApproverAccessPanel({
             if (currentProgramId.current !== submittedProgramId) return;
             setAccess(response);
             setPassword('');
+            setResetOpen(false);
             const passwordToShow = response.generatedPassword ?? submittedPassword;
             if (passwordToShow) {
                 setShownPassword(passwordToShow);
@@ -2705,68 +2696,54 @@ function ApproverAccessPanel({
         }
     }
 
+    function closeResetDialog() {
+        if (pending) return;
+        setResetOpen(false);
+        setPassword('');
+        setPanelError(null);
+    }
+
     return (
         <section aria-label="Approver access" className="admin-subsection">
             <Stack gap="xs">
-                <Group align="center" gap="sm">
-                    <Title order={2}>Approver access</Title>
-                    {access ? (
-                        <Badge
-                            aria-label={`${access.activeSessionCount} active approver sessions`}
-                            color={access.activeSessionCount > 0 ? 'green' : 'gray'}
-                            variant="light"
+                <Group justify="space-between">
+                    <Group align="center" gap="sm">
+                        <Title order={2}>Approver access</Title>
+                        {access ? (
+                            <Badge
+                                aria-label={`${access.activeSessionCount} active approver sessions`}
+                                color={access.activeSessionCount > 0 ? 'green' : 'gray'}
+                                variant="light"
+                            >
+                                {access.activeSessionCount} active
+                            </Badge>
+                        ) : null}
+                    </Group>
+                    {access && !readOnly ? (
+                        <Button
+                            leftSection={<KeyIcon />}
+                            onClick={() => {
+                                setPassword('');
+                                setPanelError(null);
+                                setResetOpen(true);
+                            }}
+                            type="button"
+                            variant="default"
                         >
-                            {access.activeSessionCount} active
-                        </Badge>
+                            Reset
+                        </Button>
                     ) : null}
                 </Group>
-                <Text c="dimmed" size="sm">
-                    Shared credentials for event approvers who approve listener access.
-                </Text>
             </Stack>
             {access ? (
-                <Paper component="form" mt="md" onSubmit={save} p="md" radius="md" withBorder>
-                    <Stack gap="md">
-                        <TextInput
-                            aria-label="Approver password"
-                            autoComplete="new-password"
-                            disabled={readOnly || pending}
-                            label="Approver password"
-                            minLength={8}
-                            onChange={(event) => setPassword(event.target.value)}
-                            placeholder={
-                                access.configured
-                                    ? 'Leave blank to generate a new password'
-                                    : 'Leave blank to generate'
-                            }
-                            type="password"
-                            value={password}
-                        />
-
-                        {access.passwordUpdatedAt ? (
-                            <Text c="dimmed" size="sm">
-                                Password last updated {formatISTDateTime(access.passwordUpdatedAt)}
-                            </Text>
-                        ) : null}
-                        <Alert color="yellow">Saving changes resets all approver sessions.</Alert>
-                        {panelError ? <Alert color="red">{panelError}</Alert> : null}
-                        {readOnly ? null : (
-                            <Group>
-                                <Button
-                                    disabled={pending}
-                                    onClick={() => setPassword(generatedApproverPassword())}
-                                    type="button"
-                                    variant="default"
-                                >
-                                    Generate
-                                </Button>
-                                <Button disabled={pending} loading={pending} type="submit">
-                                    Save approver access
-                                </Button>
-                            </Group>
-                        )}
-                    </Stack>
-                </Paper>
+                <>
+                    {access.passwordUpdatedAt ? (
+                        <Text c="dimmed" mt="md" size="sm">
+                            Password last updated {formatISTDateTime(access.passwordUpdatedAt)}
+                        </Text>
+                    ) : null}
+                    {panelError ? <Alert color="red">{panelError}</Alert> : null}
+                </>
             ) : panelError ? (
                 <Alert color="red" mt="md">
                     {panelError}
@@ -2774,6 +2751,39 @@ function ApproverAccessPanel({
             ) : (
                 <Text mt="md">Loading approver access…</Text>
             )}
+            <AdminDialog
+                onClose={closeResetDialog}
+                open={resetOpen}
+                title="Reset approver password"
+            >
+                <AdminFormShell error={panelError} onSubmit={save}>
+                    <TextInput
+                        aria-label="Approver password"
+                        autoComplete="new-password"
+                        disabled={pending}
+                        label="New password"
+                        minLength={8}
+                        onChange={(event) => setPassword(event.target.value)}
+                        placeholder="Leave blank to generate a new password"
+                        type="password"
+                        value={password}
+                    />
+                    <Alert color="yellow">Saving changes resets all approver sessions.</Alert>
+                    <Group justify="flex-end">
+                        <Button
+                            disabled={pending}
+                            onClick={closeResetDialog}
+                            type="button"
+                            variant="default"
+                        >
+                            Cancel
+                        </Button>
+                        <Button disabled={pending} loading={pending} type="submit">
+                            Save
+                        </Button>
+                    </Group>
+                </AdminFormShell>
+            </AdminDialog>
             <ApproverPasswordOnceDialog
                 onClose={() => setShownPassword(null)}
                 password={shownPassword}
@@ -2925,40 +2935,34 @@ function StatusPanel({
     status,
     onRefresh,
     refreshing,
-    onKickStream,
-    readOnly,
 }: {
     status: AdminProgramStatus;
     onRefresh: () => void;
     refreshing: boolean;
-    onKickStream: (stream: AdminProgramStatus['streams'][number]) => void;
-    readOnly: boolean;
 }) {
     return (
         <section aria-label="Listener counts" className="admin-subsection">
             <Group justify="space-between" mb="md">
-                <Title order={2}>Listener counts</Title>
+                <Group align="center" gap="sm">
+                    <Title order={2}>Listener counts</Title>
+                    <Badge
+                        aria-label={`${status.totalActiveListeners} active listeners`}
+                        color={status.totalActiveListeners > 0 ? 'green' : 'gray'}
+                        variant="light"
+                    >
+                        {status.totalActiveListeners} active
+                    </Badge>
+                </Group>
                 <Button disabled={refreshing} onClick={onRefresh} type="button" variant="default">
                     {refreshing ? 'Refreshing…' : 'Refresh'}
                 </Button>
             </Group>
-            <div className="admin-kpi-strip">
-                <KpiTile label="Total" value={status.totalActiveListeners.toString()} />
-                <KpiTile label="Freshness" value={status.stale ? 'Stale' : 'Fresh'} />
-                <KpiTile label="Service" value={status.degraded ? 'Degraded' : 'Normal'} />
-                <KpiTile
-                    label="Updated"
-                    value={status.updatedAt ? formatISTDateTime(status.updatedAt) : 'Not available'}
-                />
-                <KpiTile label="Server time" value={formatLocalTime(status.serverTime)} />
-            </div>
             <table className="admin-table">
                 <thead>
                     <tr>
                         <th>Language</th>
                         <th>State</th>
                         <th>Count</th>
-                        {readOnly ? null : <th>Kick</th>}
                     </tr>
                 </thead>
                 <tbody>
@@ -2971,23 +2975,6 @@ function StatusPanel({
                                 </StatusPill>
                             </td>
                             <td>{stream.activeListeners}</td>
-                            {readOnly ? null : (
-                                <td>
-                                    {stream.state === 'live' ? (
-                                        <Button
-                                            color="red"
-                                            onClick={() => onKickStream(stream)}
-                                            size="compact-sm"
-                                            type="button"
-                                            variant="subtle"
-                                        >
-                                            Kick publisher
-                                        </Button>
-                                    ) : (
-                                        '—'
-                                    )}
-                                </td>
-                            )}
                         </tr>
                     ))}
                 </tbody>
@@ -3062,20 +3049,24 @@ function LanguageCreateForm({
 function LanguagesPanel({
     streams,
     translators,
+    liveStreams,
     onAdd,
     onReorder,
     onDelete,
     onToggle,
     onResetPassword,
+    onKickStream,
     readOnly,
 }: {
     streams: AdminStream[];
     translators: AdminTranslator[];
+    liveStreams: ReadonlyMap<string, AdminProgramStatus['streams'][number]>;
     onAdd: () => void;
     onReorder: (streams: AdminStream[]) => void;
     onDelete: (stream: AdminStream) => void;
     onToggle: (stream: AdminStream) => void;
     onResetPassword: (translator: AdminTranslator) => void;
+    onKickStream: (stream: AdminProgramStatus['streams'][number]) => void;
     readOnly: boolean;
 }) {
     const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -3114,10 +3105,7 @@ function LanguagesPanel({
                 <thead>
                     <tr>
                         <th>Language</th>
-                        <th>Translator</th>
-                        {readOnly ? null : <th>Active</th>}
-                        {readOnly ? null : <th>Password</th>}
-                        {readOnly ? null : <th>Delete</th>}
+                        {readOnly ? null : <th>Actions</th>}
                     </tr>
                 </thead>
                 <tbody>
@@ -3130,6 +3118,7 @@ function LanguagesPanel({
                                         (assignment) => assignment.streamId === stream.id,
                                     ),
                             );
+                            const liveStream = liveStreams.get(stream.id);
                             return (
                                 <tr
                                     draggable={!readOnly}
@@ -3140,64 +3129,56 @@ function LanguagesPanel({
                                     onDrop={() => moveBefore(stream.id)}
                                 >
                                     <td>
-                                        {stream.languageName} ({stream.languageCode})
+                                        <Group gap="xs" wrap="nowrap">
+                                            <Text>
+                                                {stream.languageName} ({stream.languageCode})
+                                            </Text>
+                                            <Switch
+                                                aria-label={`${stream.isActive ? 'Deactivate' : 'Activate'} ${stream.languageName}`}
+                                                checked={stream.isActive}
+                                                disabled={readOnly}
+                                                onChange={() => onToggle(stream)}
+                                                size="sm"
+                                            />
+                                        </Group>
                                     </td>
-                                    <td>
-                                        {translator ? (
-                                            <>
-                                                <Text>{translator.name}</Text>
-                                                {translator.email &&
-                                                translator.email !==
-                                                    `${stream.id}@language.invalid` ? (
-                                                    <Text c="dimmed" size="sm">
-                                                        {translator.email}
-                                                    </Text>
+                                    {readOnly ? null : (
+                                        <td>
+                                            <Group gap={6} wrap="nowrap">
+                                                {translator ? (
+                                                    <Button
+                                                        leftSection={<KeyIcon />}
+                                                        onClick={() => onResetPassword(translator)}
+                                                        size="compact-xs"
+                                                        type="button"
+                                                        variant="default"
+                                                    >
+                                                        Reset
+                                                    </Button>
                                                 ) : null}
-                                            </>
-                                        ) : (
-                                            '—'
-                                        )}
-                                    </td>
-                                    {readOnly ? null : (
-                                        <td>
-                                            <Button
-                                                onClick={() => onToggle(stream)}
-                                                size="compact-sm"
-                                                variant="light"
-                                                type="button"
-                                            >
-                                                {stream.isActive ? 'Deactivate' : 'Activate'}{' '}
-                                                {stream.languageName}
-                                            </Button>
-                                        </td>
-                                    )}
-                                    {readOnly ? null : (
-                                        <td>
-                                            {translator ? (
-                                                <Button
-                                                    onClick={() => onResetPassword(translator)}
-                                                    size="compact-sm"
-                                                    type="button"
-                                                    variant="default"
-                                                >
-                                                    Reset password
-                                                </Button>
-                                            ) : (
-                                                '—'
-                                            )}
-                                        </td>
-                                    )}
-                                    {readOnly ? null : (
-                                        <td>
-                                            <Button
-                                                color="red"
-                                                onClick={() => onDelete(stream)}
-                                                size="compact-sm"
-                                                type="button"
-                                                variant="subtle"
-                                            >
-                                                Delete {stream.languageName} language
-                                            </Button>
+                                                {liveStream ? (
+                                                    <Tooltip label="End broadcast">
+                                                        <ActionIcon
+                                                            aria-label={`End ${stream.languageName} broadcast`}
+                                                            color="red"
+                                                            onClick={() => onKickStream(liveStream)}
+                                                            variant="light"
+                                                        >
+                                                            <StopIcon />
+                                                        </ActionIcon>
+                                                    </Tooltip>
+                                                ) : null}
+                                                <Tooltip label="Delete language">
+                                                    <ActionIcon
+                                                        aria-label={`Delete ${stream.languageName}`}
+                                                        color="red"
+                                                        onClick={() => onDelete(stream)}
+                                                        variant="light"
+                                                    >
+                                                        <TrashIcon />
+                                                    </ActionIcon>
+                                                </Tooltip>
+                                            </Group>
                                         </td>
                                     )}
                                 </tr>

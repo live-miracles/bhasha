@@ -2225,94 +2225,6 @@ body {
     padding-left: 22px;
 }
 
-.admin-readiness-summary {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.admin-readiness-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-    list-style: none;
-    margin: 0;
-    padding: 0;
-}
-
-.admin-readiness-card {
-    background: var(--hp-white);
-    border: 1px solid var(--adm-border);
-    border-left: 3px solid transparent;
-    border-radius: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    min-width: 0;
-    padding: 14px;
-}
-
-.admin-readiness-card[data-status='green'] {
-    border-left-color: var(--adm-success);
-}
-
-.admin-readiness-card[data-status='warning'] {
-    background: color-mix(in srgb, var(--adm-silent-bg) 35%, var(--hp-white));
-    border-left-color: var(--lp-silent);
-}
-
-.admin-readiness-card[data-status='blocker'] {
-    background: color-mix(in srgb, var(--adm-danger-bg) 35%, var(--hp-white));
-    border-color: var(--adm-danger-border);
-    border-left-color: var(--adm-danger);
-}
-
-.admin-readiness-card-head {
-    align-items: flex-start;
-    display: flex;
-    gap: 8px;
-    justify-content: space-between;
-}
-
-.admin-readiness-icon {
-    flex: 0 0 auto;
-    margin-top: 1px;
-}
-
-.admin-readiness-icon--green {
-    color: var(--adm-success);
-}
-
-.admin-readiness-icon--warning {
-    color: var(--lp-silent);
-}
-
-.admin-readiness-icon--blocker {
-    color: var(--adm-danger);
-}
-
-.admin-readiness-label {
-    color: var(--hp-charcoal);
-    flex: 1;
-    font-size: 14px;
-    font-weight: 600;
-    min-width: 0;
-}
-
-.admin-readiness-detail {
-    color: var(--adm-text-soft);
-    font-size: 13px;
-    margin: 0;
-    overflow-wrap: anywhere;
-}
-
-.admin-readiness-checked-at {
-    color: var(--adm-text-soft);
-    font-size: 12px;
-    font-style: italic;
-    margin: 0;
-}
-
 .admin-kpi-value {
     font-size: 24px;
     font-weight: 700;
@@ -2939,14 +2851,12 @@ body {
 }
 
 @media (max-width: 1000px) {
-    .admin-readiness-grid,
     .admin-kpi-strip {
         grid-template-columns: repeat(2, 1fr);
     }
 }
 
 @media (max-width: 560px) {
-    .admin-readiness-grid,
     .admin-kpi-strip {
         grid-template-columns: 1fr;
     }

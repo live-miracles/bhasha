@@ -61,7 +61,6 @@ export function __setTestDatabase(db: Database): void {
 // deleteRoom) against this unreachable ws://localhost:7880 fail fast
 // (ECONNREFUSED) and are swallowed, matching this repo's "benign cleanup"
 // philosophy. Tests that need to exercise the "LiveKit not configured" path
-// (e.g. isRealtimeConfigured/readiness) override these to `undefined`.
 const DEFAULT_LIVEKIT_URL = 'ws://localhost:7880';
 const DEFAULT_LIVEKIT_API_KEY = 'devkey';
 const DEFAULT_LIVEKIT_API_SECRET = 'secret';

@@ -41,7 +41,6 @@ services:
             TRANSLATOR_PASSWORD_PEPPER: '${TRANSLATOR_PASSWORD_PEPPER:?TRANSLATOR_PASSWORD_PEPPER must be set (see .env.example)}'
             TRANSLATOR_SESSION_SECRET: '${TRANSLATOR_SESSION_SECRET:?TRANSLATOR_SESSION_SECRET must be set (see .env.example)}'
             APPROVER_SESSION_SECRET: '${APPROVER_SESSION_SECRET:-}'
-            REALTIME_SMOKE_ENABLED: '${REALTIME_SMOKE_ENABLED:-}'
             PRESENCE_LIVE_COUNT: '${PRESENCE_LIVE_COUNT:-}'
             DATABASE_PATH: '${DATABASE_PATH:-/data/bhasha.sqlite}'
             # Matches this image's own layout (see the Dockerfile) -- set
@@ -92,7 +91,7 @@ services:
             - '50000-60000:50000-60000/udp'
             # turn.udp_port: LiveKit's built-in TURN server (UDP), for listeners
             # on networks that block direct/STUN-only WebRTC (the
-            # `turn_configured` readiness check assumes this is reachable).
+            # Listener connectivity assumes this is reachable.
             - '3478:3478/udp'
         networks:
             - bhasha
@@ -149,8 +148,7 @@ configs:
             keys:
               "${LIVEKIT_API_KEY}": "${LIVEKIT_API_SECRET}"
 
-            # LiveKit's built-in TURN server -- apps/api/src/domain/readiness.ts's
-            # turn_configured check assumes this exists whenever LiveKit itself is
+            # LiveKit's built-in TURN server is enabled whenever LiveKit itself is
             # configured. UDP-only (no turn.tls_port/domain/cert): this deployment
             # relies on Caddy for the one TLS cert the app needs; adding a second,
             # separately-certed TURN/TLS domain is more than this single-VM,

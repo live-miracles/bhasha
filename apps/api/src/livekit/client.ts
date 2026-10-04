@@ -2,8 +2,7 @@ import { RoomServiceClient, WebhookReceiver } from 'livekit-server-sdk';
 import type { Env } from '../env';
 
 /**
- * Whether all three LiveKit env vars are present. Used both by
- * routes/admin.ts's readiness check (isRealtimeConfigured) and by the
+ * Whether all three LiveKit env vars are present. Used by the
  * translator/listener token routes to fail fast with a clean error instead
  * of minting a JWT that a real LiveKit server would reject.
  */

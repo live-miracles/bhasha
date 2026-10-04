@@ -222,61 +222,6 @@ test('management workspace smoke with mocked APIs', async ({ page }) => {
         });
     });
 
-    let smokeConfirmed = false;
-    const readinessJson = () => ({
-        programId: 'program_1',
-        items: [
-            {
-                id: 'program_setup',
-                label: 'Program setup',
-                status: 'green',
-                detail: 'Program details are configured.',
-            },
-            {
-                id: 'turn_configured',
-                label: 'TURN credentials configured',
-                status: 'blocker',
-                detail: 'Cloudflare TURN is not configured.',
-            },
-            {
-                id: 'turn_analytics_tagging',
-                label: 'TURN analytics tagging',
-                status: 'warning',
-                detail: 'TURN usage analytics tagging is not enabled.',
-            },
-            {
-                id: 'realtime_smoke_tested',
-                label: 'Realtime smoke tested',
-                status: smokeConfirmed ? 'green' : 'blocker',
-                detail: smokeConfirmed
-                    ? 'Operator confirmed a realtime smoke test.'
-                    : 'No realtime smoke test has been confirmed yet.',
-                ...(smokeConfirmed ? { checkedAt: '2026-06-20T12:30:00.000Z' } : {}),
-            },
-            {
-                id: 'mobile_field_tested',
-                label: 'Mobile field tested',
-                status: 'blocker',
-                detail: 'No mobile field test has been confirmed yet.',
-            },
-        ],
-    });
-
-    await page.route('**/api/admin/programs/program_1/readiness/confirm', async (route) => {
-        smokeConfirmed = true;
-        await route.fulfill({
-            contentType: 'application/json',
-            json: readinessJson(),
-        });
-    });
-
-    await page.route('**/api/admin/programs/program_1/readiness', async (route) => {
-        await route.fulfill({
-            contentType: 'application/json',
-            json: readinessJson(),
-        });
-    });
-
     await page.route('**/api/admin/programs/program_1/approver-access', async (route) => {
         await route.fulfill({
             contentType: 'application/json',
@@ -319,17 +264,6 @@ test('management workspace smoke with mocked APIs', async ({ page }) => {
     const summaryPanel = page.getByLabel('Report summary');
     await expect(summaryPanel).toContainText('Active now');
     await expect(summaryPanel).toContainText('64');
-
-    // Event readiness renders blockers/warnings and confirmation controls.
-    await page.getByRole('button', { name: 'Readiness' }).click();
-    const readinessPanel = page.getByRole('region', { name: 'Event readiness' });
-    await expect(readinessPanel).toContainText('Event readiness');
-    await expect(readinessPanel).toContainText('Blocker');
-    await expect(readinessPanel).toContainText('Warning');
-    await readinessPanel.getByRole('button', { name: /confirm realtime smoke test/i }).click();
-    await expect(
-        readinessPanel.getByText('Operator confirmed a realtime smoke test.'),
-    ).toBeVisible();
 
     // Recent event feed renders an event row.
     await page.getByRole('button', { name: 'Reports' }).click();
