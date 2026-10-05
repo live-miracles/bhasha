@@ -1084,6 +1084,12 @@ export function TranslatorRoute({
         }
         realtimeClient.mute({ track, muted: nextMuted });
         setMuted(nextMuted);
+        const live = publish.status === 'live' ? publish : null;
+        if (live) {
+            void translatorApi
+                .mute?.(live.streamId, live.publishSessionId, nextMuted)
+                .catch(() => {});
+        }
     }
 
     async function handleStop() {

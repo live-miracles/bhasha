@@ -64,6 +64,12 @@ interface TranslatorRealtimeAudioActivityInput {
     active: boolean;
 }
 
+interface TranslatorRealtimeMuteInput {
+    streamId: string;
+    publishSessionId: string;
+    muted: boolean;
+}
+
 interface TranslatorRealtimeHeartbeatInput {
     streamId: string;
     publishSessionId: string;
@@ -203,6 +209,10 @@ export async function handleTranslatorRoutes(
 
     if (request.method === 'POST' && url.pathname === '/api/translator/realtime/audio-activity') {
         return handleTranslatorRealtimeAudioActivity(request, env, translators);
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/translator/realtime/mute') {
+        return handleTranslatorRealtimeMute(request, env, translators);
     }
 
     if (request.method === 'POST' && url.pathname === '/api/translator/realtime/heartbeat') {
@@ -361,6 +371,48 @@ async function handleTranslatorRealtimeAudioActivity(
         return translatorRealtimeResponse(
             json({ ok: true, state: input.active ? 'live' : 'silent' }),
         );
+    } catch (error) {
+        return translatorRealtimeResponse(translatorRealtimeErrorResponse(error));
+    }
+}
+
+async function handleTranslatorRealtimeMute(
+    request: Request,
+    env: Env,
+    translators: TranslatorRepository,
+): Promise<Response> {
+    const input = await parseRealtimeMuteInput(request);
+    if (input instanceof Response) {
+        return translatorRealtimeResponse(input);
+    }
+
+    const realtime = new RealtimeStreamRepository(env.DB);
+    try {
+        const auth = await requireTranslatorSession(request, env, translators);
+        if (auth instanceof Response) {
+            return translatorRealtimeResponse(auth);
+        }
+        await translators.requireAssignedStream(
+            auth.translator.programId,
+            auth.translator.id,
+            input.streamId,
+        );
+        const reservation = await realtime.requirePublisherReservation({
+            publishSessionId: input.publishSessionId,
+            translatorId: auth.translator.id,
+            streamId: input.streamId,
+        });
+        if (reservation.state !== 'published') {
+            throw new PublisherReservationNotFoundError();
+        }
+        realtime.recordStreamEvent({
+            programId: auth.translator.programId,
+            streamId: input.streamId,
+            eventType: input.muted ? 'translator_muted' : 'translator_unmuted',
+            metadata: { translatorId: auth.translator.id },
+            translatorId: auth.translator.id,
+        });
+        return translatorRealtimeResponse(json({ ok: true }));
     } catch (error) {
         return translatorRealtimeResponse(translatorRealtimeErrorResponse(error));
     }
@@ -674,6 +726,21 @@ async function parseRealtimeAudioActivityInput(
     }
 
     return { streamId, publishSessionId, active };
+}
+
+async function parseRealtimeMuteInput(
+    request: Request,
+): Promise<TranslatorRealtimeMuteInput | Response> {
+    const body = await readRequestObject(request);
+    if (body instanceof Response) {
+        return body;
+    }
+    const streamId = readTrimmedString(body, 'streamId');
+    const publishSessionId = readTrimmedString(body, 'publishSessionId');
+    if (!streamId || !publishSessionId || typeof body.muted !== 'boolean') {
+        return invalidRealtimeRequest();
+    }
+    return { streamId, publishSessionId, muted: body.muted };
 }
 
 async function parseRealtimeHeartbeatInput(

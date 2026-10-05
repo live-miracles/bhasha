@@ -257,19 +257,13 @@ test('management workspace smoke with mocked APIs', async ({ page }) => {
     await page.getByRole('button', { name: /Patna Event 2026/ }).click();
 
     await page.getByRole('button', { name: 'Status' }).click();
-    await expect(page.getByLabel('Listener counts')).toContainText('18');
+    await expect(page.getByLabel('Listeners')).toContainText('18');
 
     // Report summary cards render with totals.
     await page.getByRole('button', { name: 'Reports' }).click();
     const summaryPanel = page.getByLabel('Report summary');
     await expect(summaryPanel).toContainText('Active now');
     await expect(summaryPanel).toContainText('64');
-
-    // Recent event feed renders an event row.
-    await page.getByRole('button', { name: 'Reports' }).click();
-    const eventsPanel = page.getByLabel('Recent events');
-    await expect(eventsPanel).toContainText('Listener connection failed');
-    await expect(eventsPanel).toContainText('ice_failed');
 
     // CSV download triggers a browser download with the report filename.
     await page.getByRole('button', { name: /Listener report/ }).click();

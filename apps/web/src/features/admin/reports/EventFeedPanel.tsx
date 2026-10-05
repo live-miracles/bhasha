@@ -22,6 +22,9 @@ interface EventFeedPanelProps {
 
 const EVENT_TYPE_OPTIONS = [
     ['translator_connected', 'Translator connected'],
+    ['translator_muted', 'Translator muted'],
+    ['translator_unmuted', 'Translator unmuted'],
+    ['admin_kicked', 'Broadcast ended by admin'],
     ['translator_disconnected', 'Translator disconnected'],
     ['listener_left', 'Listener left'],
     ['listener_switched', 'Listener switched'],

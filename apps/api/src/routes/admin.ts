@@ -121,6 +121,9 @@ const VALID_LISTENER_ACCESS_STATUSES = ['pending', 'approved', 'revoked', 'super
 const VALID_EVENT_FEED_TYPES = [
     'translator_connected',
     'translator_disconnected',
+    'translator_muted',
+    'translator_unmuted',
+    'admin_kicked',
     'listener_left',
     'listener_switched',
     'listener_reconnected',
@@ -216,6 +219,7 @@ export function parseListenerReportQuery(params: URLSearchParams): {
 
 export function parseEventFeedQuery(params: URLSearchParams): {
     range: { from?: string; to?: string };
+    streamId?: string;
     eventTypes?: ValidEventFeedType[];
     translatorId?: string;
     page: number;
@@ -234,6 +238,7 @@ export function parseEventFeedQuery(params: URLSearchParams): {
     );
     const result: {
         range: { from?: string; to?: string };
+        streamId?: string;
         eventTypes?: ValidEventFeedType[];
         translatorId?: string;
         page: number;
@@ -243,6 +248,10 @@ export function parseEventFeedQuery(params: URLSearchParams): {
         page,
         pageSize,
     };
+    const streamId = params.get('streamId')?.trim();
+    if (streamId) {
+        result.streamId = streamId;
+    }
     if (eventTypes.length > 0) {
         result.eventTypes = eventTypes;
     }
@@ -1130,11 +1139,57 @@ export async function handleAdminRoutes(
                     dropouts: stream.dropouts,
                     reconnects: stream.reconnects,
                 })),
+                series: aggregates.series,
                 generatedAt: presence.serverTime,
                 // `presenceSource` tracks the provenance of presence state and generatedAt
                 // (still sourced from Durable Object snapshots); active-listener counts
                 // are read independently from the D1 rolling window aggregate.
                 presenceSource: 'durable_object',
+            });
+        } catch (error) {
+            return repositoryErrorResponse(error);
+        }
+    }
+
+    const reportSeriesMatch = url.pathname.match(
+        /^\/api\/admin\/programs\/([^/]+)\/report\/series$/,
+    );
+    if (request.method === 'GET' && reportSeriesMatch) {
+        const programId = reportSeriesMatch[1];
+        if (!programId) {
+            return null;
+        }
+
+        const access = await requireProgramAccess(programs, programId, auth!, {
+            write: false,
+            includeDeleted: false,
+        });
+        if (access instanceof Response) {
+            return access;
+        }
+
+        try {
+            const listeners = new ListenerRepository(env.DB);
+            const range = parseDateRange(url.searchParams);
+            const series = await listeners.getProgramReportSeries(
+                programId,
+                range,
+                url.searchParams.get('after') ?? undefined,
+            );
+            const presence = await readPresenceStatusSnapshot(env, programId);
+            const activeListeners = await resolveActiveListenerCount(
+                env,
+                programId,
+                await listeners.countActiveListeners(programId, ACTIVE_LISTENER_WINDOW_SECONDS),
+            );
+
+            return json({
+                series,
+                activeListeners: {
+                    total: activeListeners.total,
+                    streams: activeListeners.streams,
+                },
+                generatedAt: presence.serverTime,
             });
         } catch (error) {
             return repositoryErrorResponse(error);
@@ -1485,6 +1540,14 @@ export async function handleAdminRoutes(
                     freed.translatorSessionId,
                 );
             }
+
+            realtime.recordStreamEvent({
+                programId,
+                streamId,
+                eventType: 'admin_kicked',
+                metadata: { translatorId: freed.translatorId },
+                translatorId: freed.translatorId,
+            });
 
             await removeParticipantBestEffort(
                 roomService,

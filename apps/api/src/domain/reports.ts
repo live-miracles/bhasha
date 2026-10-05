@@ -34,6 +34,20 @@ export interface AdminReportSummaryResponse {
     programId: string;
     totals: AdminReportSummaryTotals;
     streams: AdminReportStreamSummary[];
+    series: {
+        bucket: '5min' | '10min' | 'hour' | 'day';
+        points: Array<{
+            bucketStart: string;
+            streams: Array<{
+                streamId: string;
+                activeListeners: number;
+                connections: number;
+                dropouts: number;
+                reconnects: number;
+                approvals: number;
+            }>;
+        }>;
+    };
     generatedAt: string;
     presenceSource: 'durable_object';
 }

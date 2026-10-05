@@ -58,6 +58,7 @@ function summary(): AdminReportSummary {
                 reconnects: 9,
             },
         ],
+        series: { bucket: 'day', points: [] },
         generatedAt: '2026-06-21T10:00:00.000Z',
         presenceSource: 'durable_object',
     };
@@ -136,7 +137,7 @@ describe('ReportSummaryPanel', () => {
         expect(panel).toHaveTextContent('7');
         expect(panel).toHaveTextContent('13');
 
-        const hindiRow = within(panel).getByText('Hindi').closest('tr');
+        const hindiRow = within(panel).getAllByText('Hindi')[0]?.closest('tr');
         expect(hindiRow).toHaveTextContent('30');
         expect(hindiRow).toHaveTextContent('80');
         expect(panel).toHaveTextContent('Active (now)');
@@ -573,7 +574,7 @@ describe('EventFeedPanel', () => {
         );
 
         fireEvent.click(screen.getByText('Event type · 1'));
-        expect(screen.getAllByRole('checkbox')).toHaveLength(6);
+        expect(screen.getAllByRole('checkbox')).toHaveLength(9);
         expect(screen.getByRole('checkbox', { name: 'Translator connected' })).toBeChecked();
 
         fireEvent.click(screen.getByRole('checkbox', { name: 'Translator disconnected' }));

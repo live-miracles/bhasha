@@ -52,14 +52,13 @@ import {
 } from '../../api/admin';
 import { ApiError } from '../../api/client';
 import { getLanguageName, SUPPORTED_LANGUAGES } from './languages';
-import { EventFeedPanel, type EventFiltersState } from './reports/EventFeedPanel';
 import {
     ReportDateRangeControl,
     type ReportDateRangePreset,
     type ReportDateRangeValue,
 } from './reports/ReportDateRangeControl';
 import { ReportSummaryPanel } from './reports/ReportSummaryPanel';
-import { formatISTDateTime, formatISTTime } from './formatTime';
+import { formatISTDateTime } from './formatTime';
 import { ConfirmDialog } from './ConfirmDialog';
 import { AdminDialog } from './AdminDialog';
 import { KickConfirmDialog } from './KickConfirmDialog';
@@ -67,6 +66,7 @@ import { AdminLayout, AdminUiProvider, KpiTile, StatusPill } from './AdminShell'
 import { UsersPanel } from './UsersPanel';
 import { AdminAccountHeader } from './AccountPanel';
 import { LoginPage } from '../../components/LoginPage';
+import { StreamHistoryDialog } from './StreamHistoryDialog';
 
 interface AdminScreenProps {
     adminApi?: AdminApi;
@@ -81,12 +81,6 @@ type ReportFiltersState = {
     approvalStatuses: ListenerApprovalStatus[];
     streamId: string;
     deviceLabel: string;
-};
-const EMPTY_REPORT_FILTERS: ReportFiltersState = {
-    states: [],
-    approvalStatuses: [],
-    streamId: '',
-    deviceLabel: '',
 };
 
 function PlusIcon() {
@@ -196,6 +190,27 @@ function StopIcon() {
     );
 }
 
+function HistoryIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <path
+                d="M3 12a9 9 0 1 0 3-6.7M3 4v6h6"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+            />
+            <path
+                d="M12 8v4l2.5 2"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+            />
+        </svg>
+    );
+}
+
 function KeyIcon() {
     return (
         <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
@@ -238,20 +253,16 @@ function ListenerApprovalIcon() {
     );
 }
 
-const EMPTY_EVENT_FILTERS: EventFiltersState = {
-    eventTypes: [],
-    translatorId: '',
-};
-const DEFAULT_EVENT_FILTERS: EventFiltersState = {
-    eventTypes: [
-        'translator_connected',
-        'translator_disconnected',
-        'listener_reconnected',
-        'listener_left',
-    ],
-    translatorId: '',
-};
 const EVENT_FEED_PAGE_SIZE = 20;
+const TRANSLATOR_HISTORY_EVENT_TYPES = [
+    'translator_connected',
+    'translator_disconnected',
+    'translator_muted',
+    'translator_unmuted',
+    'admin_kicked',
+    'audio_started',
+    'audio_stopped',
+];
 const RANGE_WINDOW_MS: Partial<Record<ReportDateRangePreset, number>> = {
     'Last 5 minutes': 5 * 60 * 1000,
     'Last 30 minutes': 30 * 60 * 1000,
@@ -270,6 +281,30 @@ const LISTENER_APPROVAL_STATUS_OPTIONS: ListenerApprovalStatus[] = [
 ];
 type ComputedReportRange = { from?: string; to?: string };
 type RefetchReportsOptions = { skipIfInFlight?: boolean };
+
+function reportRangeCacheKey(
+    preset: ReportDateRangePreset,
+    customRange: ReportDateRangeValue,
+): string {
+    return JSON.stringify({ preset, customRange });
+}
+
+function mergeReportSeries(
+    current: AdminReportSummary['series'],
+    incoming: AdminReportSummary['series'],
+    from?: string,
+): AdminReportSummary['series'] {
+    const pointsByStart = new Map(current.points.map((point) => [point.bucketStart, point]));
+    for (const point of incoming.points) {
+        pointsByStart.set(point.bucketStart, point);
+    }
+    return {
+        bucket: incoming.bucket,
+        points: [...pointsByStart.values()]
+            .filter((point) => !from || point.bucketStart >= from)
+            .sort((left, right) => left.bucketStart.localeCompare(right.bucketStart)),
+    };
+}
 
 const IST_OFFSET_MS = 330 * 60 * 1000;
 const IST_OFFSET_SUFFIX = '+05:30';
@@ -320,30 +355,6 @@ export function computeRange(
     };
 }
 
-function buildReportQuery(
-    filters: ReportFiltersState,
-    page: number,
-    dateRange: ComputedReportRange,
-): ListenerReportQuery {
-    const q: ListenerReportQuery = {};
-    if (filters.states.length) q.states = filters.states;
-    if (filters.approvalStatuses.length) {
-        q.approvalStatuses = filters.approvalStatuses;
-    }
-    if (filters.streamId) q.streamId = filters.streamId;
-    if (filters.deviceLabel) q.deviceLabel = filters.deviceLabel;
-    if (dateRange.from) {
-        const from = reportRangeBoundToIso(dateRange.from);
-        if (from) q.createdFrom = from;
-    }
-    if (dateRange.to) {
-        const to = reportRangeBoundToIso(dateRange.to);
-        if (to) q.createdTo = to;
-    }
-    if (page > 1) q.page = page;
-    return q;
-}
-
 export function buildListenerReportKey(
     programId: string,
     query: ListenerReportQuery,
@@ -353,9 +364,7 @@ export function buildListenerReportKey(
     // Exclude the absolute createdFrom/createdTo bounds from the de-dup key:
     // for a relative preset ("Last 5 minutes" etc.) computeRange derives those
     // from Date.now(), so including them would make the key change on every
-    // render and defeat the `loadedReportQueryKey` guard. The preset + custom
-    // bounds fully determine the intended window, and the freshly computed
-    // timestamps are still sent in `query` to the API.
+    // render. The preset + custom bounds fully determine the intended window.
     const { createdFrom: _createdFrom, createdTo: _createdTo, ...stableQuery } = query;
     void _createdFrom;
     void _createdTo;
@@ -373,24 +382,6 @@ function buildReportDateRange(dateRange: ComputedReportRange): ReportDateRangeQu
         if (to) range.to = to;
     }
     return range.from || range.to ? range : undefined;
-}
-
-function formatRangeChipLabel(dateRange: ComputedReportRange): string | null {
-    if (!dateRange.from && !dateRange.to) {
-        return null;
-    }
-    const formatter = new Intl.DateTimeFormat('en-GB', {
-        day: '2-digit',
-        month: 'short',
-    });
-    const formatBound = (value: string | undefined, fallback: string) => {
-        if (!value) {
-            return fallback;
-        }
-        const date = new Date(value);
-        return Number.isNaN(date.getTime()) ? fallback : formatter.format(date);
-    };
-    return `${formatBound(dateRange.from, 'Start')} – ${formatBound(dateRange.to, 'Now')}`;
 }
 
 function reportFiltersActive(f: ReportFiltersState): boolean {
@@ -642,7 +633,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     // Memoize the API client so its identity is stable across renders. Without
     // this, the `adminApi = createAdminApi()` default parameter produced a NEW
     // client object every render, and any effect listing `adminApi` in its deps
-    // (e.g. the listener-report fetch) re-ran every render — for relative date
+    // (e.g. the report summary fetch) re-ran every render — for relative date
     // presets that meant a fresh Date.now() window each time, defeating the
     // de-dup guard and causing an infinite refetch loop ("Updating…" forever).
     const adminApi = useMemo(() => adminApiProp ?? createAdminApi(), [adminApiProp]);
@@ -652,10 +643,10 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     const pendingRouteLoad = useRef<string | null>(null);
     const suppressRouteLoad = useRef(false);
     const reportsReqId = useRef(0);
-    const listenerAccessSummaryReqId = useRef(0);
     const reportsInFlight = useRef(false);
     const reportsInFlightCount = useRef(0);
-    const loadedReportQueryKey = useRef<string | null>(null);
+    const reportSeriesCursor = useRef<string | null>(null);
+    const reportSeriesRangeKey = useRef<string | null>(null);
     const [loadState, setLoadState] = useState<LoadState>('checking');
     const [programs, setPrograms] = useState<AdminProgram[]>([]);
     const [deletedPrograms, setDeletedPrograms] = useState<AdminProgram[]>([]);
@@ -664,26 +655,19 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     selectedProgramIdRef.current = selectedProgramId;
     const [detail, setDetail] = useState<AdminProgramDetail | null>(null);
     const [status, setStatus] = useState<AdminProgramStatus | null>(null);
-    const [report, setReport] = useState<AdminListenerReport | null>(null);
-    const [reportOpen, setReportOpen] = useState(false);
-    const [eventsOpen, setEventsOpen] = useState(false);
-    const [reportLastLoadedAt, setReportLastLoadedAt] = useState<string | null>(null);
-    const [reportFilters, setReportFilters] = useState<ReportFiltersState>(EMPTY_REPORT_FILTERS);
     const [dateRange, setDateRange] = useState<ReportDateRangeValue>({
         from: '',
         to: '',
     });
     const [dateRangePreset, setDateRangePreset] = useState<ReportDateRangePreset>('All time');
-    const [reportPage, setReportPage] = useState(1);
-    const [eventFilters, setEventFilters] = useState<EventFiltersState>(DEFAULT_EVENT_FILTERS);
-    const [eventPage, setEventPage] = useState(1);
-    const [reportFetching, setReportFetching] = useState(false);
-    const [listenerAccessSummary, setListenerAccessSummary] =
-        useState<AdminListenerAccessSummary | null>(null);
-    const [listenerAccessSummaryFetching, setListenerAccessSummaryFetching] = useState(false);
     const [isFetchingReports, setIsFetchingReports] = useState(false);
     const [summary, setSummary] = useState<AdminReportSummary | null>(null);
-    const [eventFeed, setEventFeed] = useState<AdminEventFeed | null>(null);
+    const summaryRef = useRef(summary);
+    summaryRef.current = summary;
+    const [historyStream, setHistoryStream] = useState<AdminStream | null>(null);
+    const [historyFeed, setHistoryFeed] = useState<AdminEventFeed | null>(null);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [historyError, setHistoryError] = useState<string | null>(null);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [kickedStream, setKickedStream] = useState<AdminProgramStatus['streams'][number] | null>(
@@ -722,7 +706,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     });
     const [activeSection, setActiveSection] = useState<ActiveSection>('programs');
     const [deletedProgramsOpen, setDeletedProgramsOpen] = useState(false);
-    const reportDateRangeRef = useRef<HTMLDivElement | null>(null);
     const statusInFlight = useRef(false);
 
     const handleAuthExpired = useCallback(() => {
@@ -735,7 +718,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         reportsReqId.current += 1;
         reportsInFlight.current = false;
         reportsInFlightCount.current = 0;
-        loadedReportQueryKey.current = null;
         setLoadState('login');
         setError(null);
         setPrograms([]);
@@ -743,16 +725,13 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         setSelectedProgramId(null);
         setDetail(null);
         setStatus(null);
-        setReport(null);
-        setReportLastLoadedAt(null);
-        setReportOpen(false);
-        setEventsOpen(false);
-        setReportFetching(false);
-        setListenerAccessSummary(null);
-        setListenerAccessSummaryFetching(false);
         setIsFetchingReports(false);
         setSummary(null);
-        setEventFeed(null);
+        reportSeriesCursor.current = null;
+        reportSeriesRangeKey.current = null;
+        setHistoryStream(null);
+        setHistoryFeed(null);
+        setHistoryError(null);
         setRefreshing(false);
         setActiveSection('programs');
         setIdentity(null);
@@ -823,39 +802,24 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             setError(null);
             selectedProgramIdRef.current = programId;
             setSelectedProgramId(programId);
-            setReport(null);
-            setReportLastLoadedAt(null);
-            loadedReportQueryKey.current = null;
-            setReportOpen(false);
-            setEventsOpen(false);
-            setReportFilters(EMPTY_REPORT_FILTERS);
-            setReportPage(1);
-            setEventFilters(DEFAULT_EVENT_FILTERS);
-            setEventPage(1);
             // Clear prior report state so a newly selected program never shows the
-            // previous program's counts, events, or status while loading.
+            // previous program's counts or status while loading.
             setStatus(null);
-            setListenerAccessSummary(null);
-            setListenerAccessSummaryFetching(false);
             setSummary(null);
-            setEventFeed(null);
+            reportSeriesCursor.current = null;
+            reportSeriesRangeKey.current = null;
+            setHistoryStream(null);
+            setHistoryFeed(null);
+            setHistoryError(null);
             try {
-                const [detailResponse, statusResponse, summaryResponse, eventFeedResponse] =
-                    await Promise.all([
-                        adminApi.getProgramDetail(programId),
-                        adminApi.getProgramStatus(programId),
-                        adminApi.getReportSummary(programId, undefined),
-                        adminApi.getEventFeed(programId, {
-                            range: undefined,
-                            eventTypes: DEFAULT_EVENT_FILTERS.eventTypes,
-                            page: 1,
-                            pageSize: EVENT_FEED_PAGE_SIZE,
-                        }),
-                    ]);
+                const [detailResponse, statusResponse, summaryResponse] = await Promise.all([
+                    adminApi.getProgramDetail(programId),
+                    adminApi.getProgramStatus(programId),
+                    adminApi.getReportSummary(programId, undefined),
+                ]);
                 setDetail(detailResponse);
                 setStatus(statusResponse);
                 setSummary(summaryResponse);
-                setEventFeed(eventFeedResponse);
                 setEditForm(editFormFromProgram(detailResponse.program));
                 setActiveSection(targetSection);
             } catch (detailError) {
@@ -884,27 +848,62 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                 const range = buildReportDateRange(
                     computeRange(dateRangePreset, dateRange.from, dateRange.to),
                 );
-                const [summaryResponse, eventFeedResponse] = await Promise.all([
-                    adminApi.getReportSummary(selectedProgramId, range),
-                    adminApi.getEventFeed(selectedProgramId, {
+                const rangeKey = reportRangeCacheKey(dateRangePreset, dateRange);
+                const canFetchIncrementally =
+                    reportSeriesRangeKey.current === rangeKey &&
+                    reportSeriesCursor.current !== null &&
+                    summaryRef.current !== null;
+                if (canFetchIncrementally) {
+                    const update = await adminApi.getReportSeries(
+                        selectedProgramId,
                         range,
-                        eventTypes:
-                            eventFilters.eventTypes.length > 0
-                                ? eventFilters.eventTypes
-                                : undefined,
-                        translatorId: eventFilters.translatorId || undefined,
-                        page: eventPage,
-                        pageSize: EVENT_FEED_PAGE_SIZE,
-                    }),
-                ]);
+                        reportSeriesCursor.current ?? undefined,
+                    );
+                    if (reportsReqId.current !== reqId) {
+                        return;
+                    }
+                    setSummary((current) => {
+                        if (!current) return current;
+                        const currentSeries = current.series ?? {
+                            bucket: 'day' as const,
+                            points: [],
+                        };
+                        const activeByStream = new Map(
+                            update.activeListeners.streams.map((stream) => [
+                                stream.streamId,
+                                stream.count,
+                            ]),
+                        );
+                        return {
+                            ...current,
+                            totals: {
+                                ...current.totals,
+                                activeListeners: update.activeListeners.total,
+                            },
+                            streams: current.streams.map((stream) => ({
+                                ...stream,
+                                activeListeners: activeByStream.get(stream.streamId) ?? 0,
+                            })),
+                            series: mergeReportSeries(currentSeries, update.series, range?.from),
+                            generatedAt: update.generatedAt,
+                        };
+                    });
+                    const latestPoint = update.series.points.at(-1);
+                    if (latestPoint) {
+                        reportSeriesCursor.current = latestPoint.bucketStart;
+                    }
+                    setError(null);
+                    return;
+                }
+
+                const summaryResponse = await adminApi.getReportSummary(selectedProgramId, range);
                 if (reportsReqId.current !== reqId) {
                     return;
                 }
                 setSummary(summaryResponse);
-                setEventFeed(eventFeedResponse);
-                if (eventFeedResponse.page !== eventPage) {
-                    setEventPage(eventFeedResponse.page);
-                }
+                reportSeriesRangeKey.current = rangeKey;
+                reportSeriesCursor.current =
+                    summaryResponse.series?.points.at(-1)?.bucketStart ?? null;
                 setError(null);
             } catch (reportsError) {
                 if (reportsReqId.current !== reqId) {
@@ -922,15 +921,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                 }
             }
         },
-        [
-            adminApi,
-            selectedProgramId,
-            dateRange,
-            dateRangePreset,
-            eventFilters,
-            eventPage,
-            handleAuthError,
-        ],
+        [adminApi, selectedProgramId, dateRange, dateRangePreset, handleAuthError],
     );
     const latestRefetchReports = useRef(refetchReports);
 
@@ -1064,28 +1055,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         void loadDetail(program.id, targetSection);
     }, [programs, slug, section, loadState, detail, activeSection, loadDetail, navigate]);
 
-    async function downloadCsv() {
-        if (!selectedProgramId || !detail) {
-            return;
-        }
-        const blob = await adminApi.downloadListenerReportCsv(
-            selectedProgramId,
-            buildReportQuery(
-                reportFilters,
-                1,
-                computeRange(dateRangePreset, dateRange.from, dateRange.to),
-            ),
-        );
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${detail.program.slug}-listener-report.csv`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-    }
-
     async function refreshDetail(options: { includeStatus?: boolean } = {}) {
         if (selectedProgramId) {
             const [detailResponse, statusResponse] = await Promise.all([
@@ -1121,23 +1090,10 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
 
     function handleDateRangeChange(next: ReportDateRangeValue) {
         setDateRange(next);
-        setReportPage(1);
-        setEventPage(1);
     }
 
     function handleDateRangePresetChange(next: ReportDateRangePreset) {
         setDateRangePreset(next);
-        setReportPage(1);
-        setEventPage(1);
-    }
-
-    function focusReportDateRange() {
-        const target = reportDateRangeRef.current;
-        if (!target) {
-            return;
-        }
-        target.scrollIntoView({ block: 'start', behavior: 'smooth' });
-        target.querySelector<HTMLElement>('select, input, button')?.focus();
     }
 
     function renderSection(section: AdminSection) {
@@ -1171,6 +1127,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                         setKickError(null);
                         setKickedStream(stream);
                     }}
+                    onHistory={(stream) => void loadStreamHistory(stream)}
                 />
             );
         }
@@ -1195,20 +1152,8 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             const rangeActive =
                 dateRangePreset !== 'All time' &&
                 (dateRangePreset !== 'Custom' || !!computedRange.from || !!computedRange.to);
-            const rangeLabel =
-                rangeActive && dateRangePreset !== 'Custom'
-                    ? dateRangePreset
-                    : formatRangeChipLabel(computedRange);
             return (
                 <>
-                    <div className="admin-report-toolbar" ref={reportDateRangeRef}>
-                        <ReportDateRangeControl
-                            value={dateRange}
-                            preset={dateRangePreset}
-                            onChange={handleDateRangeChange}
-                            onPresetChange={handleDateRangePresetChange}
-                        />
-                    </div>
                     <div className="admin-report-meta">
                         <Button
                             disabled={refreshing}
@@ -1217,119 +1162,22 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                             type="button"
                             variant="default"
                         >
-                            Refresh events
+                            Refresh summary
                         </Button>
                     </div>
                     <ReportSummaryPanel
                         summary={summary}
                         rangeActive={rangeActive}
-                        rangeLabel={rangeLabel}
-                        onRangeChipClick={focusReportDateRange}
+                        rangeControl={
+                            <ReportDateRangeControl
+                                value={dateRange}
+                                preset={dateRangePreset}
+                                onChange={handleDateRangeChange}
+                                onPresetChange={handleDateRangePresetChange}
+                            />
+                        }
                         isFetching={isFetchingReports}
                     />
-                    <details
-                        className="admin-report-accordion"
-                        open={eventsOpen}
-                        onToggle={(event) => setEventsOpen(event.currentTarget.open)}
-                    >
-                        <summary
-                            aria-controls="admin-recent-events-panel"
-                            aria-expanded={eventsOpen}
-                            className="admin-session-summary"
-                            role="button"
-                        >
-                            <span className="admin-session-chevron" aria-hidden="true">
-                                ▸
-                            </span>
-                            Recent events
-                            <span
-                                aria-label={`${eventFeed?.total ?? 0} events`}
-                                className={`admin-session-count ${
-                                    rangeActive ||
-                                    eventFilters.eventTypes.length > 0 ||
-                                    eventFilters.translatorId
-                                        ? 'admin-session-count--active'
-                                        : ''
-                                }`}
-                            >
-                                {eventFeed?.total ?? 0}
-                            </span>
-                        </summary>
-                        <div className="admin-session-panel" id="admin-recent-events-panel">
-                            <EventFeedPanel
-                                detail={detail}
-                                feed={eventFeed}
-                                filters={eventFilters}
-                                onFilterChange={setEventFilter}
-                                onClearFilters={clearEventFilters}
-                                page={eventPage}
-                                onPageChange={setEventPage}
-                                rangeLabel={rangeLabel}
-                                onRangeChipClick={focusReportDateRange}
-                                isFetching={isFetchingReports}
-                            />
-                        </div>
-                    </details>
-                    <details
-                        className="admin-report-accordion"
-                        open={reportOpen}
-                        onToggle={(event) => {
-                            const isOpen = event.currentTarget.open;
-                            if (isOpen) {
-                                void openReport();
-                            } else {
-                                setReportOpen(false);
-                            }
-                        }}
-                    >
-                        <summary
-                            aria-controls="admin-listener-report-panel"
-                            aria-expanded={reportOpen}
-                            className="admin-session-summary"
-                            role="button"
-                        >
-                            <span className="admin-session-chevron" aria-hidden="true">
-                                ▸
-                            </span>
-                            Listener report
-                            <span
-                                aria-label={
-                                    report
-                                        ? `${report.total} listener connections`
-                                        : 'Listener report not loaded'
-                                }
-                                className="admin-session-count"
-                            >
-                                {report?.total ?? '—'}
-                            </span>
-                            {reportLastLoadedAt ? (
-                                <span className="admin-hint">
-                                    Last loaded: {formatISTTime(reportLastLoadedAt)}
-                                </span>
-                            ) : null}
-                        </summary>
-                        <div className="admin-session-panel" id="admin-listener-report-panel">
-                            <ListenerReportPanel
-                                detail={detail}
-                                report={report}
-                                reportOpen={reportOpen}
-                                filters={reportFilters}
-                                onFilterChange={setReportFilter}
-                                onClearFilters={clearReportFilters}
-                                page={reportPage}
-                                onPageChange={setReportPage}
-                                isFetching={reportFetching}
-                                onDownloadCsv={() => void downloadCsv()}
-                                accessSummary={listenerAccessSummary}
-                                accessSummaryFetching={listenerAccessSummaryFetching}
-                                onRefreshAccessSummary={() => void refreshListenerAccessSummary()}
-                                onRevokeAccess={revokeListenerAccess}
-                                readOnly={false}
-                                rangeLabel={rangeLabel}
-                                onRangeChipClick={focusReportDateRange}
-                            />
-                        </div>
-                    </details>
                 </>
             );
         }
@@ -1479,13 +1327,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             setSelectedProgramId(null);
             setDetail(null);
             setStatus(null);
-            setReport(null);
-            setReportLastLoadedAt(null);
-            loadedReportQueryKey.current = null;
-            setReportOpen(false);
-            setEventsOpen(false);
             setSummary(null);
-            setEventFeed(null);
             pendingRouteLoad.current = null;
             suppressRouteLoad.current = true;
             navigate('/manage');
@@ -1592,156 +1434,33 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         }
     }
 
-    async function openReport() {
-        if (!selectedProgramId) {
-            return;
-        }
-        setReportOpen(true);
-        setError(null);
-        void refreshListenerAccessSummary();
-    }
-
-    async function refreshListenerAccessSummary() {
-        if (!selectedProgramId) {
-            return;
-        }
-        const programId = selectedProgramId;
-        const requestId = ++listenerAccessSummaryReqId.current;
-        setListenerAccessSummaryFetching(true);
+    async function loadStreamHistory(stream: AdminStream, page = 1) {
+        if (!selectedProgramId) return;
+        setHistoryStream(stream);
+        setHistoryFeed(null);
+        setHistoryLoading(true);
+        setHistoryError(null);
         try {
-            const response = await adminApi.getListenerAccessSummary(programId);
-            if (
-                selectedProgramIdRef.current !== programId ||
-                listenerAccessSummaryReqId.current !== requestId
-            ) {
-                return;
-            }
-            setListenerAccessSummary(response);
-        } catch (summaryError) {
-            if (
-                selectedProgramIdRef.current !== programId ||
-                listenerAccessSummaryReqId.current !== requestId
-            ) {
-                return;
-            }
-            if (handleAuthError(summaryError)) {
-                return;
-            }
-            setError(errorCode(summaryError));
-        } finally {
-            if (
-                selectedProgramIdRef.current === programId &&
-                listenerAccessSummaryReqId.current === requestId
-            ) {
-                setListenerAccessSummaryFetching(false);
-            }
-        }
-    }
-
-    async function revokeListenerAccess(clientId: string) {
-        if (!selectedProgramId) {
-            return;
-        }
-
-        try {
-            await adminApi.revokeListenerAccess(selectedProgramId, clientId);
-            const query = buildReportQuery(
-                reportFilters,
-                reportPage,
-                computeRange(dateRangePreset, dateRange.from, dateRange.to),
-            );
-            const [accessSummaryResponse, reportResponse] = await Promise.all([
-                adminApi.getListenerAccessSummary(selectedProgramId),
-                adminApi.getListenerReport(selectedProgramId, query),
-            ]);
-            setListenerAccessSummary(accessSummaryResponse);
-            setReport(reportResponse);
-            setReportLastLoadedAt(new Date().toISOString());
-            loadedReportQueryKey.current = buildListenerReportKey(
-                selectedProgramId,
-                query,
-                dateRangePreset,
-                dateRange,
-            );
-            if (reportResponse.page !== reportPage) {
-                setReportPage(reportResponse.page);
-            }
-            setError(null);
-        } catch (revokeError) {
-            if (!handleAuthError(revokeError)) {
-                setError(errorCode(revokeError));
-            }
-            throw revokeError;
-        }
-    }
-
-    function setReportFilter(partial: Partial<ReportFiltersState>) {
-        setReportFilters((prev) => ({ ...prev, ...partial }));
-        setReportPage(1);
-    }
-
-    function clearReportFilters() {
-        setReportFilters(EMPTY_REPORT_FILTERS);
-        setReportPage(1);
-    }
-
-    function setEventFilter(partial: Partial<EventFiltersState>) {
-        setEventFilters((prev) => ({ ...prev, ...partial }));
-        setEventPage(1);
-    }
-
-    function clearEventFilters() {
-        setEventFilters(EMPTY_EVENT_FILTERS);
-        setEventPage(1);
-    }
-
-    useEffect(() => {
-        if (loadState !== 'ready' || !reportOpen || !selectedProgramId) return;
-        const query = buildReportQuery(
-            reportFilters,
-            reportPage,
-            computeRange(dateRangePreset, dateRange.from, dateRange.to),
-        );
-        const queryKey = buildListenerReportKey(
-            selectedProgramId,
-            query,
-            dateRangePreset,
-            dateRange,
-        );
-        if (loadedReportQueryKey.current === queryKey) return;
-        let cancelled = false;
-        setReportFetching(true);
-        adminApi
-            .getListenerReport(selectedProgramId, query)
-            .then((r) => {
-                if (cancelled) return;
-                setReport(r);
-                setReportLastLoadedAt(new Date().toISOString());
-                loadedReportQueryKey.current = queryKey;
-                if (r.page !== reportPage) setReportPage(r.page);
-            })
-            .catch((reportError) => {
-                if (cancelled) return;
-                if (handleAuthError(reportError)) return;
-                setError(errorCode(reportError));
-            })
-            .finally(() => {
-                if (!cancelled) setReportFetching(false);
+            const response = await adminApi.getEventFeed(selectedProgramId, {
+                streamId: stream.id,
+                eventTypes: TRANSLATOR_HISTORY_EVENT_TYPES,
+                page,
+                pageSize: EVENT_FEED_PAGE_SIZE,
             });
-        return () => {
-            cancelled = true;
-        };
-    }, [
-        reportOpen,
-        selectedProgramId,
-        reportFilters,
-        reportPage,
-        dateRange,
-        dateRangePreset,
-        loadState,
-        adminApi,
-        handleAuthError,
-    ]);
+            setHistoryFeed(response);
+        } catch (historyLoadError) {
+            if (handleAuthError(historyLoadError)) return;
+            setHistoryError(errorCode(historyLoadError));
+        } finally {
+            setHistoryLoading(false);
+        }
+    }
+
+    function closeStreamHistory() {
+        setHistoryStream(null);
+        setHistoryFeed(null);
+        setHistoryError(null);
+    }
 
     async function handleKickPublisher(signOut: boolean) {
         if (!selectedProgramId || !kickedStream) {
@@ -2183,6 +1902,18 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                             }
                             pending={kickPending}
                             error={kickError}
+                        />
+                        <StreamHistoryDialog
+                            error={historyError}
+                            feed={historyFeed}
+                            loading={historyLoading}
+                            onClose={closeStreamHistory}
+                            onPageChange={(page) => {
+                                if (historyStream) {
+                                    void loadStreamHistory(historyStream, page);
+                                }
+                            }}
+                            stream={historyStream}
                         />
                     </>
                 ) : null}
@@ -3182,6 +2913,7 @@ function LanguagesPanel({
     onToggle,
     onResetPassword,
     onKickStream,
+    onHistory,
     readOnly,
 }: {
     streams: AdminStream[];
@@ -3193,6 +2925,7 @@ function LanguagesPanel({
     onToggle: (stream: AdminStream) => void;
     onResetPassword: (translator: AdminTranslator) => void;
     onKickStream: (stream: AdminProgramStatus['streams'][number]) => void;
+    onHistory: (stream: AdminStream) => void;
     readOnly: boolean;
 }) {
     const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -3231,7 +2964,7 @@ function LanguagesPanel({
                 <thead>
                     <tr>
                         <th>Language</th>
-                        {readOnly ? null : <th>Actions</th>}
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -3268,45 +3001,60 @@ function LanguagesPanel({
                                             />
                                         </Group>
                                     </td>
-                                    {readOnly ? null : (
-                                        <td>
-                                            <Group gap={6} wrap="nowrap">
-                                                {translator ? (
-                                                    <Button
-                                                        leftSection={<KeyIcon />}
-                                                        onClick={() => onResetPassword(translator)}
-                                                        size="compact-xs"
-                                                        type="button"
-                                                        variant="default"
-                                                    >
-                                                        Reset
-                                                    </Button>
-                                                ) : null}
-                                                {liveStream ? (
-                                                    <Tooltip label="End broadcast">
+                                    <td>
+                                        <Group gap={6} wrap="nowrap">
+                                            <Tooltip label={`View ${stream.languageName} history`}>
+                                                <ActionIcon
+                                                    aria-label={`View ${stream.languageName} history`}
+                                                    onClick={() => onHistory(stream)}
+                                                    variant="light"
+                                                >
+                                                    <HistoryIcon />
+                                                </ActionIcon>
+                                            </Tooltip>
+                                            {readOnly ? null : (
+                                                <>
+                                                    {translator ? (
+                                                        <Button
+                                                            leftSection={<KeyIcon />}
+                                                            onClick={() =>
+                                                                onResetPassword(translator)
+                                                            }
+                                                            size="compact-xs"
+                                                            type="button"
+                                                            variant="default"
+                                                        >
+                                                            Reset
+                                                        </Button>
+                                                    ) : null}
+                                                    {liveStream ? (
+                                                        <Tooltip label="End broadcast">
+                                                            <ActionIcon
+                                                                aria-label={`End ${stream.languageName} broadcast`}
+                                                                color="red"
+                                                                onClick={() =>
+                                                                    onKickStream(liveStream)
+                                                                }
+                                                                variant="light"
+                                                            >
+                                                                <StopIcon />
+                                                            </ActionIcon>
+                                                        </Tooltip>
+                                                    ) : null}
+                                                    <Tooltip label="Delete language">
                                                         <ActionIcon
-                                                            aria-label={`End ${stream.languageName} broadcast`}
+                                                            aria-label={`Delete ${stream.languageName}`}
                                                             color="red"
-                                                            onClick={() => onKickStream(liveStream)}
+                                                            onClick={() => onDelete(stream)}
                                                             variant="light"
                                                         >
-                                                            <StopIcon />
+                                                            <TrashIcon />
                                                         </ActionIcon>
                                                     </Tooltip>
-                                                ) : null}
-                                                <Tooltip label="Delete language">
-                                                    <ActionIcon
-                                                        aria-label={`Delete ${stream.languageName}`}
-                                                        color="red"
-                                                        onClick={() => onDelete(stream)}
-                                                        variant="light"
-                                                    >
-                                                        <TrashIcon />
-                                                    </ActionIcon>
-                                                </Tooltip>
-                                            </Group>
-                                        </td>
-                                    )}
+                                                </>
+                                            )}
+                                        </Group>
+                                    </td>
                                 </tr>
                             );
                         })(),

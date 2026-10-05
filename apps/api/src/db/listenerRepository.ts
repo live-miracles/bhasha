@@ -77,6 +77,7 @@ export interface ReportDateRange {
 
 export interface ProgramEventPageOptions {
     range?: ReportDateRange;
+    streamId?: string;
     eventTypes?: string[];
     translatorId?: string;
     page?: number;
@@ -964,6 +965,11 @@ export class ListenerRepository {
             binds.push(opts.range.to);
         }
 
+        if (opts.streamId) {
+            whereClauses.push('se.language_stream_id = ?');
+            binds.push(opts.streamId);
+        }
+
         if (opts.eventTypes?.length) {
             whereClauses.push(`se.event_type IN (${opts.eventTypes.map(() => '?').join(', ')})`);
             binds.push(...opts.eventTypes);
@@ -1010,6 +1016,19 @@ export class ListenerRepository {
             dropouts: number;
             reconnects: number;
         }>;
+        series: {
+            bucket: '5min' | '10min' | 'hour' | 'day';
+            points: Array<{
+                bucketStart: string;
+                streams: Array<{
+                    streamId: string;
+                    connections: number;
+                    dropouts: number;
+                    reconnects: number;
+                    approvals: number;
+                }>;
+            }>;
+        };
     }> {
         if (!(await this.programExists(programId))) {
             throw new ListenerProgramNotFoundError();
@@ -1123,6 +1142,8 @@ export class ListenerRepository {
             };
         });
 
+        const series = this.buildProgramReportSeries(programId, streamRows, range);
+
         return {
             totals: {
                 totalConnections,
@@ -1131,7 +1152,328 @@ export class ListenerRepository {
                 reconnects: totalsEvents.reconnects,
             },
             streams,
+            series,
         };
+    }
+
+    /**
+     * Return only the report chart window after an optional chart cursor.
+     * The summary endpoint remains the authoritative full snapshot; this
+     * smaller query is used by the dashboard's live refresh loop.
+     */
+    async getProgramReportSeries(
+        programId: string,
+        range: ReportDateRange = {},
+        after?: string,
+    ): Promise<{
+        bucket: '5min' | '10min' | 'hour' | 'day';
+        points: Array<{
+            bucketStart: string;
+            streams: Array<{
+                streamId: string;
+                activeListeners: number;
+                connections: number;
+                dropouts: number;
+                reconnects: number;
+                approvals: number;
+            }>;
+        }>;
+    }> {
+        if (!(await this.programExists(programId))) {
+            throw new ListenerProgramNotFoundError();
+        }
+
+        const streamRows = this.db
+            .prepare(
+                `SELECT id as streamId,
+          language_name as languageName,
+          language_code as languageCode
+        FROM language_streams
+        WHERE program_id = ?
+        ORDER BY display_order ASC, created_at ASC`,
+            )
+            .all(programId) as Array<{
+            streamId: string;
+            languageName: string;
+            languageCode: string;
+        }>;
+
+        const parsedAfter = after ? Date.parse(after) : Number.NaN;
+        const parsedFrom = range.from ? Date.parse(range.from) : Number.NaN;
+        const effectiveFrom = Number.isFinite(parsedAfter)
+            ? Number.isFinite(parsedFrom)
+                ? new Date(Math.max(parsedFrom, parsedAfter)).toISOString()
+                : new Date(parsedAfter).toISOString()
+            : range.from;
+        const series = this.buildProgramReportSeries(programId, streamRows, {
+            ...range,
+            ...(effectiveFrom ? { from: effectiveFrom } : {}),
+        });
+
+        if (!Number.isFinite(parsedAfter)) {
+            return series;
+        }
+
+        return {
+            ...series,
+            // Include the cursor's bucket so a currently-open bucket can be
+            // replaced with its newest values instead of being duplicated.
+            points: series.points.filter((point) => Date.parse(point.bucketStart) >= parsedAfter),
+        };
+    }
+
+    private buildProgramReportSeries(
+        programId: string,
+        streamRows: Array<{ streamId: string; languageName: string; languageCode: string }>,
+        range: ReportDateRange,
+    ): {
+        bucket: '5min' | '10min' | 'hour' | 'day';
+        points: Array<{
+            bucketStart: string;
+            streams: Array<{
+                streamId: string;
+                activeListeners: number;
+                connections: number;
+                dropouts: number;
+                reconnects: number;
+                approvals: number;
+            }>;
+        }>;
+    } {
+        const now = Date.now();
+        const rangeStart = range.from ? Date.parse(range.from) : Number.NaN;
+        const rangeEnd = range.to ? Date.parse(range.to) : now;
+        const minRow = this.db
+            .prepare(
+                `SELECT MIN(value) as value FROM (
+          SELECT MIN(created_at) as value FROM listener_connections WHERE program_id = ?
+          UNION ALL
+          SELECT MIN(occurred_at) as value FROM stream_events WHERE program_id = ?
+          UNION ALL
+          SELECT MIN(approved_at) as value FROM listener_access WHERE program_id = ?
+        )`,
+            )
+            .get(programId, programId, programId) as { value: string | null } | undefined;
+        const effectiveStart = Number.isFinite(rangeStart)
+            ? rangeStart
+            : minRow?.value
+              ? Date.parse(minRow.value)
+              : now - 7 * 24 * 60 * 60 * 1000;
+        const start = Number.isFinite(effectiveStart) ? effectiveStart : now - 7 * 86400000;
+        const end = Number.isFinite(rangeEnd) && rangeEnd > start ? rangeEnd : now;
+        const span = Math.max(1, end - start);
+        const bucket: '5min' | '10min' | 'hour' | 'day' =
+            span <= 6 * 3600000
+                ? '5min'
+                : span <= 24 * 3600000
+                  ? '10min'
+                  : span <= 7 * 86400000
+                    ? 'hour'
+                    : 'day';
+        const bucketExpression =
+            bucket === '5min'
+                ? "strftime('%Y-%m-%dT%H:', {column}) || printf('%02d', (CAST(strftime('%M', {column}) AS INTEGER) / 5) * 5) || ':00.000Z'"
+                : bucket === '10min'
+                  ? "strftime('%Y-%m-%dT%H:', {column}) || printf('%02d', (CAST(strftime('%M', {column}) AS INTEGER) / 10) * 10) || ':00.000Z'"
+                  : bucket === 'hour'
+                    ? "strftime('%Y-%m-%dT%H:00:00.000Z', {column})"
+                    : "strftime('%Y-%m-%dT00:00:00.000Z', {column})";
+        const connectionWhere = ['lc.program_id = ?', 'lc.created_at >= ?', 'lc.created_at < ?'];
+        const eventWhere = ['se.program_id = ?', 'se.occurred_at >= ?', 'se.occurred_at < ?'];
+        const connectionRows = this.db
+            .prepare(
+                `SELECT ${bucketExpression.replaceAll('{column}', 'lc.created_at')} as bucketStart,
+          lc.language_stream_id as streamId, COUNT(*) as count
+        FROM listener_connections lc
+        WHERE ${connectionWhere.join(' AND ')}
+        GROUP BY bucketStart, lc.language_stream_id`,
+            )
+            .all(programId, new Date(start).toISOString(), new Date(end).toISOString()) as Array<{
+            bucketStart: string;
+            streamId: string;
+            count: number;
+        }>;
+        const eventRows = this.db
+            .prepare(
+                `SELECT ${bucketExpression.replaceAll('{column}', 'se.occurred_at')} as bucketStart,
+          se.language_stream_id as streamId,
+          SUM(CASE WHEN se.event_type = 'listener_reconnected' THEN 1 ELSE 0 END) as reconnects,
+          SUM(CASE WHEN ${DROPOUT_CONDITION} THEN 1 ELSE 0 END) as dropouts
+        FROM stream_events se
+        WHERE ${eventWhere.join(' AND ')}
+        GROUP BY bucketStart, se.language_stream_id`,
+            )
+            .all(programId, new Date(start).toISOString(), new Date(end).toISOString()) as Array<{
+            bucketStart: string;
+            streamId: string | null;
+            dropouts: number | null;
+            reconnects: number | null;
+        }>;
+        const approvalRows = this.db
+            .prepare(
+                `SELECT ${bucketExpression.replaceAll('{column}', 'la.approved_at')} as bucketStart,
+          lc.language_stream_id as streamId, COUNT(DISTINCT la.client_id) as count
+        FROM listener_access la
+        JOIN listener_connections lc
+          ON lc.program_id = la.program_id AND lc.client_id = la.client_id
+        WHERE la.program_id = ?
+          AND la.status = 'approved'
+          AND la.approved_at >= ? AND la.approved_at < ?
+        GROUP BY bucketStart, lc.language_stream_id`,
+            )
+            .all(programId, new Date(start).toISOString(), new Date(end).toISOString()) as Array<{
+            bucketStart: string;
+            streamId: string;
+            count: number;
+        }>;
+        const activeConnectionRows = this.db
+            .prepare(
+                `SELECT language_stream_id as streamId,
+          connected_at as connectedAt, disconnected_at as disconnectedAt
+        FROM listener_connections
+        WHERE program_id = ?
+          AND connected_at IS NOT NULL
+          AND connected_at < ?
+          AND (disconnected_at IS NULL OR disconnected_at >= ?)`,
+            )
+            .all(programId, new Date(end).toISOString(), new Date(start).toISOString()) as Array<{
+            streamId: string;
+            connectedAt: string;
+            disconnectedAt: string | null;
+        }>;
+        const values = new Map<
+            string,
+            Map<
+                string,
+                {
+                    activeListeners: number;
+                    connections: number;
+                    dropouts: number;
+                    reconnects: number;
+                    approvals: number;
+                }
+            >
+        >();
+        const ensure = (bucketStart: string, streamId: string) => {
+            let byStream = values.get(bucketStart);
+            if (!byStream) {
+                byStream = new Map();
+                values.set(bucketStart, byStream);
+            }
+            let value = byStream.get(streamId);
+            if (!value) {
+                value = {
+                    activeListeners: 0,
+                    connections: 0,
+                    dropouts: 0,
+                    reconnects: 0,
+                    approvals: 0,
+                };
+                byStream.set(streamId, value);
+            }
+            return value;
+        };
+        for (const row of connectionRows)
+            ensure(row.bucketStart, row.streamId).connections += row.count;
+        for (const row of eventRows) {
+            if (row.streamId) {
+                const value = ensure(row.bucketStart, row.streamId);
+                value.dropouts += row.dropouts ?? 0;
+                value.reconnects += row.reconnects ?? 0;
+            }
+        }
+        for (const row of approvalRows)
+            ensure(row.bucketStart, row.streamId).approvals += row.count;
+
+        const align = (timestamp: number): number => {
+            const date = new Date(timestamp);
+            if (bucket === '5min')
+                date.setUTCMinutes(Math.floor(date.getUTCMinutes() / 5) * 5, 0, 0);
+            else if (bucket === '10min')
+                date.setUTCMinutes(Math.floor(date.getUTCMinutes() / 10) * 10, 0, 0);
+            else if (bucket === 'hour') date.setUTCMinutes(0, 0, 0);
+            else date.setUTCHours(0, 0, 0, 0);
+            return date.getTime();
+        };
+        const advance =
+            bucket === '5min'
+                ? 300000
+                : bucket === '10min'
+                  ? 600000
+                  : bucket === 'hour'
+                    ? 3600000
+                    : 86400000;
+        const pointStarts: number[] = [];
+        for (let cursor = align(start); cursor <= end; cursor += advance) {
+            pointStarts.push(cursor);
+        }
+        const lowerBound = (target: number): number => {
+            let low = 0;
+            let high = pointStarts.length;
+            while (low < high) {
+                const middle = Math.floor((low + high) / 2);
+                if ((pointStarts[middle] ?? Number.POSITIVE_INFINITY) < target) low = middle + 1;
+                else high = middle;
+            }
+            return low;
+        };
+        const activeDiffs = new Map<string, number[]>();
+        for (const row of activeConnectionRows) {
+            const first = lowerBound(Date.parse(row.connectedAt));
+            const disconnectedAt = row.disconnectedAt
+                ? Date.parse(row.disconnectedAt)
+                : Number.POSITIVE_INFINITY;
+            const endIndex = lowerBound(disconnectedAt);
+            if (first >= endIndex) continue;
+            const diff =
+                activeDiffs.get(row.streamId) ??
+                Array.from({ length: pointStarts.length + 1 }, () => 0);
+            diff[first] = (diff[first] ?? 0) + 1;
+            diff[endIndex] = (diff[endIndex] ?? 0) - 1;
+            activeDiffs.set(row.streamId, diff);
+        }
+        const activeByStream = new Map<string, number[]>();
+        for (const [streamId, diff] of activeDiffs) {
+            let running = 0;
+            activeByStream.set(
+                streamId,
+                diff.slice(0, -1).map((change) => (running += change)),
+            );
+        }
+        const points: Array<{
+            bucketStart: string;
+            streams: Array<{
+                streamId: string;
+                activeListeners: number;
+                connections: number;
+                dropouts: number;
+                reconnects: number;
+                approvals: number;
+            }>;
+        }> = [];
+        for (let pointIndex = 0; pointIndex < pointStarts.length; pointIndex += 1) {
+            const cursor = pointStarts[pointIndex] ?? end;
+            const bucketStart = new Date(cursor).toISOString();
+            const byStream = values.get(bucketStart);
+            points.push({
+                bucketStart,
+                streams: streamRows.map((stream) => {
+                    const value = byStream?.get(stream.streamId) ?? {
+                        activeListeners: 0,
+                        connections: 0,
+                        dropouts: 0,
+                        reconnects: 0,
+                        approvals: 0,
+                    };
+                    return {
+                        streamId: stream.streamId,
+                        ...value,
+                        activeListeners: activeByStream.get(stream.streamId)?.[pointIndex] ?? 0,
+                    };
+                }),
+            });
+        }
+        return { bucket, points };
     }
 
     async listProgramEventsPage(

@@ -44,7 +44,6 @@ export function ReportDateRangeControl({
         <Stack aria-label="Report range controls">
             <NativeSelect
                 aria-label="Range"
-                label="Range"
                 value={preset}
                 onChange={(event) =>
                     handlePresetChange(event.target.value as ReportDateRangePreset)

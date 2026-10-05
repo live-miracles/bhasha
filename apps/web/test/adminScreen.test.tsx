@@ -242,6 +242,7 @@ function reportSummary(): AdminReportSummary {
                 reconnects: 9,
             },
         ],
+        series: { bucket: 'day', points: [] },
         generatedAt: '2026-06-21T10:00:00.000Z',
         presenceSource: 'durable_object',
     };
@@ -366,6 +367,11 @@ function makeApi(overrides: Partial<AdminApi> = {}): AdminApi {
         getApproverAccess: vi.fn(async () => approverAccess()),
         getProgramStatus: vi.fn(async () => status()),
         getReportSummary: vi.fn(async () => reportSummary()),
+        getReportSeries: vi.fn(async () => ({
+            series: reportSummary().series,
+            activeListeners: { total: 0, streams: [] },
+            generatedAt: new Date().toISOString(),
+        })),
         listPrograms: vi.fn(async () => programList()),
         restoreProgram: vi.fn(async () => undefined),
         login: vi.fn(async () => ({ ok: true as const })),

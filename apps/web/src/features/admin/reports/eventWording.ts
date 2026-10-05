@@ -14,6 +14,12 @@ export function eventWording(entry: AdminEventFeedEntry): string {
             return `${translatorName(entry)} connected`;
         case 'translator_disconnected':
             return `${translatorName(entry)} disconnected`;
+        case 'translator_muted':
+            return `${translatorName(entry)} muted the microphone`;
+        case 'translator_unmuted':
+            return `${translatorName(entry)} unmuted the microphone`;
+        case 'admin_kicked':
+            return `Admin ended ${translatorName(entry)}'s broadcast`;
         case 'audio_started':
             return 'Audio started';
         case 'audio_stopped':

@@ -522,6 +522,35 @@ describe('admin report summary and event feed routes', () => {
         });
     });
 
+    it('series endpoint returns chart points from the supplied cursor', async () => {
+        const cookie = await adminCookie();
+        const { programId, hindiStreamId } = await seedReportProgram();
+        await insertConnection({
+            id: 'lc_incremental_series',
+            programId,
+            streamId: hindiStreamId,
+            clientId: 'client_incremental_series',
+            status: 'connected',
+            connectedAt: '2026-06-24T10:12:00.000Z',
+            createdAt: '2026-06-24T10:12:00.000Z',
+        });
+
+        const query = `from=${encodeURIComponent('2026-06-24T10:00:00.000Z')}&to=${encodeURIComponent('2026-06-24T10:20:00.000Z')}`;
+        const response = await request(
+            `/api/admin/programs/${programId}/report/series?${query}&after=${encodeURIComponent('2026-06-24T10:10:00.000Z')}`,
+            { headers: { Cookie: cookie } },
+        );
+
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as {
+            series: { points: Array<{ bucketStart: string }> };
+        };
+        expect(body.series.points.length).toBeGreaterThan(0);
+        expect(
+            body.series.points.every((point) => point.bucketStart >= '2026-06-24T10:10:00.000Z'),
+        ).toBe(true);
+    });
+
     it('summary endpoint honours ?from=&to=', async () => {
         const cookie = await adminCookie();
         const { programId, hindiStreamId, tamilStreamId } = await seedReportProgram();

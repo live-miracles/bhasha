@@ -159,6 +159,7 @@ export interface ReportDateRangeQuery {
 
 export interface EventFeedQuery {
     range?: ReportDateRangeQuery | undefined;
+    streamId?: string | undefined;
     eventTypes?: string[] | undefined;
     translatorId?: string | undefined;
     page?: number;
@@ -189,6 +190,32 @@ export interface AdminReportStreamSummary {
     reconnects: number;
 }
 
+export interface AdminReportSeriesPoint {
+    bucketStart: string;
+    streams: Array<{
+        streamId: string;
+        activeListeners: number;
+        connections: number;
+        dropouts: number;
+        reconnects: number;
+        approvals: number;
+    }>;
+}
+
+export interface AdminReportSeries {
+    bucket: '5min' | '10min' | 'hour' | 'day';
+    points: AdminReportSeriesPoint[];
+}
+
+export interface AdminReportSeriesUpdate {
+    series: AdminReportSeries;
+    activeListeners: {
+        total: number;
+        streams: Array<{ streamId: string; count: number }>;
+    };
+    generatedAt: string;
+}
+
 export interface AdminReportSummary {
     programId: string;
     totals: {
@@ -199,6 +226,7 @@ export interface AdminReportSummary {
         reconnects: number;
     };
     streams: AdminReportStreamSummary[];
+    series: AdminReportSeries;
     generatedAt: string;
     presenceSource: 'durable_object';
 }
@@ -299,6 +327,11 @@ export interface AdminApi {
     getListenerAccessSummary(programId: string): Promise<AdminListenerAccessSummary>;
     revokeListenerAccess(programId: string, clientId: string): Promise<{ revoked: number }>;
     getReportSummary(programId: string, range?: ReportDateRangeQuery): Promise<AdminReportSummary>;
+    getReportSeries(
+        programId: string,
+        range?: ReportDateRangeQuery,
+        after?: string,
+    ): Promise<AdminReportSeriesUpdate>;
     getEventFeed(programId: string, opts?: EventFeedQuery | number): Promise<AdminEventFeed>;
     downloadListenerReportCsv(
         programId: string,
@@ -488,6 +521,17 @@ export function createAdminApi(client: AdminHttpClient = apiClient): AdminApi {
                 { noStore: true },
             );
         },
+        getReportSeries(programId: string, range?: ReportDateRangeQuery, after?: string) {
+            const params = new URLSearchParams();
+            if (range?.from) params.append('from', range.from);
+            if (range?.to) params.append('to', range.to);
+            if (after) params.append('after', after);
+            const queryString = params.toString();
+            return client.get<AdminReportSeriesUpdate>(
+                `${programPath(programId)}/report/series${queryString ? `?${queryString}` : ''}`,
+                { noStore: true },
+            );
+        },
         getEventFeed(programId: string, opts: EventFeedQuery | number = {}) {
             const options = typeof opts === 'number' ? { pageSize: opts } : opts;
             const params = new URLSearchParams();
@@ -496,6 +540,9 @@ export function createAdminApi(client: AdminHttpClient = apiClient): AdminApi {
             }
             if (options.range?.to) {
                 params.append('to', options.range.to);
+            }
+            if (options.streamId) {
+                params.append('streamId', options.streamId);
             }
             if (options.eventTypes?.length) {
                 for (const eventType of options.eventTypes) {

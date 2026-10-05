@@ -73,6 +73,7 @@ export interface TranslatorApi {
         publishSessionId: string,
         active: boolean,
     ): Promise<TranslatorAudioActivityResponse>;
+    mute?(streamId: string, publishSessionId: string, muted: boolean): Promise<{ ok: true }>;
     heartbeat(streamId: string, publishSessionId: string): Promise<TranslatorHeartbeatResponse>;
     logout?: () => Promise<{ ok: boolean }>;
 }
@@ -111,6 +112,13 @@ export function createTranslatorApi(client: TranslatorHttpClient = apiClient): T
                 '/api/translator/realtime/audio-activity',
                 { streamId, publishSessionId, active },
             );
+        },
+        mute(streamId, publishSessionId, muted) {
+            return client.post<{ ok: true }>('/api/translator/realtime/mute', {
+                streamId,
+                publishSessionId,
+                muted,
+            });
         },
         heartbeat(streamId, publishSessionId) {
             return client.post<TranslatorHeartbeatResponse>('/api/translator/realtime/heartbeat', {

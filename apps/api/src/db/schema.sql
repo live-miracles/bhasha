@@ -111,7 +111,7 @@ CREATE TABLE stream_events (
   program_id TEXT NOT NULL,
   stream_program_id TEXT,
   language_stream_id TEXT,
-  event_type TEXT NOT NULL CHECK (event_type IN ('translator_connected', 'translator_disconnected', 'audio_started', 'audio_stopped', 'listener_joined', 'listener_subscribed', 'listener_left', 'listener_switched', 'listener_reconnected', 'connection_failed')),
+  event_type TEXT NOT NULL CHECK (event_type IN ('translator_connected', 'translator_disconnected', 'translator_muted', 'translator_unmuted', 'admin_kicked', 'audio_started', 'audio_stopped', 'listener_joined', 'listener_subscribed', 'listener_left', 'listener_switched', 'listener_reconnected', 'connection_failed')),
   occurred_at TEXT NOT NULL,
   metadata_json TEXT NOT NULL DEFAULT '{}',
   translator_name TEXT,
@@ -121,6 +121,7 @@ CREATE TABLE stream_events (
   FOREIGN KEY (stream_program_id, language_stream_id) REFERENCES language_streams(program_id, id) ON DELETE SET NULL
 );
 CREATE INDEX idx_stream_events_program_time ON stream_events(program_id, occurred_at);
+CREATE INDEX idx_stream_events_stream_time ON stream_events(program_id, language_stream_id, occurred_at);
 
 CREATE TABLE admin_sessions (
   id TEXT PRIMARY KEY,

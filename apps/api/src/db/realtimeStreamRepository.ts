@@ -792,6 +792,35 @@ export class RealtimeStreamRepository {
         };
     }
 
+    recordStreamEvent(input: {
+        programId: string;
+        streamId: string;
+        eventType: StreamEventType;
+        metadata?: Record<string, unknown>;
+        translatorId?: string;
+    }): void {
+        this.db
+            .prepare(
+                `INSERT INTO stream_events
+        (id, program_id, stream_program_id, language_stream_id, event_type,
+         occurred_at, metadata_json, translator_name)
+        SELECT ?, ls.program_id, ls.program_id, ls.id, ?, ?, ?,
+          (SELECT t.name FROM translators t
+             WHERE t.id = ? AND t.program_id = ls.program_id)
+        FROM language_streams ls
+        WHERE ls.program_id = ? AND ls.id = ?`,
+            )
+            .run(
+                id('stream_event'),
+                input.eventType,
+                nowIso(),
+                JSON.stringify(input.metadata ?? {}),
+                input.translatorId ?? null,
+                input.programId,
+                input.streamId,
+            );
+    }
+
     async setRelayCoords(input: {
         programId: string;
         streamId: string;
@@ -1212,6 +1241,9 @@ export class RealtimeStreamRepository {
 
 type PublisherStreamEventType =
     'translator_connected' | 'translator_disconnected' | 'connection_failed';
+
+type StreamEventType =
+    PublisherStreamEventType | 'translator_muted' | 'translator_unmuted' | 'admin_kicked';
 
 const PUBLISHER_SELECT = `SELECT id,
   program_id as programId,
