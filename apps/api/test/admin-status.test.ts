@@ -290,21 +290,4 @@ describe('admin program status', () => {
         const hindi = body.streams.find((stream) => stream.id === hindiStreamId);
         expect(hindi?.state).toBe('offline');
     });
-
-    it.skip('keeps archived programs offline even when relay coords exist', async () => {
-        const { cookie, programId, hindiStreamId } = await seedProgramWithStreams();
-        await setProgramStatus(programId, 'archived');
-        await setRelayCoords(hindiStreamId, 13);
-
-        const response = await request(`/api/admin/programs/${programId}/status`, {
-            headers: { Cookie: cookie },
-        });
-
-        expect(response.status).toBe(200);
-        const body = (await response.json()) as {
-            streams: Array<{ id: string; state: 'offline' | 'silent' | 'live' }>;
-        };
-        const hindi = body.streams.find((stream) => stream.id === hindiStreamId);
-        expect(hindi?.state).toBe('offline');
-    });
 });

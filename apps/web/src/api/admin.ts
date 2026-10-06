@@ -79,6 +79,7 @@ export interface AdminProgramDetail {
 
 export interface AdminProgramApproverAccess {
     configured: boolean;
+    loginId: string | null;
     passwordUpdatedAt: string | null;
     activeSessionCount: number;
 }
@@ -320,7 +321,7 @@ export interface AdminApi {
     getApproverAccess(programId: string): Promise<AdminProgramApproverAccess>;
     updateApproverAccess(
         programId: string,
-        payload: { password?: string },
+        payload: { loginId?: string; password?: string },
     ): Promise<AdminProgramApproverAccessUpdate>;
     getProgramStatus(programId: string): Promise<AdminProgramStatus>;
     getListenerReport(programId: string, query?: ListenerReportQuery): Promise<AdminListenerReport>;

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../src/App';
@@ -45,13 +45,9 @@ describe('App route shells', () => {
         render(<App path="/" />);
 
         expect(screen.getByRole('main', { name: 'Bhasha home' })).toBeInTheDocument();
-        expect(
-            screen.getByRole('heading', { name: 'Live translation for events' }),
-        ).toBeInTheDocument();
-        expect(screen.getByRole('link', { name: 'Manage an event' })).toHaveAttribute(
-            'href',
-            '/manage',
-        );
+        expect(screen.getByRole('heading', { name: 'Bhasha' })).toBeInTheDocument();
+        expect(screen.getByRole('textbox', { name: 'Event program slug' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Open program' })).toBeInTheDocument();
     });
 
     it('renders the auth-gated management workspace route', async () => {

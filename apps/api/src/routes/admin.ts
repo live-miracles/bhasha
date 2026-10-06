@@ -550,6 +550,7 @@ export async function handleAdminRoutes(
                 return approverAccessResponse(
                     json({
                         configured: account !== null,
+                        loginId: account?.loginId ?? null,
                         passwordUpdatedAt: account?.passwordUpdatedAt ?? null,
                         activeSessionCount,
                     }),
@@ -582,6 +583,7 @@ export async function handleAdminRoutes(
                 return approverAccessResponse(
                     json({
                         configured: true,
+                        loginId: result.account.loginId,
                         passwordUpdatedAt: result.account.passwordUpdatedAt,
                         activeSessionCount: 0,
                         ...(result.generatedPassword

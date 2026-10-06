@@ -142,53 +142,6 @@ const ENDPOINT_CASES: EndpointCase[] = [
         write: true,
         path: ({ programId, streamId }) => `/api/admin/programs/${programId}/streams/${streamId}`,
     },
-    {
-        name: 'GET /api/admin/programs/:id/translators',
-        method: 'GET',
-        write: false,
-        path: ({ programId }) => `/api/admin/programs/${programId}/translators`,
-    },
-    {
-        name: 'POST /api/admin/programs/:id/translators',
-        method: 'POST',
-        write: true,
-        path: ({ programId }) => `/api/admin/programs/${programId}/translators`,
-    },
-    {
-        name: 'POST /api/admin/programs/:id/translators/:tid/reset-password',
-        method: 'POST',
-        write: true,
-        path: ({ programId, translatorId }) =>
-            `/api/admin/programs/${programId}/translators/${translatorId}/reset-password`,
-    },
-    {
-        name: 'POST /api/admin/programs/:id/translators/:tid/assignments',
-        method: 'POST',
-        write: true,
-        path: ({ programId, translatorId }) =>
-            `/api/admin/programs/${programId}/translators/${translatorId}/assignments`,
-    },
-    {
-        name: 'DELETE /api/admin/programs/:id/translators/:tid/assignments/:aid',
-        method: 'DELETE',
-        write: true,
-        path: ({ programId, translatorId, assignmentId }) =>
-            `/api/admin/programs/${programId}/translators/${translatorId}/assignments/${assignmentId}`,
-    },
-    {
-        name: 'PATCH /api/admin/programs/:id/translators/:tid',
-        method: 'PATCH',
-        write: true,
-        path: ({ programId, translatorId }) =>
-            `/api/admin/programs/${programId}/translators/${translatorId}`,
-    },
-    {
-        name: 'DELETE /api/admin/programs/:id/translators/:tid',
-        method: 'DELETE',
-        write: true,
-        path: ({ programId, translatorId }) =>
-            `/api/admin/programs/${programId}/translators/${translatorId}`,
-    },
 ];
 
 function pathIds() {
@@ -269,7 +222,6 @@ describe('program admin endpoint ownership isolation', () => {
                 '/api/admin/programs/:id',
                 '/api/admin/programs/:id/status',
                 '/api/admin/programs/:id/streams',
-                '/api/admin/programs/:id/translators',
                 '/api/admin/programs/:id/events',
             ].includes(endpoint.name),
     );

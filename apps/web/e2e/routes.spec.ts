@@ -30,14 +30,15 @@ test.beforeEach(async ({ page }) => {
                 program: {
                     slug: 'patna-event-2026',
                     name: 'Patna Event 2026',
-                    venue: 'Main Hall',
-                    eventDate: '2026-07-01',
-                    status: 'live',
+                    listenable: true,
+                    notListenableReason: null,
+                    accessControlEnabled: false,
                 },
                 streams: [
                     {
                         id: 'stream_hi',
                         languageName: 'Hindi',
+                        nativeName: 'हिन्दी',
                         languageCode: 'hi',
                         displayOrder: 1,
                         isActive: true,
@@ -55,10 +56,8 @@ test.beforeEach(async ({ page }) => {
 test('public landing route smoke', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('main', { name: 'Bhasha home' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Manage an event' })).toHaveAttribute(
-        'href',
-        '/manage',
-    );
+    await expect(page.getByLabel('Event program slug')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open program' })).toBeVisible();
 });
 
 test('management route smoke', async ({ page }) => {
@@ -75,7 +74,7 @@ test('listener route smoke', async ({ page }) => {
 test('translator route smoke', async ({ page }) => {
     await page.goto('/patna-event-2026/translate');
     await expect(page.getByRole('main', { name: 'Translator shell' })).toBeVisible();
-    await expect(page.getByText('patna-event-2026')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Translator login' })).toBeVisible();
 });
 
 test('missing route smoke', async ({ page }) => {

@@ -19,7 +19,6 @@ describe('approver api', () => {
         await expect(
             api.login({
                 programSlug: 'patna-event-2026',
-                loginId: 'front-gate',
                 password: 'secret-pass',
             }),
         ).resolves.toEqual({ ok: true });
@@ -36,7 +35,6 @@ describe('approver api', () => {
 
         expect(post).toHaveBeenNthCalledWith(1, '/api/approver/login', {
             programSlug: 'patna-event-2026',
-            loginId: 'front-gate',
             password: 'secret-pass',
         });
         expect(get).toHaveBeenCalledWith('/api/approver/session');

@@ -11,10 +11,14 @@ describe('admin route URL helpers', () => {
         expect(mapUrlSection('report')).toBe('reports');
     });
 
-    it.each(['status', 'streams', 'translators', 'overview', 'share', 'reports'])(
+    it.each(['status', 'overview', 'share', 'reports'])(
         'passes through the %s section',
         (section) => {
             expect(mapUrlSection(section)).toBe(section);
         },
     );
+
+    it.each(['streams', 'translators'])('maps the legacy %s section to languages', (section) => {
+        expect(mapUrlSection(section)).toBe('languages');
+    });
 });

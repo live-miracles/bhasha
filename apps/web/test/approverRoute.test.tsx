@@ -103,7 +103,7 @@ describe('ApproverRoute', () => {
         vi.restoreAllMocks();
     });
 
-    it('shows the program name and logs in with a text login ID', async () => {
+    it('shows the program name and logs in with the program password', async () => {
         const sessionMock = vi
             .fn()
             .mockRejectedValueOnce(authError())
@@ -113,11 +113,6 @@ describe('ApproverRoute', () => {
         renderRoute(api);
 
         expect(await screen.findByText('Patna Event 2026')).toBeInTheDocument();
-        const loginId = screen.getByRole('textbox', { name: 'Login ID' });
-        expect(loginId).toHaveAttribute('type', 'text');
-        expect(loginId).toHaveAttribute('autocomplete', 'username');
-
-        fireEvent.change(loginId, { target: { value: 'front-gate' } });
         fireEvent.change(screen.getByLabelText('Password'), {
             target: { value: 'secret-pass' },
         });
@@ -126,7 +121,6 @@ describe('ApproverRoute', () => {
         await screen.findByRole('heading', { name: 'Approve listener access' });
         expect(login).toHaveBeenCalledWith({
             programSlug: 'patna-event-2026',
-            loginId: 'front-gate',
             password: 'secret-pass',
         });
         expect(screen.getByText('4 approved')).toBeInTheDocument();
@@ -156,9 +150,7 @@ describe('ApproverRoute', () => {
         });
         renderRoute(api);
 
-        fireEvent.change(await screen.findByRole('textbox', { name: 'Login ID' }), {
-            target: { value: 'front-gate' },
-        });
+        await screen.findByRole('heading', { name: 'Approver login' });
         fireEvent.change(screen.getByLabelText('Password'), {
             target: { value: 'wrong' },
         });
@@ -244,9 +236,7 @@ describe('ApproverRoute', () => {
         const api = approverApi({ session: sessionMock, approve });
         renderRoute(api);
 
-        fireEvent.change(await screen.findByRole('textbox', { name: 'Login ID' }), {
-            target: { value: 'front-gate' },
-        });
+        await screen.findByRole('heading', { name: 'Approver login' });
         fireEvent.change(screen.getByLabelText('Password'), {
             target: { value: 'secret-pass' },
         });
@@ -305,10 +295,10 @@ describe('ApproverRoute', () => {
 
         await waitFor(() => expect(scannerTestState.destroy).toHaveBeenCalled());
         await waitFor(() => expect(release).toHaveBeenCalled());
-        expect(screen.queryByRole('textbox', { name: 'Login ID' })).not.toBeInTheDocument();
+        expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
 
         resolveLogout({ ok: true });
-        expect(await screen.findByRole('textbox', { name: 'Login ID' })).toBeInTheDocument();
+        expect(await screen.findByLabelText('Password')).toBeInTheDocument();
     });
 
     it('promotes manual entry and gives an in-app hint when camera permission is denied', async () => {

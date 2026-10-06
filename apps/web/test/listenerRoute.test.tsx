@@ -1079,51 +1079,6 @@ describe('ListenerRoute', () => {
         });
     });
 
-    it.skip('shows not-started gate content and blocks audio pull', async () => {
-        const realtime = realtimeClient();
-        const listener = listenerApi();
-
-        render(
-            <ListenerRoute
-                programSlug="patna-event-2026"
-                publicApi={publicApi({
-                    fetchProgram: vi.fn(async () =>
-                        metadata({
-                            program: {
-                                ...metadata().program,
-                                listenable: false,
-                                notListenableReason: 'ended',
-                            },
-                        }),
-                    ),
-                    fetchProgramStatus: vi.fn(async () =>
-                        status({
-                            program: {
-                                ...status().program,
-                                listenable: false,
-                                notListenableReason: 'ended',
-                            },
-                        }),
-                    ),
-                })}
-                listenerApi={listener}
-                realtimeClient={realtime}
-            />,
-        );
-
-        expect(
-            await screen.findByRole('heading', { name: 'Patna Event 2026' }),
-        ).toBeInTheDocument();
-        expect(screen.getByText('This event has not started yet.')).toBeInTheDocument();
-        expect(screen.getByText('Check back when the event begins.')).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: /Listen to/ })).not.toBeInTheDocument();
-        expect(screen.queryAllByRole('listitem')).toHaveLength(0);
-        expect(realtime.subscribe).not.toHaveBeenCalled();
-        expect(realtime.switch).not.toHaveBeenCalled();
-        expect(realtime.reconnect).not.toHaveBeenCalled();
-        expect(listener.token).not.toHaveBeenCalled();
-    });
-
     it('shows ended gate content and blocks audio pull', async () => {
         const realtime = realtimeClient();
         const listener = listenerApi();

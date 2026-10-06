@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { handleAdminRoutes } from '../src/routes/admin';
+import { TranslatorRepository } from '../src/db/translatorRepository';
 import type { WaitUntilCtx } from '../src/http';
 import { adminCookie, buildTestEnv, seedAdmin, seedProgram, testEnv } from './test-env';
 
@@ -58,35 +59,23 @@ async function seedProgramWithTranslatorAndStream(cookie: string): Promise<SeedP
     expect(streamResponse.status).toBe(201);
     const { id: streamId } = (await streamResponse.json()) as { id: string };
 
-    const translatorResponse = await adminRoute(`/api/admin/programs/${programId}/translators`, {
-        method: 'POST',
-        headers: { Cookie: cookie },
-        body: JSON.stringify({
+    const translators = new TranslatorRepository(testEnv.DB);
+    const translator = await translators.createAdminTranslator(
+        programId,
+        {
             email: `translator-${suffix}@example.com`,
             name: 'Session translator',
             password: 'translator-pass',
-        }),
-    });
-    expect(translatorResponse.status).toBe(201);
-    const { id: translatorId } = (await translatorResponse.json()) as {
-        id: string;
-    };
-
-    const assignmentResponse = await adminRoute(
-        `/api/admin/programs/${programId}/translators/${translatorId}/assignments`,
-        {
-            method: 'POST',
-            headers: { Cookie: cookie },
-            body: JSON.stringify({ streamId }),
         },
+        testEnv.TRANSLATOR_PASSWORD_PEPPER,
     );
-    expect(assignmentResponse.status).toBe(201);
+    await translators.createAdminTranslatorAssignment(programId, translator.id, { streamId });
 
     return {
         cookie,
         programId,
         streamId,
-        translatorId,
+        translatorId: translator.id,
     };
 }
 

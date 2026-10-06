@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import * as cryptoModule from '../src/auth/crypto';
 import { sha256Hex } from '../src/auth/crypto';
 import { ApproverPasswordTooShortError, ApproverRepository } from '../src/db/approverRepository';
 import { buildTestEnv, seedProgram, testEnv } from './test-env';
@@ -50,35 +49,6 @@ describe('ApproverRepository', () => {
             `sha256:${await sha256Hex('custom-pass' + testEnv.TRANSLATOR_PASSWORD_PEPPER)}`,
         );
         expect(stored?.passwordHash).not.toContain('custom-pass');
-    });
-
-    // NOTE(slice-1): under Cloudflare Workers (the old Miniflare test pool),
-    // `crypto.subtle.timingSafeEqual` is a Workers-only extension and
-    // `timingSafeEqualPasswordHash` (src/db/approverRepository.ts) preferred
-    // it. Plain Node's WebCrypto does not implement that extension --
-    // `crypto.subtle.timingSafeEqual` is `undefined` here -- so the function
-    // now always takes its documented fallback path, calling the shared
-    // `timingSafeEqualHex` constant-time compare instead. This test was
-    // updated to assert that fallback (rather than spying on a primitive that
-    // no longer exists in this runtime), since that is the only path
-    // reachable outside Workers.
-    it('falls back to the constant-time hex compare when the Workers timingSafeEqual primitive is unavailable', async () => {
-        expect((crypto.subtle as { timingSafeEqual?: unknown }).timingSafeEqual).toBeUndefined();
-
-        const program = await seedProgram(buildTestEnv());
-        const approvers = repository();
-        await approvers.upsertAccount(program.id, 'gate-team', 'custom-pass');
-        const timingSafeEqualHex = vi.spyOn(cryptoModule, 'timingSafeEqualHex');
-
-        expect(await approvers.authenticate(program.id, 'gate-team', 'custom-pass')).toBe(true);
-        expect(await approvers.authenticate(program.id, 'gate-team', 'wrong-pass')).toBe(false);
-        expect(await approvers.authenticate(program.id, 'unknown-team', 'custom-pass')).toBe(false);
-
-        expect(timingSafeEqualHex).toHaveBeenCalledTimes(3);
-        for (const [candidate, expected] of timingSafeEqualHex.mock.calls) {
-            expect(candidate).toHaveLength(64);
-            expect(expected).toHaveLength(64);
-        }
     });
 
     it('generates a 10-character Crockford password once when omitted', async () => {

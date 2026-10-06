@@ -114,18 +114,6 @@ describe('AdminApi', () => {
         });
         await api.updateStream('program_1', 'stream_hi', { isActive: false });
         await api.deleteStream('program_1', 'stream_hi');
-        await api.createTranslator('program_1', {
-            email: 'hindi@example.com',
-            name: 'Hindi Translator',
-            password: 'plain-pass',
-        });
-        await api.updateTranslator('program_1', 'translator_hindi', {
-            name: 'Lead Hindi Translator',
-        });
-        await api.resetTranslatorPassword('program_1', 'translator_hindi', 'new-pass');
-        await api.deleteTranslator('program_1', 'translator_hindi');
-        await api.addTranslatorAssignment('program_1', 'translator_hindi', 'stream_hi');
-        await api.removeTranslatorAssignment('program_1', 'translator_hindi', 'stream_hi');
 
         expect(client.get).toHaveBeenNthCalledWith(1, '/api/admin/programs/program_1');
         expect(client.get).toHaveBeenNthCalledWith(2, '/api/admin/programs/program_1/status');
@@ -147,38 +135,6 @@ describe('AdminApi', () => {
         expect(client.delete).toHaveBeenNthCalledWith(
             1,
             '/api/admin/programs/program_1/streams/stream_hi',
-        );
-        expect(client.post).toHaveBeenNthCalledWith(
-            2,
-            '/api/admin/programs/program_1/translators',
-            {
-                email: 'hindi@example.com',
-                name: 'Hindi Translator',
-                password: 'plain-pass',
-            },
-        );
-        expect(client.patch).toHaveBeenNthCalledWith(
-            2,
-            '/api/admin/programs/program_1/translators/translator_hindi',
-            { name: 'Lead Hindi Translator' },
-        );
-        expect(client.post).toHaveBeenNthCalledWith(
-            3,
-            '/api/admin/programs/program_1/translators/translator_hindi/reset-password',
-            { password: 'new-pass' },
-        );
-        expect(client.delete).toHaveBeenNthCalledWith(
-            2,
-            '/api/admin/programs/program_1/translators/translator_hindi',
-        );
-        expect(client.post).toHaveBeenNthCalledWith(
-            4,
-            '/api/admin/programs/program_1/translators/translator_hindi/assignments',
-            { streamId: 'stream_hi' },
-        );
-        expect(client.delete).toHaveBeenNthCalledWith(
-            3,
-            '/api/admin/programs/program_1/translators/translator_hindi/assignments/stream_hi',
         );
     });
 

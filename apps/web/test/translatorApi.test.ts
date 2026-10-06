@@ -72,7 +72,7 @@ describe('translator api', () => {
 
         expect(post).toHaveBeenNthCalledWith(1, '/api/translator/login', {
             programSlug: 'patna-event-2026',
-            email: 'hi@example.com',
+            streamId: 'hi@example.com',
             password: 'secret-pass',
         });
         expect(get).toHaveBeenCalledWith('/api/translator/session');

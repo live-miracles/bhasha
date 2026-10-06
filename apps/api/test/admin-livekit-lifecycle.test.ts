@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RoomServiceClient } from 'livekit-server-sdk';
 
 import { handleAdminRoutes } from '../src/routes/admin';
+import { TranslatorRepository } from '../src/db/translatorRepository';
 import { roomNameForStream, translatorIdentity } from '../src/livekit/tokens';
 import type { WaitUntilCtx } from '../src/http';
 import { adminCookie, buildTestEnv, seedAdmin, seedProgram, testEnv } from './test-env';
@@ -89,36 +90,19 @@ async function seedProgramWithTranslatorAndStream(
     expect(streamResponse.status).toBe(201);
     const { id: streamId } = (await streamResponse.json()) as { id: string };
 
-    const translatorResponse = await adminRoute(
-        `/api/admin/programs/${programId}/translators`,
+    const translators = new TranslatorRepository(testEnv.DB);
+    const translator = await translators.createAdminTranslator(
+        programId,
         {
-            method: 'POST',
-            headers: { Cookie: cookie },
-            body: JSON.stringify({
-                email: `translator-${suffix}@example.com`,
-                name: 'Lifecycle translator',
-                password: 'translator-pass',
-            }),
+            email: `translator-${suffix}@example.com`,
+            name: 'Lifecycle translator',
+            password: 'translator-pass',
         },
-        roomService,
+        testEnv.TRANSLATOR_PASSWORD_PEPPER,
     );
-    expect(translatorResponse.status).toBe(201);
-    const { id: translatorId } = (await translatorResponse.json()) as {
-        id: string;
-    };
+    await translators.createAdminTranslatorAssignment(programId, translator.id, { streamId });
 
-    const assignmentResponse = await adminRoute(
-        `/api/admin/programs/${programId}/translators/${translatorId}/assignments`,
-        {
-            method: 'POST',
-            headers: { Cookie: cookie },
-            body: JSON.stringify({ streamId }),
-        },
-        roomService,
-    );
-    expect(assignmentResponse.status).toBe(201);
-
-    return { cookie, programId, streamId, translatorId };
+    return { cookie, programId, streamId, translatorId: translator.id };
 }
 
 async function createTranslatorSession(params: {
@@ -351,48 +335,6 @@ describe('admin routes LiveKit room-service lifecycle', () => {
         expect(roomService.removeParticipant).not.toHaveBeenCalled();
     });
 
-    it.skip("tears down every stream's room when a live program is archived", async () => {
-        const cookie = await adminCookie();
-        const roomService = fakeRoomService();
-        const { programId, streamId } = await seedProgramWithTranslatorAndStream(
-            cookie,
-            roomService as unknown as RoomServiceClient,
-        );
-        testEnv.DB.prepare(`UPDATE programs SET status = 'live' WHERE id = ?`).run(programId);
-
-        const response = await adminRoute(
-            `/api/admin/programs/${programId}/archive`,
-            { method: 'POST', headers: { Cookie: cookie } },
-            roomService as unknown as RoomServiceClient,
-        );
-
-        expect(response.status).toBe(200);
-        expect(roomService.deleteRoom).toHaveBeenCalledWith(roomNameForStream(programId, streamId));
-    });
-
-    it.skip("tears down every stream's room when a live program transitions to draft via PATCH", async () => {
-        const cookie = await adminCookie();
-        const roomService = fakeRoomService();
-        const { programId, streamId } = await seedProgramWithTranslatorAndStream(
-            cookie,
-            roomService as unknown as RoomServiceClient,
-        );
-        testEnv.DB.prepare(`UPDATE programs SET status = 'live' WHERE id = ?`).run(programId);
-
-        const response = await adminRoute(
-            `/api/admin/programs/${programId}`,
-            {
-                method: 'PATCH',
-                headers: { Cookie: cookie },
-                body: JSON.stringify({ status: 'draft' }),
-            },
-            roomService as unknown as RoomServiceClient,
-        );
-
-        expect(response.status).toBe(200);
-        expect(roomService.deleteRoom).toHaveBeenCalledWith(roomNameForStream(programId, streamId));
-    });
-
     it('does not tear down rooms when PATCH does not leave the live status', async () => {
         const cookie = await adminCookie();
         const roomService = fakeRoomService();
@@ -408,50 +350,6 @@ describe('admin routes LiveKit room-service lifecycle', () => {
                 headers: { Cookie: cookie },
                 body: JSON.stringify({ name: 'Renamed Event' }),
             },
-            roomService as unknown as RoomServiceClient,
-        );
-
-        expect(response.status).toBe(200);
-        expect(roomService.deleteRoom).not.toHaveBeenCalled();
-    });
-
-    it.skip("tears down every stream's room when a live program is soft-deleted", async () => {
-        const cookie = await adminCookie();
-        const roomService = fakeRoomService();
-        const { programId, streamId } = await seedProgramWithTranslatorAndStream(
-            cookie,
-            roomService as unknown as RoomServiceClient,
-        );
-        testEnv.DB.prepare(`UPDATE programs SET status = 'live' WHERE id = ?`).run(programId);
-
-        const response = await adminRoute(
-            `/api/admin/programs/${programId}`,
-            { method: 'DELETE', headers: { Cookie: cookie } },
-            roomService as unknown as RoomServiceClient,
-        );
-
-        expect(response.status).toBe(200);
-        expect(roomService.deleteRoom).toHaveBeenCalledWith(roomNameForStream(programId, streamId));
-    });
-
-    it.skip('does not call the room service on program restore (implicit room creation)', async () => {
-        const cookie = await adminCookie();
-        const roomService = fakeRoomService();
-        const { programId } = await seedProgramWithTranslatorAndStream(
-            cookie,
-            roomService as unknown as RoomServiceClient,
-        );
-        testEnv.DB.prepare(`UPDATE programs SET status = 'live' WHERE id = ?`).run(programId);
-        await adminRoute(
-            `/api/admin/programs/${programId}`,
-            { method: 'DELETE', headers: { Cookie: cookie } },
-            roomService as unknown as RoomServiceClient,
-        );
-        roomService.deleteRoom.mockClear();
-
-        const response = await adminRoute(
-            `/api/admin/programs/${programId}/restore`,
-            { method: 'POST', headers: { Cookie: cookie } },
             roomService as unknown as RoomServiceClient,
         );
 

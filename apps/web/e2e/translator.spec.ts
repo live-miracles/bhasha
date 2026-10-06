@@ -76,11 +76,28 @@ test.beforeEach(async ({ page }) => {
                 program: {
                     slug: 'patna-event-2026',
                     name: 'Patna Event 2026',
-                    venue: 'Main Hall',
-                    eventDate: '2026-07-01',
-                    status: 'live',
+                    listenable: true,
+                    notListenableReason: null,
+                    accessControlEnabled: false,
                 },
-                streams: [],
+                streams: [
+                    {
+                        id: 'stream_hi',
+                        languageName: 'Hindi',
+                        nativeName: 'हिन्दी',
+                        languageCode: 'hi',
+                        displayOrder: 1,
+                        isActive: true,
+                    },
+                    {
+                        id: 'stream_bn',
+                        languageName: 'Bengali',
+                        nativeName: 'বাংলা',
+                        languageCode: 'bn',
+                        displayOrder: 2,
+                        isActive: true,
+                    },
+                ],
                 urls: {
                     listenerUrl: 'http://127.0.0.1:4173/patna-event-2026',
                     translatorUrl: 'http://127.0.0.1:4173/patna-event-2026/translate',
@@ -161,8 +178,8 @@ test('translator logs in, publishes audio-only, mutes, reconnects, and stops', a
 
     await expect(page.getByRole('heading', { name: 'Translator login' })).toBeVisible();
 
-    await page.getByLabel('Email').fill('hi@example.com');
-    await page.getByLabel('Password').fill('secret-pass');
+    await page.getByLabel('Language').selectOption('stream_hi');
+    await page.getByRole('textbox', { name: 'Password' }).fill('secret-pass');
     await page.getByRole('button', { name: 'Log in' }).click();
 
     await expect(page.getByRole('button', { name: 'Go live' })).toBeVisible();
@@ -205,8 +222,8 @@ test('translator opens Audio Settings sheet: mic picker, volume, toggles — on 
     page,
 }) => {
     await page.goto('/patna-event-2026/translate');
-    await page.getByLabel('Email').fill('hi@example.com');
-    await page.getByLabel('Password').fill('secret-pass');
+    await page.getByLabel('Language').selectOption('stream_hi');
+    await page.getByRole('textbox', { name: 'Password' }).fill('secret-pass');
     await page.getByRole('button', { name: 'Log in' }).click();
     await expect(page.getByRole('button', { name: 'Go live' })).toBeVisible();
 

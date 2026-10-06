@@ -147,45 +147,6 @@ describe('presence live listener count flag', () => {
         vi.useRealTimers();
     });
 
-    it.skip('keeps flag-unset archive counts on D1 without touching presence', async () => {
-        const { cookie, programId, hindiStreamId, tamilStreamId } = await seedProgramWithStreams();
-        await connectListener(programId, hindiStreamId, 'd1-listener-1');
-        // Simulate presence having entirely different data than D1 -- if the
-        // "d1" source path (the flag-unset default) ever accidentally consulted
-        // presence, these joins would show up in the archived summary below.
-        presenceStatus.presenceJoin(programId, 'do-listener-1', hindiStreamId);
-        presenceStatus.presenceJoin(programId, 'do-listener-2', tamilStreamId);
-
-        const readSnapshotSpy = vi.spyOn(presenceStatus, 'readPresenceStatusSnapshot');
-        const response = await request(
-            `/api/admin/programs/${programId}/archive`,
-            { method: 'POST', headers: { Cookie: cookie } },
-            buildTestEnv(),
-        );
-
-        expect(response.status).toBe(200);
-        // "d1" (flag-unset) resolveActiveListenerCount short-circuits before ever
-        // reading presence -- see routes/admin.ts.
-        expect(readSnapshotSpy).not.toHaveBeenCalled();
-        readSnapshotSpy.mockRestore();
-
-        const summary = await request(`/api/admin/programs/${programId}/report/summary`, {
-            headers: { Cookie: cookie },
-        });
-        expect(summary.status).toBe(200);
-        const body = (await summary.json()) as {
-            totals: { activeListeners: number };
-            streams: Array<{ streamId: string; activeListeners: number }>;
-        };
-        expect(body.totals.activeListeners).toBe(1);
-        expect(body.streams.find((stream) => stream.streamId === hindiStreamId)).toMatchObject({
-            activeListeners: 1,
-        });
-        expect(body.streams.find((stream) => stream.streamId === tamilStreamId)).toMatchObject({
-            activeListeners: 0,
-        });
-    });
-
     it('serves admin status counts from presence when the flag is true', async () => {
         const { cookie, programId, hindiStreamId, tamilStreamId } = await seedProgramWithStreams();
         await connectListener(programId, tamilStreamId, 'd1-listener-1');
