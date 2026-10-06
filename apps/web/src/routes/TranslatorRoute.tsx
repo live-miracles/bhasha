@@ -6,7 +6,7 @@ import {
     useRef,
     useState,
 } from 'react';
-import { Button, MantineProvider, NativeSelect, Stack } from '@mantine/core';
+import { Button, MantineProvider, NativeSelect } from '@mantine/core';
 
 import { ApiError } from '../api/client';
 import { createPublicApi, type PublicApi } from '../api/public';

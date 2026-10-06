@@ -227,8 +227,6 @@ describe('RealtimeStreamRepository relay read helpers', () => {
             relaySessionId: 'relay_session_1',
             relayTrackName: 'relay_track_1',
         });
-        const beforeClear = await getRelayCoords(graph);
-
         await repo.clearRelayCoords({
             programId: graph.programId,
             streamId: graph.streamId,

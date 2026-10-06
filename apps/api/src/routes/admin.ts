@@ -941,8 +941,6 @@ export async function handleAdminRoutes(
             }
 
             try {
-                const program = access;
-
                 const realtime = new RealtimeStreamRepository(env.DB);
                 await programs.softDeleteProgram(programId);
                 await realtime.clearProgramStreamsLive(programId);
@@ -1108,8 +1106,6 @@ export async function handleAdminRoutes(
         try {
             const readDb = env.DB;
             const listeners = new ListenerRepository(readDb);
-            const program = access;
-
             const range = parseDateRange(url.searchParams);
             const aggregates = await listeners.getProgramReportAggregates(programId, range);
             const presence = await readPresenceStatusSnapshot(env, programId);

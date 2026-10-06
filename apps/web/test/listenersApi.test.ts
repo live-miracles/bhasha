@@ -49,7 +49,7 @@ describe('listener api', () => {
     });
 
     it('posts the listener token and control endpoints with program slugs', async () => {
-        const post = vi.fn(async (path: string, body?: unknown) => {
+        const post = vi.fn(async (path: string, _body?: unknown) => {
             if (path === '/api/listeners/token') {
                 return {
                     connectionId: 'listener_connection_1',

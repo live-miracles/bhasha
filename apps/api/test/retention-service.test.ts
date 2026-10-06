@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { ListenerRepository } from '../src/db/listenerRepository';
 import { ProgramRepository } from '../src/db/programRepository';
 import { RetentionRepository } from '../src/db/retentionRepository';
-import { RETENTION_DAYS, RETENTION_REDACTED_VALUE } from '../src/domain/reports';
+import { RETENTION_REDACTED_VALUE } from '../src/domain/reports';
 import { runScheduledRetention } from '../src/domain/retentionService';
 import { testEnv } from './test-env';
 
@@ -211,12 +211,6 @@ describe('retention scheduled service orchestration', () => {
 
     it('redact sweep sets retention_processed_at and redacts only eligible programs', async () => {
         const now = new Date('2026-06-23T00:00:00.000Z');
-        const redactedAtBoundary = new Date(
-            now.getTime() - (RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000,
-        ).toISOString();
-        const nonRedactableBoundary = new Date(
-            now.getTime() - 5 * 24 * 60 * 60 * 1000,
-        ).toISOString();
         const redactedProgram = await seedProgram({
             endDate: '2020-01-01',
         });

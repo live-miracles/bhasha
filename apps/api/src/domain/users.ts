@@ -37,13 +37,6 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
     return value as Record<string, unknown>;
 }
 
-function parseBoolean(value: unknown, field: string): boolean {
-    if (typeof value !== 'boolean') {
-        throw new Error(`${field} must be a boolean`);
-    }
-    return value;
-}
-
 function parsePassword(value: unknown, field: string): string {
     if (typeof value !== 'string') {
         throw new Error(`${field} is required`);

@@ -21,7 +21,6 @@ import {
     Stack,
     Switch,
     Text,
-    Textarea,
     TextInput,
     Title,
     Tooltip,
@@ -408,10 +407,6 @@ function errorCode(error: unknown): string {
 
 function isAuthRequired(error: unknown): boolean {
     return error instanceof ApiError && error.code === 'admin_auth_required';
-}
-
-function urlForProgram(slug: string, suffix = ''): string {
-    return `${window.location.origin}/${slug}${suffix}`;
 }
 
 export function mapUrlSection(urlSection: string | undefined): AdminSection {
@@ -1313,8 +1308,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         if (!selectedProgramId) {
             return;
         }
-        const selectedProgram =
-            programs.find((program) => program.id === selectedProgramId) ?? detail?.program ?? null;
         const message =
             'Delete this program? It will be moved to Recently deleted and can be restored for 7 days.';
         if (!window.confirm(message)) {

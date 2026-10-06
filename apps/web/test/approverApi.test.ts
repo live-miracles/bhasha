@@ -8,7 +8,7 @@ describe('approver api', () => {
             program: { slug: 'patna-event-2026', name: 'Patna Event 2026' },
             approvedCount: 12,
         }));
-        const post = vi.fn(async (path: string, body?: unknown) => {
+        const post = vi.fn(async (path: string, _body?: unknown) => {
             if (path === '/api/approver/approve') {
                 return { status: 'approved', already: false };
             }

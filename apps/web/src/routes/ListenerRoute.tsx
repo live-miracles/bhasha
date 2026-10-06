@@ -1648,7 +1648,11 @@ function InAppBrowserBanner({ app }: { app?: string | undefined }) {
     );
 }
 
-function ListenerGateMessage({ reason }: { reason: Exclude<ListenerNotListenableReason, null> }) {
+function ListenerGateMessage({
+    reason: _reason,
+}: {
+    reason: Exclude<ListenerNotListenableReason, null>;
+}) {
     const [headline, subtext] = ['This program has expired.', 'Thank you for joining.'];
 
     return (
@@ -1709,7 +1713,7 @@ function StreamAction({
     isCurrent,
     playback,
     stream,
-    streamState,
+    streamState: _streamState,
     rawStreamState,
     onEnableSound,
     onLeave,
