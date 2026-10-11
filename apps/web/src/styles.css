@@ -2210,6 +2210,16 @@ body {
     gap: 14px;
 }
 
+.admin-kpi-strip-compact {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 1rem;
+}
+
+.admin-kpi-strip-compact + table {
+    margin-bottom: 1.25rem;
+}
+
 .admin-kpi {
     background: var(--hp-white);
     border: 1px solid var(--adm-border);
@@ -2218,11 +2228,6 @@ body {
     display: flex;
     flex-direction: column;
     gap: 4px;
-}
-
-.admin-kpi-live {
-    border-left: 2px solid var(--adm-border-strong);
-    padding-left: 22px;
 }
 
 .admin-kpi-value {
@@ -2900,6 +2905,10 @@ body {
     .admin-kpi-strip {
         grid-template-columns: repeat(2, 1fr);
     }
+
+    .admin-kpi-strip.admin-kpi-strip-compact {
+        grid-template-columns: repeat(4, 1fr);
+    }
 }
 
 @media (max-width: 560px) {
@@ -2907,9 +2916,8 @@ body {
         grid-template-columns: 1fr;
     }
 
-    .admin-kpi-live {
-        border-left: 1px solid var(--adm-border);
-        padding-left: 18px;
+    .admin-kpi-strip.admin-kpi-strip-compact {
+        grid-template-columns: repeat(2, 1fr);
     }
 }
 

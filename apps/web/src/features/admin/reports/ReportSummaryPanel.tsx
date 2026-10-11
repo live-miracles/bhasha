@@ -1,4 +1,4 @@
-import { Badge, Button, Group, Table, Text, Title } from '@mantine/core';
+import { Button, Group, Table, Text, Title } from '@mantine/core';
 import type { ReactNode } from 'react';
 
 import { AdminUiProvider, KpiTile } from '../AdminShell';
@@ -6,7 +6,6 @@ import type { AdminReportSummary } from '../../../api/admin';
 
 interface ReportSummaryPanelProps {
     summary: AdminReportSummary | null;
-    rangeActive?: boolean;
     rangeLabel?: string | null;
     onRangeChipClick?: () => void;
     rangeControl?: ReactNode;
@@ -170,7 +169,6 @@ function ReportLineChart({
 
 export function ReportSummaryPanel({
     summary,
-    rangeActive = false,
     rangeLabel = null,
     onRangeChipClick,
     rangeControl,
@@ -207,33 +205,27 @@ export function ReportSummaryPanel({
                         pointerEvents: isFetching ? 'none' : 'auto',
                     }}
                 >
-                    <div className="admin-kpi-strip">
+                    <div className="admin-kpi-strip admin-kpi-strip-compact">
                         <KpiTile
+                            compact
                             label="Total connections"
                             value={summary.totals.totalConnections.toString()}
                         />
                         <KpiTile
+                            compact
                             label="Unique devices"
                             value={String(summary.totals.uniqueDevices ?? 0)}
                         />
-                        <KpiTile label="Dropouts" value={summary.totals.dropouts.toString()} />
-                        <KpiTile label="Reconnects" value={summary.totals.reconnects.toString()} />
-                        <div className="admin-kpi admin-kpi-live">
-                            <Text component="div" fw={700} size="xl">
-                                {summary.totals.activeListeners}
-                                <Badge color="green" ml="xs">
-                                    LIVE
-                                </Badge>
-                            </Text>
-                            <Text c="dimmed" size="sm">
-                                Active now
-                            </Text>
-                            {rangeActive ? (
-                                <Text c="dimmed" size="xs">
-                                    (not windowed)
-                                </Text>
-                            ) : null}
-                        </div>
+                        <KpiTile
+                            compact
+                            label="Dropouts"
+                            value={summary.totals.dropouts.toString()}
+                        />
+                        <KpiTile
+                            compact
+                            label="Reconnects"
+                            value={summary.totals.reconnects.toString()}
+                        />
                     </div>
                     <Table striped withTableBorder>
                         <Table.Thead>

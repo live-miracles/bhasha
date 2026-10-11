@@ -124,13 +124,13 @@ function eventDetail(): AdminProgramDetail {
 }
 
 describe('ReportSummaryPanel', () => {
-    it('renders Active now with a LIVE badge, connections, unique devices, dropouts, and reconnects', () => {
+    it('renders compact connection, unique device, dropout, and reconnect totals without a live box', () => {
         render(<ReportSummaryPanel summary={summary()} />);
 
         const panel = screen.getByLabelText('Report summary');
-        expect(panel).toHaveTextContent('Active now');
-        expect(within(panel).getByText('LIVE')).toBeInTheDocument();
-        expect(panel).toHaveTextContent('42');
+        expect(panel).not.toHaveTextContent('Active now');
+        expect(within(panel).queryByText('LIVE')).not.toBeInTheDocument();
+        expect(panel).toHaveTextContent('Total connections');
         expect(panel).toHaveTextContent('120');
         expect(panel).toHaveTextContent('Unique devices');
         expect(panel).toHaveTextContent('88');
@@ -149,14 +149,6 @@ describe('ReportSummaryPanel', () => {
     it('renders a loading message when no summary is available', () => {
         render(<ReportSummaryPanel summary={null} />);
         expect(screen.getByText('Loading report summary...')).toBeInTheDocument();
-    });
-
-    it('shows the not-windowed hint only when a range is active', () => {
-        const { rerender } = render(<ReportSummaryPanel summary={summary()} rangeActive={false} />);
-        expect(screen.queryByText('(not windowed)')).not.toBeInTheDocument();
-
-        rerender(<ReportSummaryPanel summary={summary()} rangeActive={true} />);
-        expect(screen.getByText('(not windowed)')).toBeInTheDocument();
     });
 
     it('shows a clickable range chip when a range is active', () => {
@@ -186,7 +178,7 @@ describe('ReportSummaryPanel', () => {
 
         const body = screen.getByTestId('report-summary-body');
         expect(body).toHaveStyle({ opacity: '0.6', pointerEvents: 'none' });
-        expect(screen.getByText('Active now')).toBeInTheDocument();
+        expect(screen.getByText('Total connections')).toBeInTheDocument();
         expect(screen.queryByText('Loading report summary...')).not.toBeInTheDocument();
     });
 });

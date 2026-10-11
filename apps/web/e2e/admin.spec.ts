@@ -258,7 +258,7 @@ test('management workspace smoke with mocked APIs', async ({ page }) => {
     await expect(page.getByRole('heading', { name: 'Listeners', exact: true })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Listeners', exact: true })).toContainText('18');
     const summaryPanel = page.getByLabel('Report summary');
-    await expect(summaryPanel).toContainText('Active now');
+    await expect(summaryPanel).toContainText('Active (now)');
     await expect(summaryPanel).toContainText('64');
 
     await expect(page.getByRole('img', { name: 'Listener QR' })).toBeVisible();

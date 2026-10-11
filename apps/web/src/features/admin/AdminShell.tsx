@@ -9,6 +9,7 @@ type AdminLayoutProps = {
 type KpiTileProps = {
     label: string;
     value: string;
+    compact?: boolean;
 };
 
 type StatusPillProps = {
@@ -24,13 +25,13 @@ export function AdminUiProvider({ children }: { children: ReactNode }) {
     );
 }
 
-export function KpiTile({ label, value }: KpiTileProps) {
+export function KpiTile({ label, value, compact = false }: KpiTileProps) {
     return (
-        <Paper p="md" radius="md" withBorder>
-            <Text fw={700} size="xl">
+        <Paper p={compact ? 'xs' : 'md'} radius="md" withBorder>
+            <Text fw={700} size={compact ? 'lg' : 'xl'} {...(compact ? { lh: 1.2 } : {})}>
                 {value}
             </Text>
-            <Text c="dimmed" size="sm">
+            <Text c="dimmed" size={compact ? 'xs' : 'sm'}>
                 {label}
             </Text>
         </Paper>

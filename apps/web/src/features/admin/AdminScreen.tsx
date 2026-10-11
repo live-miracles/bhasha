@@ -1127,15 +1127,10 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         }
 
         if (section === 'reports') {
-            const computedRange = computeRange(dateRangePreset, dateRange.from, dateRange.to);
-            const rangeActive =
-                dateRangePreset !== 'All time' &&
-                (dateRangePreset !== 'Custom' || !!computedRange.from || !!computedRange.to);
             return (
                 <>
                     <ReportSummaryPanel
                         summary={summary}
-                        rangeActive={rangeActive}
                         rangeControl={
                             <ReportDateRangeControl
                                 value={dateRange}
