@@ -236,6 +236,7 @@ production):
 ## Documentation
 
 - [Production debugging & recovery runbook](docs/runbook.md)
+- [Roadmap: planned features & platform decision](docs/roadmap.md)
 - [LiveKit room-sharding brief](docs/livekit.md) (early speculative notes — see the note at
   the top of that file for how it differs from what was actually built)
 - [Event-day checklist](docs/event-day-checklist.md)
