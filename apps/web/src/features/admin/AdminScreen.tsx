@@ -663,7 +663,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     const [historyFeed, setHistoryFeed] = useState<AdminEventFeed | null>(null);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyError, setHistoryError] = useState<string | null>(null);
-    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [kickedStream, setKickedStream] = useState<AdminProgramStatus['streams'][number] | null>(
         null,
@@ -727,7 +726,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         setHistoryStream(null);
         setHistoryFeed(null);
         setHistoryError(null);
-        setRefreshing(false);
         setActiveSection('programs');
         setIdentity(null);
         setAdminUsers([]);
@@ -1069,20 +1067,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         }
     }
 
-    async function refreshStatus() {
-        setRefreshing(true);
-        try {
-            await refreshDetail({ includeStatus: true });
-        } catch (statusError) {
-            if (handleAuthError(statusError)) {
-                return;
-            }
-            setError(errorCode(statusError));
-        } finally {
-            setRefreshing(false);
-        }
-    }
-
     function handleDateRangeChange(next: ReportDateRangeValue) {
         setDateRange(next);
     }
@@ -1149,17 +1133,6 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                 (dateRangePreset !== 'Custom' || !!computedRange.from || !!computedRange.to);
             return (
                 <>
-                    <div className="admin-report-meta">
-                        <Button
-                            disabled={refreshing}
-                            loading={refreshing}
-                            onClick={() => void refreshStatus()}
-                            type="button"
-                            variant="default"
-                        >
-                            Refresh summary
-                        </Button>
-                    </div>
                     <ReportSummaryPanel
                         summary={summary}
                         rangeActive={rangeActive}
@@ -2617,6 +2590,9 @@ function DownloadIcon() {
     );
 }
 
+// Quiet-zone width in QR modules; the PNG export crops it back off.
+const QR_MARGIN = 4;
+
 function QrCard({
     title,
     value,
@@ -2653,8 +2629,23 @@ function QrCard({
         saveBlob(new Blob([svg], { type: 'image/svg+xml' }), svgDownloadFilename);
     }
 
+    function currentQrSvgWithoutMargin(): string {
+        const source = qrRef.current?.querySelector('svg');
+        const [x = 0, y = 0, width = 0, height = 0] =
+            source?.getAttribute('viewBox')?.split(' ').map(Number) ?? [];
+        if (!source || !width || !height) {
+            return '';
+        }
+        const svg = source.cloneNode(true) as SVGSVGElement;
+        svg.setAttribute(
+            'viewBox',
+            `${x + QR_MARGIN} ${y + QR_MARGIN} ${width - QR_MARGIN * 2} ${height - QR_MARGIN * 2}`,
+        );
+        return new XMLSerializer().serializeToString(svg);
+    }
+
     async function downloadPng() {
-        const svg = currentQrSvg();
+        const svg = currentQrSvgWithoutMargin();
         if (!svg) return;
 
         const svgUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
@@ -2692,7 +2683,7 @@ function QrCard({
                 <Title order={3}>{title}</Title>
                 <QRCodeSVG
                     aria-label={title}
-                    marginSize={4}
+                    marginSize={QR_MARGIN}
                     size={192}
                     title={value}
                     value={value}
