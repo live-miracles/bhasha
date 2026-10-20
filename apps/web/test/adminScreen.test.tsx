@@ -771,6 +771,76 @@ describe('AdminScreen', () => {
         expect(screen.getByText('Listeners')).toBeInTheDocument();
     });
 
+    describe('discarded dialog input', () => {
+        async function closeDialog() {
+            fireEvent.click(screen.getByRole('button', { name: 'Close modal' }));
+            await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        }
+
+        it('clears the create-program form after it is dismissed and reopened', async () => {
+            renderAdmin(<AdminScreen adminApi={makeApi()} />);
+
+            await screen.findByText('Patna Event 2026');
+            fireEvent.click(screen.getByRole('button', { name: 'Add program' }));
+            fireEvent.change(await screen.findByLabelText('Program name'), {
+                target: { value: 'Half typed event' },
+            });
+            fireEvent.change(screen.getByLabelText('Program slug'), {
+                target: { value: 'half-typed' },
+            });
+            await closeDialog();
+
+            fireEvent.click(screen.getByRole('button', { name: 'Add program' }));
+            expect(await screen.findByLabelText('Program name')).toHaveValue('');
+            expect(screen.getByLabelText('Program slug')).toHaveValue('');
+        });
+
+        it('reverts the edit-program form and the overview when the dialog is dismissed', async () => {
+            renderAdmin(<AdminScreen adminApi={makeApi()} />);
+
+            await openFirstProgram();
+            fireEvent.click(await screen.findByRole('button', { name: 'Edit program details' }));
+            const nameInput = await screen.findByLabelText('Detail program name');
+            expect(nameInput).toHaveValue('Patna Event 2026');
+            fireEvent.change(nameInput, { target: { value: 'Unsaved rename' } });
+            await closeDialog();
+
+            expect(screen.queryByText('Unsaved rename')).not.toBeInTheDocument();
+            fireEvent.click(screen.getByRole('button', { name: 'Edit program details' }));
+            expect(await screen.findByLabelText('Detail program name')).toHaveValue(
+                'Patna Event 2026',
+            );
+        });
+
+        it('clears the add-language form after it is dismissed and reopened', async () => {
+            renderAdmin(<AdminScreen adminApi={makeApi()} />);
+
+            await openFirstProgram();
+            fireEvent.click(await screen.findByRole('button', { name: 'Add language' }));
+            fireEvent.change(await screen.findByLabelText('Translator password'), {
+                target: { value: 'half-typed-secret' },
+            });
+            await closeDialog();
+
+            fireEvent.click(screen.getByRole('button', { name: 'Add language' }));
+            expect(await screen.findByLabelText('Translator password')).toHaveValue('');
+        });
+
+        it('clears the create-user form after it is dismissed and reopened', async () => {
+            renderAdmin(<AdminScreen adminApi={makeApi()} />);
+
+            await screen.findByText('Patna Event 2026');
+            fireEvent.click(await screen.findByRole('button', { name: 'Add user' }));
+            fireEvent.change(await screen.findByLabelText('Username'), {
+                target: { value: 'half-typed-user' },
+            });
+            await closeDialog();
+
+            fireEvent.click(screen.getByRole('button', { name: 'Add user' }));
+            expect(await screen.findByLabelText('Username')).toHaveValue('');
+        });
+    });
+
     it('hides approver access when listener approval is not required', async () => {
         const detail = programDetail();
         const api = makeApi({

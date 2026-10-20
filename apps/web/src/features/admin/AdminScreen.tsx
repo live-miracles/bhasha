@@ -540,6 +540,26 @@ function approverPngFilename(filename: string): string {
     return pngFilename(filename).replace(/\.png$/, '-approver.png');
 }
 
+function emptyProgramForm() {
+    return {
+        slug: '',
+        name: '',
+        startDate: '',
+        endDate: '',
+        accessControlEnabled: false,
+        createdBy: '',
+    };
+}
+
+function emptyStreamForm() {
+    return {
+        languageName: '',
+        languageCode: '',
+        displayOrder: '0',
+        translatorPassword: '',
+    };
+}
+
 function editFormFromProgram(program: AdminProgram) {
     const startDate = program.startDate ?? '';
     return {
@@ -676,20 +696,8 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     const [editProgramOpen, setEditProgramOpen] = useState(false);
     const [identity, setIdentity] = useState<AdminMe | null>(null);
     const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
-    const [programForm, setProgramForm] = useState({
-        slug: '',
-        name: '',
-        startDate: '',
-        endDate: '',
-        accessControlEnabled: false,
-        createdBy: '',
-    });
-    const [streamForm, setStreamForm] = useState({
-        languageName: '',
-        languageCode: '',
-        displayOrder: '0',
-        translatorPassword: '',
-    });
+    const [programForm, setProgramForm] = useState(emptyProgramForm);
+    const [streamForm, setStreamForm] = useState(emptyStreamForm);
     const [editForm, setEditForm] = useState({
         name: '',
         startDate: '',
@@ -1090,7 +1098,11 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                     readOnly={false}
                     streams={detail.streams}
                     translators={detail.translators}
-                    onAdd={() => setCreateLanguageOpen(true)}
+                    onAdd={() => {
+                        setError(null);
+                        setStreamForm(emptyStreamForm());
+                        setCreateLanguageOpen(true);
+                    }}
                     onReorder={(ordered) => void reorderStreams(ordered)}
                     onDelete={(stream) => void deleteStream(stream)}
                     onToggle={(stream) => void toggleStream(stream)}
@@ -1152,10 +1164,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                     currentOwnerName={identity?.username ?? null}
                     form={editForm}
                     isAdmin={identity?.role === 'admin'}
-                    onEdit={() => {
-                        setError(null);
-                        setEditProgramOpen(true);
-                    }}
+                    onEdit={openEditProgramDialog}
                     readOnly
                     slugLocked={false}
                     onChange={setEditForm}
@@ -1173,10 +1182,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                     currentOwnerName={identity?.username ?? null}
                     form={editForm}
                     isAdmin={identity?.role === 'admin'}
-                    onEdit={() => {
-                        setError(null);
-                        setEditProgramOpen(true);
-                    }}
+                    onEdit={openEditProgramDialog}
                     readOnly
                     slugLocked={false}
                     onChange={setEditForm}
@@ -1227,14 +1233,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                     ? { createdBy: programForm.createdBy }
                     : {}),
             });
-            setProgramForm({
-                slug: '',
-                name: '',
-                startDate: '',
-                endDate: '',
-                accessControlEnabled: false,
-                createdBy: '',
-            });
+            setProgramForm(emptyProgramForm());
             setCreateProgramOpen(false);
             await loadPrograms();
         } catch (programError) {
@@ -1269,6 +1268,24 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             setEditProgramOpen(false);
         } catch (programError) {
             setError(errorCode(programError));
+        }
+    }
+
+    function openEditProgramDialog() {
+        setError(null);
+        if (detail) {
+            setEditForm(editFormFromProgram(detail.program));
+        }
+        setEditProgramOpen(true);
+    }
+
+    // The read-only overview card renders editForm too, so discarded edits must
+    // be reverted to the saved program rather than left in state.
+    function closeEditProgramDialog() {
+        setError(null);
+        setEditProgramOpen(false);
+        if (detail) {
+            setEditForm(editFormFromProgram(detail.program));
         }
     }
 
@@ -1322,12 +1339,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                 isActive: true,
                 translatorPassword: streamForm.translatorPassword,
             });
-            setStreamForm({
-                languageName: '',
-                languageCode: '',
-                displayOrder: '0',
-                translatorPassword: '',
-            });
+            setStreamForm(emptyStreamForm());
             setCreateLanguageOpen(false);
             await refreshDetail({ includeStatus: true });
         } catch (streamError) {
@@ -1568,12 +1580,12 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                                     leftSection={<PlusIcon />}
                                                     onClick={() => {
                                                         setError(null);
-                                                        if (identity?.role === 'admin') {
-                                                            setProgramForm((current) => ({
-                                                                ...current,
-                                                                createdBy: identity.id,
-                                                            }));
-                                                        }
+                                                        setProgramForm({
+                                                            ...emptyProgramForm(),
+                                                            ...(identity?.role === 'admin'
+                                                                ? { createdBy: identity.id }
+                                                                : {}),
+                                                        });
                                                         setCreateProgramOpen(true);
                                                     }}
                                                     type="button"
@@ -1826,10 +1838,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                             />
                         </AdminDialog>
                         <AdminDialog
-                            onClose={() => {
-                                setError(null);
-                                setEditProgramOpen(false);
-                            }}
+                            onClose={closeEditProgramDialog}
                             open={editProgramOpen}
                             title="Edit program details"
                         >

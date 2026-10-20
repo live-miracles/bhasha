@@ -191,6 +191,7 @@ export function UsersPanel({ adminApi, currentUserId }: UsersPanelProps) {
                     leftSection={<PlusIcon />}
                     onClick={() => {
                         setError(null);
+                        setForm({ username: '', password: '' });
                         setCreatePasswordVisible(false);
                         setCreateOpen(true);
                     }}
