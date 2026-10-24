@@ -520,6 +520,32 @@ describe('TranslatorRoute', () => {
         expect(await screen.findByRole('button', { name: 'Go live' })).toBeInTheDocument();
     });
 
+    it('logs in with the language the dropdown shows by default, without touching it', async () => {
+        const api = translatorApi({
+            session: vi.fn(async () => {
+                throw new ApiError({
+                    status: 401,
+                    code: 'translator_auth_required',
+                    body: { error: 'translator_auth_required' },
+                });
+            }),
+        });
+
+        renderRoute({ translatorApi: api });
+
+        // A single-language program: the select displays Hindi but the user has no way to
+        // "change" it, so the first language must be what gets submitted.
+        expect(await screen.findByLabelText('Language')).toHaveValue('stream_hi');
+        fireEvent.change(screen.getByLabelText('Password'), {
+            target: { value: 'secret-pass' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
+
+        await waitFor(() => {
+            expect(api.login).toHaveBeenCalledWith('patna-event-2026', 'stream_hi', 'secret-pass');
+        });
+    });
+
     it('shows an error for invalid login credentials', async () => {
         const api = translatorApi({
             session: vi.fn(async () => {

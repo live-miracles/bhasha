@@ -232,6 +232,50 @@ describe('translator auth', () => {
         });
     });
 
+    it('logs in by stream id for the translator created with a stream', async () => {
+        const suffix = crypto.randomUUID();
+        const now = new Date().toISOString();
+        const programId = `program_${suffix}`;
+        const programSlug = `program-${suffix}`;
+        const streamId = `stream_${suffix}`;
+
+        testEnv.DB.prepare(
+            `INSERT INTO programs
+    (id, slug, name, start_date, end_date, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ).run(programId, programSlug, 'Stream Login Event', '2027-08-01', '2027-08-01', now, now);
+        testEnv.DB.prepare(
+            `INSERT INTO language_streams
+    (id, program_id, language_name, native_name, language_code, display_order, is_active,
+     is_live, cloudflare_session_id, current_track_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(streamId, programId, 'Hindi', 'हिन्दी', 'hi', 1, 1, 0, null, null, now, now);
+        // Same call the admin "create stream" route makes when a translator password is given.
+        await new TranslatorRepository(testEnv.DB).ensureAutomaticTranslator(
+            programId,
+            streamId,
+            'Hindi',
+            'stream-pass',
+            testEnv.TRANSLATOR_PASSWORD_PEPPER,
+        );
+
+        const response = await request('/api/translator/login', {
+            method: 'POST',
+            body: JSON.stringify({ programSlug, streamId, password: 'stream-pass' }),
+        });
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('set-cookie')).toContain('translator_session=');
+        const body = (await response.json()) as { assignedStreams: { id: string }[] };
+        expect(body.assignedStreams.map((stream) => stream.id)).toEqual([streamId]);
+
+        const wrong = await request('/api/translator/login', {
+            method: 'POST',
+            body: JSON.stringify({ programSlug, streamId, password: 'nope' }),
+        });
+        expect(wrong.status).toBe(401);
+    });
+
     it('logs in case-insensitively because the email is normalized', async () => {
         const { programId, translatorId } = await seedTranslatorWithAssignment(
             'translator-pass',

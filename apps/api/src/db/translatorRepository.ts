@@ -165,7 +165,20 @@ export class TranslatorRepository {
             )
             .get(programId, streamId) as { id: string; languageName: string } | undefined;
         if (!stream) return null;
-        const translator = await this.authenticate(programId, streamId, password, passwordPepper);
+        // The automatic translator shares its id with the stream (see
+        // ensureAutomaticTranslator); look it up by id rather than by email.
+        const translator = await this.verifyPassword(
+            this.db
+                .prepare(
+                    `SELECT id, program_id as programId, name, email,
+              password_hash as passwordHash
+            FROM translators
+            WHERE program_id = ? AND id = ?`,
+                )
+                .get(programId, streamId) as TranslatorRowWithHash | undefined,
+            password,
+            passwordPepper,
+        );
         return translator ? { ...translator, name: stream.languageName, email: '' } : null;
     }
 
@@ -371,8 +384,16 @@ export class TranslatorRepository {
         FROM translators
         WHERE program_id = ? AND email = ?`,
             )
-            .get(programId, email) as (TranslatorRecord & { passwordHash: string }) | undefined;
+            .get(programId, email) as TranslatorRowWithHash | undefined;
 
+        return this.verifyPassword(translator, password, passwordPepper);
+    }
+
+    private async verifyPassword(
+        translator: TranslatorRowWithHash | undefined,
+        password: string,
+        passwordPepper: string,
+    ): Promise<TranslatorRecord | null> {
         if (!translator) {
             return null;
         }
@@ -782,6 +803,8 @@ FROM translator_sessions s
 JOIN translators t
   ON t.program_id = s.program_id
   AND t.id = s.translator_id`;
+
+type TranslatorRowWithHash = TranslatorRecord & { passwordHash: string };
 
 type AdminTranslatorAssignmentRow = {
     translatorId: string;

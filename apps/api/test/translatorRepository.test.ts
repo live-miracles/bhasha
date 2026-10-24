@@ -602,3 +602,85 @@ describe('TranslatorRepository.revokeAllSessionsForTranslator', () => {
         expect(freed).toEqual([]);
     });
 });
+
+describe('TranslatorRepository.authenticateByStream', () => {
+    const pepper = testEnv.TRANSLATOR_PASSWORD_PEPPER;
+
+    // Mirrors how streams get their translator in production: creating a stream with a
+    // password calls ensureAutomaticTranslator, and the translator page then logs in by
+    // stream id (not by email).
+    it('authenticates the automatic translator created for a stream by stream id', async () => {
+        const repository = new TranslatorRepository(testEnv.DB);
+        const { programId } = await seedTranslator();
+        const streamId = await seedStream(programId);
+        await repository.ensureAutomaticTranslator(
+            programId,
+            streamId,
+            'Hindi',
+            'correct-password',
+            pepper,
+        );
+
+        const translator = await repository.authenticateByStream(
+            programId,
+            streamId,
+            'correct-password',
+            pepper,
+        );
+
+        expect(translator).toMatchObject({ id: streamId, programId, name: 'Hindi' });
+    });
+
+    it('rejects a wrong password', async () => {
+        const repository = new TranslatorRepository(testEnv.DB);
+        const { programId } = await seedTranslator();
+        const streamId = await seedStream(programId);
+        await repository.ensureAutomaticTranslator(
+            programId,
+            streamId,
+            'Hindi',
+            'correct-password',
+            pepper,
+        );
+
+        await expect(
+            repository.authenticateByStream(programId, streamId, 'wrong-password', pepper),
+        ).resolves.toBeNull();
+    });
+
+    it('rejects an inactive stream even with the right password', async () => {
+        const repository = new TranslatorRepository(testEnv.DB);
+        const { programId } = await seedTranslator();
+        const streamId = await seedStream(programId);
+        await repository.ensureAutomaticTranslator(
+            programId,
+            streamId,
+            'Hindi',
+            'correct-password',
+            pepper,
+        );
+        testEnv.DB.prepare('UPDATE language_streams SET is_active = 0 WHERE id = ?').run(streamId);
+
+        await expect(
+            repository.authenticateByStream(programId, streamId, 'correct-password', pepper),
+        ).resolves.toBeNull();
+    });
+
+    it('does not authenticate a stream id from another program', async () => {
+        const repository = new TranslatorRepository(testEnv.DB);
+        const { programId } = await seedTranslator();
+        const { programId: otherProgramId } = await seedTranslator();
+        const streamId = await seedStream(programId);
+        await repository.ensureAutomaticTranslator(
+            programId,
+            streamId,
+            'Hindi',
+            'correct-password',
+            pepper,
+        );
+
+        await expect(
+            repository.authenticateByStream(otherProgramId, streamId, 'correct-password', pepper),
+        ).resolves.toBeNull();
+    });
+});

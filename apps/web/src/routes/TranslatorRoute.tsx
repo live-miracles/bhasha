@@ -261,9 +261,15 @@ export function TranslatorRoute({
     const [recoveryExhausted, setRecoveryExhausted] = useState(false);
     const [justRecovered, setJustRecovered] = useState(false);
     const [endedMessage, setEndedMessage] = useState<string | null>(null);
-    const [loginEmail, setLoginEmail] = useState('');
+    const [pickedLoginStreamId, setLoginStreamId] = useState('');
     const [loginLanguages, setLoginLanguages] = useState<AssignedStream[]>([]);
     const [loginPassword, setLoginPassword] = useState('');
+    // A <select> with no placeholder displays its first option without firing onChange, so the
+    // picked value can be empty (or stale) while the UI shows a language. Fall back to the
+    // first language so what the translator sees is what gets submitted.
+    const loginStreamId = loginLanguages.some((stream) => stream.id === pickedLoginStreamId)
+        ? pickedLoginStreamId
+        : (loginLanguages[0]?.id ?? '');
     const [loginError, setLoginError] = useState<string | null>(null);
     const [meterLevel, setMeterLevel] = useState(0);
     const [elapsedMs, setElapsedMs] = useState(0);
@@ -987,7 +993,7 @@ export function TranslatorRoute({
         event.preventDefault();
         setLoginError(null);
         try {
-            const response = await translatorApi.login(programSlug, loginEmail, loginPassword);
+            const response = await translatorApi.login(programSlug, loginStreamId, loginPassword);
             setLoginPassword('');
             applySession(response.translator, response.assignedStreams);
         } catch (error) {
@@ -1296,8 +1302,8 @@ export function TranslatorRoute({
                                     value: stream.id,
                                     label: `${stream.nativeName} — ${stream.languageName}`,
                                 }))}
-                                identityValue={loginEmail}
-                                onIdentityChange={setLoginEmail}
+                                identityValue={loginStreamId}
+                                onIdentityChange={setLoginStreamId}
                                 onPasswordChange={setLoginPassword}
                                 onSubmit={submitLogin}
                                 passwordRequired={false}
