@@ -22,7 +22,7 @@ application changes, and leaves Caddy to issue its own Let's Encrypt certificate
     gcloud compute firewall-rules create bhasha-web \
       --direction=INGRESS --allow=tcp:80,tcp:443 --target-tags=bhasha
     gcloud compute firewall-rules create bhasha-livekit \
-      --direction=INGRESS --allow=tcp:7881,udp:3478,udp:50000-60000 --target-tags=bhasha
+      --direction=INGRESS --allow=tcp:7881,udp:3478,udp:50000 --target-tags=bhasha
     ```
 
     | Port            | Why                                                            |
@@ -30,9 +30,19 @@ application changes, and leaves Caddy to issue its own Let's Encrypt certificate
     | 80/tcp, 443/tcp | Caddy: Let's Encrypt challenge, the web app, LiveKit signaling |
     | 7881/tcp        | WebRTC over TCP, for networks that block UDP                   |
     | 3478/udp        | LiveKit's built-in TURN/STUN                                   |
-    | 50000–60000/udp | WebRTC media (the audio itself)                                |
+    | 50000/udp       | WebRTC media (the audio itself), all on one port               |
 
     Keep SSH (22) restricted to your own address.
+
+4. **Check for a default-deny egress policy.** Some projects block outbound traffic by
+   default. The company project does: an `EGRESS deny all` rule at priority 65535, with only
+   `tcp:80,443` allowed for every instance. A VM there can pull images and get certificates
+   (443) but cannot make other outbound connections. LiveKit's `use_external_ip` discovers
+   the VM's public address with STUN (outbound UDP), so that would be blocked. Find out with
+   `gcloud compute firewall-rules list --filter="direction=EGRESS"`; if egress is denied, add
+   an egress allow rule for the `bhasha` tag (at minimum UDP, so STUN and media work) at a
+   priority below 65535, then confirm a listener can actually hear audio. Tighten the rule
+   only after it works end to end.
 
 ## 2. Cloudflare DNS (grey cloud)
 
@@ -106,16 +116,27 @@ the week of an event.
 
 ## 6. Known risks to test on the real VM
 
-1. **10,001 UDP ports published by Docker.** `docker-compose.yml` publishes
-   `50000-60000/udp`. Docker can be slow to start and memory-hungry with a range this large.
-   Check that `docker compose up -d` completes in reasonable time and the VM stays healthy.
-   If not, narrow the range in **both** places: the `ports:` mapping and `rtc.port_range_end` in
-   the LiveKit config (for example `50000-52999`, which comfortably covers ~1,000 listeners).
-2. **Venue networks that block UDP.** Listeners then fall back to TCP 7881; that works but
+1. **Media runs over ONE UDP port (50000), on purpose.** LiveKit's default is a range of
+   10,001 ports (50000–60000), and publishing that through Docker does not work on a normal
+   VM: Docker starts one `docker-proxy` process per published UDP port. On the 4 GB rehearsal
+   VM it had created ~2,500 processes, used all memory, and the machine stopped answering
+   SSH and had to be hard-reset. `docker-compose.yml` therefore sets LiveKit's
+   `rtc.udp_port: 50000` (single-port "ICE/UDP Mux") and publishes only that port; with it the
+   stack starts in about 3 seconds using ~11 proxy processes and ~680 MB.
+2. **The UDP port number must be in 49152–65535.** From a real office network, UDP to 3478 and
+   to 49152 and above reached the VM, while 7882, 12000, 16384, 20000, 32768 and 40000 were
+   silently dropped before reaching Google Cloud (the same firewall rule allowed all of them).
+   Listeners on similar networks would not connect on a low port. Do not move `udp_port` out of
+   that range, and re-test from a restrictive network if you change it.
+   To check a port: on the VM run `sudo tcpdump -U -ni <iface> -w /tmp/c.pcap udp` (note `-U`:
+   without it the file stays empty until tcpdump exits), send UDP packets to the port from
+   outside, then read them back with `tcpdump -nr /tmp/c.pcap`. Include a port you know works
+   (3478) as a control.
+3. **Venue networks that block UDP.** Listeners then fall back to TCP 7881; that works but
    adds latency. LiveKit's TURN/TLS on 443 is not configured here; revisit only if real devices
    fail to connect at the venue.
-3. **No monitoring by default.** Add an external uptime check (for example Google Cloud
+4. **No monitoring by default.** Add an external uptime check (for example Google Cloud
    uptime checks) on `https://example.org/api/health?deep=1` with an alert to a phone you
    will have during the event.
-4. **Data.** The SQLite file lives in the `bhasha_data` Docker volume. Take a persistent-disk
+5. **Data.** The SQLite file lives in the `bhasha_data` Docker volume. Take a persistent-disk
    snapshot before the event.

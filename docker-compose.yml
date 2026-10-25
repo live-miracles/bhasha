@@ -84,12 +84,20 @@ services:
             # port "cannot be behind load balancer or TLS, and must be exposed on
             # the node" -- so it's published directly, not proxied through Caddy.
             - '7881:7881/tcp'
-            # rtc.port_range_start/end: the actual WebRTC media (SRTP) transport.
-            # This is the primary candidate path for both the translator's
-            # publish and every listener's subscribe connection. 50000-60000 is
-            # LiveKit's own documented default range; open it on any firewall in
-            # front of the VM too.
-            - '50000-60000:50000-60000/udp'
+            # rtc.udp_port: the actual WebRTC media (SRTP) transport. This is the
+            # primary candidate path for both the translator's publish and every
+            # listener's subscribe connection. All media is multiplexed over this
+            # ONE port (LiveKit's documented "ICE/UDP Mux") instead of its default
+            # 50000-60000 range: Docker starts one docker-proxy process per
+            # published UDP port, and on a 4 GB VM publishing that 10,001-port
+            # range exhausted memory (about 2,500 processes in) and wedged the
+            # machine.
+            # The port number matters: a real office network passed UDP to 3478
+            # and to 49152 and above, and silently dropped everything in between
+            # (7882, 12000, 16384, 20000, 32768, 40000). Keep it in the 49152-65535
+            # dynamic range, where WebRTC traffic is normally allowed. Open it on
+            # any firewall in front of the VM too.
+            - '50000:50000/udp'
             # turn.udp_port: LiveKit's built-in TURN server (UDP), for listeners
             # on networks that block direct/STUN-only WebRTC (the
             # Listener connectivity assumes this is reachable.
@@ -136,8 +144,9 @@ configs:
 
             rtc:
               tcp_port: 7881
-              port_range_start: 50000
-              port_range_end: 60000
+              # Single-port UDP mux; port_range_start/end are not used when this is set.
+              # Must match the published port above and stay in 49152-65535.
+              udp_port: 50000
               # Most cloud VMs have a public IP that isn't bound directly to the
               # container's network interface. use_external_ip makes LiveKit
               # discover it via STUN and advertise that address to clients
