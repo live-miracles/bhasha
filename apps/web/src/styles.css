@@ -16,6 +16,18 @@
     --lp-radius: 16px;
     --lp-radius-sm: 10px;
 
+    /* Secondary controls (stop, volume, close). Components must use these instead of
+     literal greys: a literal light background under a theme-coloured label is what
+     made these buttons white-on-white in dark mode. */
+    --lp-control-bg: #f3f4f6;
+    --lp-control-bg-hover: #e9ebee;
+    --lp-control-bg-disabled: #e5e7eb;
+    --lp-control-border: #d2d8df;
+    --lp-button-border: #9aa6b2;
+    --lp-button-hover: #eef3f8;
+    --lp-accent-soft-hover: #eef4fb;
+    --lp-focus-ring: rgba(26, 109, 204, 0.18);
+
     /* Translator-console state colours (match the Pencil). Connecting/reconnecting
      = blue; muted = amber; error = red. Used by slices T2–T4. */
     --lp-connect-bg: #eff6ff;
@@ -89,6 +101,14 @@
     --lp-text-muted: #868e96;
     --lp-accent: #e38f4b;
     --lp-accent-text: #17110c;
+    --lp-control-bg: #2a2e34;
+    --lp-control-bg-hover: #343a40;
+    --lp-control-bg-disabled: #23272b;
+    --lp-control-border: #3d4248;
+    --lp-button-border: #5c636b;
+    --lp-button-hover: #262a30;
+    --lp-accent-soft-hover: #2b2016;
+    --lp-focus-ring: rgba(227, 143, 75, 0.3);
     --lp-connect-bg: #172b44;
     --lp-connect-border: #28558a;
     --lp-connect-text: #a5c8f5;
@@ -482,8 +502,8 @@ body {
 .listener-alert {
     border: 1px solid var(--lp-silent);
     border-radius: var(--lp-radius-sm);
-    background: #fffbeb;
-    color: #92400e;
+    background: var(--lp-muted-amber-bg);
+    color: var(--lp-muted-amber-text);
     font-weight: 600;
     margin: 0 0 12px;
     padding: 10px 14px;
@@ -717,20 +737,20 @@ body {
 }
 
 .lp-btn--switch:hover {
-    background: #eef4fb;
+    background: var(--lp-accent-soft-hover);
 }
 
 .lp-btn--stop {
-    background: #f3f4f6;
+    background: var(--lp-control-bg);
     color: var(--lp-text-primary);
 }
 
 .lp-btn--stop:hover {
-    background: #e9ebee;
+    background: var(--lp-control-bg-hover);
 }
 
 .lp-tile--offline .lp-btn--play {
-    background: #e5e7eb;
+    background: var(--lp-control-bg-disabled);
     color: var(--lp-text-muted);
 }
 
@@ -752,7 +772,7 @@ body {
     height: 56px;
     border-radius: 50%;
     border: none;
-    background: #f3f4f6;
+    background: var(--lp-control-bg);
     color: var(--lp-text-primary);
     font-size: 1.6rem;
     line-height: 1;
@@ -760,7 +780,7 @@ body {
 }
 
 .lp-vol-btn:hover {
-    background: #e9ebee;
+    background: var(--lp-control-bg-hover);
 }
 
 .lp-vol-level {
@@ -871,7 +891,7 @@ body {
 .translator-login input:focus {
     outline: none;
     border-color: var(--lp-accent);
-    box-shadow: 0 0 0 3px rgba(26, 109, 204, 0.18);
+    box-shadow: 0 0 0 3px var(--lp-focus-ring);
 }
 
 .translator-login .lp-btn {
@@ -1009,23 +1029,6 @@ body {
     color: var(--lp-text-secondary);
     font-size: 0.85rem;
     font-weight: 600;
-}
-
-.assigned-card-select select {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1.5px solid var(--lp-border);
-    border-radius: var(--lp-radius-sm);
-    background: var(--lp-surface);
-    color: var(--lp-text-primary);
-    font-size: 1rem;
-    font-weight: 400;
-}
-
-.assigned-card-select select:focus {
-    outline: none;
-    border-color: var(--lp-accent);
-    box-shadow: 0 0 0 3px rgba(26, 109, 204, 0.18);
 }
 
 .translator-empty {
@@ -1302,8 +1305,8 @@ body {
 
 .translator-control-btn {
     border-radius: var(--lp-radius-sm);
-    border: 1px solid #9aa6b2;
-    background: #ffffff;
+    border: 1px solid var(--lp-button-border);
+    background: var(--lp-surface);
     color: var(--lp-text-primary);
     font-weight: 700;
     cursor: pointer;
@@ -1312,7 +1315,7 @@ body {
 }
 
 .translator-control-btn:hover {
-    background: #eef3f8;
+    background: var(--lp-button-hover);
 }
 
 .translator-control-btn--mute {
@@ -1338,8 +1341,8 @@ body {
 }
 
 .translator-control-btn--stop {
-    background: #f3f4f6;
-    border-color: #d2d8df;
+    background: var(--lp-control-bg);
+    border-color: var(--lp-control-border);
     color: var(--lp-text-secondary);
     font-weight: 600;
 }
@@ -1448,7 +1451,7 @@ body {
 }
 
 .audio-settings-btn:hover {
-    background: #f3f6fa;
+    background: var(--lp-button-hover);
 }
 
 .audio-settings-btn-icon {
@@ -1548,14 +1551,14 @@ body {
     height: 44px;
     border: none;
     border-radius: 10px;
-    background: #f1f3f6;
+    background: var(--lp-control-bg);
     color: var(--lp-text-secondary);
     font-size: 1.1rem;
     cursor: pointer;
 }
 
 .audio-sheet-close:hover {
-    background: #e6e9ee;
+    background: var(--lp-control-bg-hover);
 }
 
 .audio-sheet-section {
@@ -1591,7 +1594,7 @@ body {
 .audio-sheet-select:focus {
     outline: none;
     border-color: var(--lp-accent);
-    box-shadow: 0 0 0 3px rgba(26, 109, 204, 0.18);
+    box-shadow: 0 0 0 3px var(--lp-focus-ring);
 }
 
 .audio-sheet-volume-head {
@@ -1918,10 +1921,10 @@ body {
 }
 
 .admin-alert {
-    border: 1px solid #c84646;
+    border: 1px solid var(--adm-danger-border);
     border-radius: 6px;
-    background: #fff0f0;
-    color: #8b1d1d;
+    background: var(--adm-danger-bg);
+    color: var(--adm-danger);
     padding: 10px 12px;
 }
 
@@ -2097,6 +2100,8 @@ body {
 }
 
 .admin-card-clickable {
+    color: inherit;
+    text-decoration: none;
     cursor: pointer;
     transition:
         border-color 120ms ease,
@@ -2756,7 +2761,7 @@ body {
 }
 
 .admin-report-chart-card {
-    border: 1px solid var(--admin-border, #e5e7eb);
+    border: 1px solid var(--adm-border, #e5e7eb);
     border-radius: 0.75rem;
     padding: 1rem;
 }
@@ -2767,7 +2772,7 @@ body {
 }
 
 .admin-report-chart {
-    color: var(--admin-muted, #64748b);
+    color: var(--adm-text-soft, #64748b);
     display: block;
     height: auto;
     width: 100%;
@@ -3054,7 +3059,7 @@ body {
     padding: 12px;
     border: 1px solid var(--lp-silent);
     border-radius: var(--lp-radius-sm);
-    background: #fffbeb;
+    background: var(--lp-muted-amber-bg);
     color: var(--lp-text-primary);
 }
 
@@ -3164,6 +3169,18 @@ body {
 
 /* The custom surfaces below predate Mantine's color-scheme variables. Keep
    those surfaces readable when Mantine applies its dark scheme to the app. */
+[data-mantine-color-scheme='dark'] .translator-meter-seg--green {
+    --lp-mic-segment-off: #17331f;
+}
+
+[data-mantine-color-scheme='dark'] .translator-meter-seg--amber {
+    --lp-mic-segment-off: #3b2e16;
+}
+
+[data-mantine-color-scheme='dark'] .translator-meter-seg--red {
+    --lp-mic-segment-off: #3b1e22;
+}
+
 [data-mantine-color-scheme='dark'] .shell-landing,
 [data-mantine-color-scheme='dark'] .landing-panel {
     background: var(--lp-bg);

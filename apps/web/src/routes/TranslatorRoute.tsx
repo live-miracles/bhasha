@@ -1506,22 +1506,18 @@ function PublishPanel({
                     <p className="assigned-english">{selectedStream?.languageName}</p>
                     {assignedStreams.length > 1 ? (
                         <div className="assigned-card-select">
-                            <label>
-                                Language stream
-                                <NativeSelect
-                                    aria-label="Language stream"
-                                    label="Language stream"
-                                    value={selectedStreamId}
-                                    disabled={isBusy(publish)}
-                                    onChange={(event) => onSelectStream(event.target.value)}
-                                >
-                                    {assignedStreams.map((s) => (
-                                        <option key={s.id} value={s.id}>
-                                            {s.nativeName} — {s.languageName}
-                                        </option>
-                                    ))}
-                                </NativeSelect>
-                            </label>
+                            <NativeSelect
+                                label="Language stream"
+                                value={selectedStreamId}
+                                disabled={isBusy(publish)}
+                                onChange={(event) => onSelectStream(event.target.value)}
+                            >
+                                {assignedStreams.map((s) => (
+                                    <option key={s.id} value={s.id}>
+                                        {s.nativeName} — {s.languageName}
+                                    </option>
+                                ))}
+                            </NativeSelect>
                         </div>
                     ) : null}
                 </div>
