@@ -1,7 +1,8 @@
 # Plan: Cloudflare DNS + temporary translator access
 
 > **Status:** Item 2 (temporary translator access links) is implemented. Item 1 (Cloudflare)
-> is still a plan. Written against the code as of the `df21c10` commit. Verify
+> was decided as **DNS only, grey cloud** (no code change needed); the steps are in
+> [deployment.md](deployment.md). Written against the code as of the `df21c10` commit. Verify
 > Cloudflare/Caddy/LiveKit specifics with current docs (ctx7) before implementing, per
 > [AGENTS.md](../AGENTS.md).
 

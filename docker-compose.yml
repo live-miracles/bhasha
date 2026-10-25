@@ -71,7 +71,8 @@ services:
             - bhasha
 
     livekit:
-        image: livekit/livekit-server:latest
+        # Pinned so an unattended pull cannot change behaviour before an event; bump deliberately.
+        image: livekit/livekit-server:v1.13.10
         restart: unless-stopped
         command: ['--config', '/etc/livekit.yaml']
         configs:
@@ -97,7 +98,8 @@ services:
             - bhasha
 
     caddy:
-        image: caddy:2
+        # Pinned for the same reason as livekit above.
+        image: caddy:2.11.7
         restart: unless-stopped
         depends_on:
             - app

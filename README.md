@@ -240,6 +240,7 @@ production):
 
 ## Documentation
 
+- [Deployment: Google Cloud VM + Cloudflare DNS](docs/deployment.md)
 - [Production debugging & recovery runbook](docs/runbook.md)
 - [Roadmap: planned features & platform decision](docs/roadmap.md)
 - [LiveKit room-sharding brief](docs/livekit.md) (early speculative notes — see the note at

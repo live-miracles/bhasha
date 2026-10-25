@@ -9,6 +9,7 @@ import type { Env } from './env';
 import { createFireAndForgetCtx, json, notFound, type WaitUntilCtx } from './http';
 import { openDatabase } from './db/sqlite';
 import { runMigrations } from './db/migrate';
+import { assertSafeDeployment } from './startupChecks';
 import { UsersRepository } from './db/usersRepository';
 import { handleAdminRoutes } from './routes/admin';
 import { handleListenerRoutes } from './routes/listeners';
@@ -198,7 +199,12 @@ function requireEnvVar(name: string): string {
 export async function buildEnvFromProcess(): Promise<Env> {
     const db = openDatabase(process.env.DATABASE_PATH);
     runMigrations(db);
-    await new UsersRepository(db).ensureDefaultAdmin(process.env.ADMIN_INITIAL_PASSWORD);
+    const users = new UsersRepository(db);
+    // Fail fast, before anything is created, if a public deployment still has placeholder secrets.
+    assertSafeDeployment(process.env, {
+        adminExists: (await users.listUsers({ role: 'admin' })).length > 0,
+    });
+    await users.ensureDefaultAdmin(process.env.ADMIN_INITIAL_PASSWORD);
 
     return {
         DB: db,
