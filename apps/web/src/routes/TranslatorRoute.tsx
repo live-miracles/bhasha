@@ -23,6 +23,11 @@ import {
     type TranslatorRealtimeClient,
     type TranslatorTransportState,
 } from '../realtime/translatorClient';
+import {
+    clearLocationHash,
+    readTranslatorAccessFromHash,
+    type TranslatorAccessCredentials,
+} from '../lib/translatorAccessLink';
 import { loadTranslatorPrefs, saveTranslatorPrefs } from '../lib/translatorPrefs';
 import { getMeterZone, levelToFilledSegments, METER_SEGMENTS } from '../lib/micMeter';
 import { bhashaTheme } from '../app/theme';
@@ -271,6 +276,15 @@ export function TranslatorRoute({
         ? pickedLoginStreamId
         : (loginLanguages[0]?.id ?? '');
     const [loginError, setLoginError] = useState<string | null>(null);
+    // A shared access link carries its credentials in the URL fragment. Read it once, on the
+    // first render; the effect below signs in with it and then removes it from the address bar.
+    const accessLinkRef = useRef<TranslatorAccessCredentials | null | undefined>(undefined);
+    if (accessLinkRef.current === undefined) {
+        accessLinkRef.current =
+            typeof window === 'undefined'
+                ? null
+                : readTranslatorAccessFromHash(window.location.hash);
+    }
     const [meterLevel, setMeterLevel] = useState(0);
     const [elapsedMs, setElapsedMs] = useState(0);
     const [elapsedLabel, setElapsedLabel] = useState(formatElapsedLabel(0));
@@ -662,6 +676,37 @@ export function TranslatorRoute({
                 return;
             }
 
+            const accessLink = accessLinkRef.current;
+            if (accessLink) {
+                try {
+                    const response = await translatorApi.login(
+                        programSlug,
+                        accessLink.streamId,
+                        accessLink.token,
+                    );
+                    if (!active) {
+                        return;
+                    }
+                    accessLinkRef.current = null;
+                    clearLocationHash();
+                    applySession(response.translator, response.assignedStreams);
+                } catch (error) {
+                    if (!active) {
+                        return;
+                    }
+                    accessLinkRef.current = null;
+                    clearLocationHash();
+                    setLoginStreamId(accessLink.streamId);
+                    setLoginError(
+                        error instanceof ApiError && error.code === 'invalid_translator_credentials'
+                            ? 'This access link has expired or was replaced. Ask an organizer for a new one.'
+                            : 'Could not sign in with this link. Please try again.',
+                    );
+                    setAuth({ status: 'loggedOut' });
+                }
+                return;
+            }
+
             try {
                 const result = await translatorApi.session();
                 if (!active) {
@@ -683,6 +728,20 @@ export function TranslatorRoute({
             active = false;
         };
     }, [programSlug, publicApi, translatorApi]);
+
+    useEffect(() => {
+        // Pasting a new access link into this tab's address bar only changes the fragment, which
+        // the browser treats as same-page navigation, so reload to sign in with it.
+        const onHashChange = () => {
+            if (readTranslatorAccessFromHash(window.location.hash)) {
+                window.location.reload();
+            }
+        };
+        window.addEventListener('hashchange', onHashChange);
+        return () => {
+            window.removeEventListener('hashchange', onHashChange);
+        };
+    }, []);
 
     useEffect(() => {
         return () => {

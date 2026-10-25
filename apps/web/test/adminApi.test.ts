@@ -36,6 +36,33 @@ describe('AdminApi', () => {
         expect(result.streams[0]?.state).toBe('live');
     });
 
+    it('maps translator access operations to the stream translator-access endpoint', async () => {
+        const link = {
+            token: 'secret-token',
+            url: 'https://bhasha.test/demo/translate#s=stream_hi&t=secret-token',
+            expiresAt: '2030-01-01T12:00:00.000Z',
+        };
+        const client = {
+            delete: vi.fn(async () => undefined),
+            get: vi.fn(),
+            patch: vi.fn(),
+            post: vi.fn(async () => link),
+        };
+        const api = createAdminApi(client as unknown as AdminHttpClient);
+
+        const created = await api.createTranslatorAccess('program_1', 'stream_hi', 24);
+        await api.revokeTranslatorAccess('program_1', 'stream_hi');
+
+        expect(created).toEqual(link);
+        expect(client.post).toHaveBeenCalledWith(
+            '/api/admin/programs/program_1/streams/stream_hi/translator-access',
+            { expiresInHours: 24 },
+        );
+        expect(client.delete).toHaveBeenCalledWith(
+            '/api/admin/programs/program_1/streams/stream_hi/translator-access',
+        );
+    });
+
     it('maps auth and program operations to relative admin endpoints', async () => {
         const deletedProgram = {
             id: 'program_2',

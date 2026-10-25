@@ -14,8 +14,13 @@ operational complexity.
 
 ## Roles
 
-- **Translator** — authenticates, selects an assigned language stream, publishes
-  microphone audio, mutes/unmutes, and reconnects. (`apps/api/src/routes/translator.ts`)
+- **Translator** — signs in with a time-limited access link/QR for their language
+  (or a password set by hand), publishes microphone audio, mutes/unmutes, and
+  reconnects. Each language has one active credential; generating a new link replaces
+  it and signs the translator out. The link carries its credentials in the URL
+  fragment (`#s=<streamId>&t=<token>`), so they never reach a server or its logs, and
+  the page removes them from the address bar after signing in.
+  (`apps/api/src/routes/translator.ts`)
 - **Listener / participant** — opens `/{programSlug}`, picks a live language,
   listens, switches streams, and reconnects. Receive-only. (`apps/api/src/routes/listeners.ts`)
 - **Program manager** — manages owned programs, language streams, translator

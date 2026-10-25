@@ -257,3 +257,25 @@ test('translator opens Audio Settings sheet: mic picker, volume, toggles — on 
     // Camera was never requested.
     await expect.poll(() => page.evaluate(() => window.__cameraRequests)).toBe(0);
 });
+
+test('translator opens an access link and is signed in without typing anything', async ({
+    page,
+}) => {
+    const loginBodies: unknown[] = [];
+    page.on('request', (request) => {
+        if (request.url().endsWith('/api/translator/login')) {
+            loginBodies.push(request.postDataJSON());
+        }
+    });
+
+    await page.goto('/patna-event-2026/translate#s=stream_hi&t=link-token');
+
+    await expect(page.getByRole('button', { name: 'Go live' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Translator login' })).toHaveCount(0);
+    expect(loginBodies).toEqual([
+        { programSlug: 'patna-event-2026', streamId: 'stream_hi', password: 'link-token' },
+    ]);
+    // The token must not linger in the address bar.
+    expect(page.url()).not.toContain('link-token');
+    expect(new URL(page.url()).hash).toBe('');
+});

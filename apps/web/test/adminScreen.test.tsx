@@ -130,6 +130,7 @@ function programDetail(): AdminProgramDetail {
                 id: 'translator_hindi',
                 email: 'hindi@example.com',
                 name: 'Hindi Translator',
+                accessExpiresAt: null,
                 assignments: [
                     {
                         streamId: 'stream_hi',
@@ -379,6 +380,12 @@ function makeApi(
         runRetention: vi.fn(async () => retentionRun()),
         kickPublisher: vi.fn(async () => ({ freed: true })),
         resetLanguagePassword: vi.fn(async () => programDetail().translators[0]!),
+        createTranslatorAccess: vi.fn(async () => ({
+            token: 'token',
+            url: 'https://bhasha.test/patna/translate#s=stream_hi&t=token',
+            expiresAt: '2026-10-24T12:00:00.000Z',
+        })),
+        revokeTranslatorAccess: vi.fn(async () => undefined),
         updateApproverAccess: vi.fn(async () => approverAccess()),
         updateProgram: vi.fn(async () => programDetail()),
         updateStream: vi.fn(async () => programDetail().streams[0]!),
@@ -839,6 +846,45 @@ describe('AdminScreen', () => {
             fireEvent.click(screen.getByRole('button', { name: 'Add user' }));
             expect(await screen.findByLabelText('Username')).toHaveValue('');
         });
+    });
+
+    it('generates a translator access link from a language row', async () => {
+        const createTranslatorAccess = vi.fn(async () => ({
+            token: 'secret-token',
+            url: 'https://bhasha.test/patna/translate#s=stream_hi&t=secret-token',
+            expiresAt: '2030-01-01T12:00:00.000Z',
+        }));
+        const api = makeApi({ createTranslatorAccess });
+
+        renderAdmin(<AdminScreen adminApi={api} />);
+        await openFirstProgram();
+        const hindiRow = (await screen.findByText('Hindi (hi)')).closest('tr')!;
+        fireEvent.click(within(hindiRow).getByRole('button', { name: 'Link' }));
+
+        expect(await screen.findByText('Hindi translator access')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Generate link' }));
+
+        expect(await screen.findByLabelText('Translator access link')).toHaveValue(
+            'https://bhasha.test/patna/translate#s=stream_hi&t=secret-token',
+        );
+        expect(createTranslatorAccess).toHaveBeenCalledWith('program_1', 'stream_hi', 12);
+        // Generating refreshes the program so the new expiry shows up.
+        await waitFor(() => {
+            expect(api.getProgramDetail).toHaveBeenCalledTimes(2);
+        });
+    });
+
+    it('offers a Link button for every language, including ones without a translator yet', async () => {
+        const detail = programDetail();
+        const api = makeApi({
+            getProgramDetail: vi.fn(async () => ({ ...detail, translators: [] })),
+        });
+
+        renderAdmin(<AdminScreen adminApi={api} />);
+        await openFirstProgram();
+        await screen.findByText('Hindi (hi)');
+
+        expect(screen.getAllByRole('button', { name: 'Link' })).toHaveLength(2);
     });
 
     it('hides approver access when listener approval is not required', async () => {

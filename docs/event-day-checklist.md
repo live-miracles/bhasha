@@ -4,7 +4,7 @@
 
 - [ ] Create the program in the management workspace with final name, venue, date, and slug.
 - [ ] Add every language stream in the management workspace.
-- [ ] Create translator logins and assign each translator to the correct stream.
+- [ ] Generate each language's translator access link (language row → **Link**, pick how long it stays valid). Send each translator their own link or let them scan the QR; generating a new link replaces the old one and signs that translator out.
 - [ ] Verify the listener QR opens the expected public listener URL.
 - [ ] Complete iPhone Safari and Android Chrome checks in `docs/mobile-field-test-report.md`.
 - [ ] Run load testing or record the exact blocker (no current-stack load-test report exists yet).
@@ -13,7 +13,7 @@
 ## Day Before Event
 
 - [ ] Print listener QR signage with the program name and help contact.
-- [ ] Confirm translator IDs, passwords, and assigned languages.
+- [ ] Open each translator link once to confirm it signs in, and that its validity covers the whole event.
 - [ ] Confirm CSV export works for the program.
 - [ ] Confirm event feed and listener counts load in the management workspace.
 - [ ] Prepare backup internet for translator devices and the admin operator.
@@ -29,7 +29,7 @@
 ## Translator Device Setup
 
 - [ ] Open `/{programSlug}/translate` on each translator device.
-- [ ] Log in with the assigned translator ID and password.
+- [ ] Open the translator's access link (or scan its QR); it signs in automatically. Fall back to choosing the language and typing a password only if a password was set by hand.
 - [ ] Select the correct language stream.
 - [ ] Confirm the browser requests microphone permission only.
 - [ ] Start publishing and confirm the management workspace stream state changes to Live.

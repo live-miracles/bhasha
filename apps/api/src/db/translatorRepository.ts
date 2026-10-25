@@ -131,18 +131,30 @@ export class TranslatorRepository {
         languageName: string,
         password: string,
         passwordPepper: string,
+        accessExpiresAt: string | null = null,
     ): Promise<void> {
         const timestamp = nowIso();
         const passwordHash = await this.passwordHash(password, passwordPepper);
         const email = `${streamId}@language.invalid`;
         this.db
             .prepare(
-                `INSERT INTO translators (id, program_id, name, email, password_hash, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
+                `INSERT INTO translators
+               (id, program_id, name, email, password_hash, access_expires_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(program_id, id) DO UPDATE SET
-               name = excluded.name, password_hash = excluded.password_hash, updated_at = excluded.updated_at`,
+               name = excluded.name, password_hash = excluded.password_hash,
+               access_expires_at = excluded.access_expires_at, updated_at = excluded.updated_at`,
             )
-            .run(streamId, programId, languageName, email, passwordHash, timestamp, timestamp);
+            .run(
+                streamId,
+                programId,
+                languageName,
+                email,
+                passwordHash,
+                accessExpiresAt,
+                timestamp,
+                timestamp,
+            );
         this.db
             .prepare(
                 `INSERT OR IGNORE INTO translator_stream_assignments
@@ -150,6 +162,76 @@ export class TranslatorRepository {
              VALUES (?, ?, ?, ?)`,
             )
             .run(programId, streamId, streamId, timestamp);
+    }
+
+    /**
+     * Generates a fresh access token for a language stream's translator and makes it the only
+     * working credential (the previous password or token stops working). The token is returned
+     * once; only its hash is stored. Creates the stream's translator if it does not exist yet.
+     * Callers must also revoke the translator's live sessions (see revokeAllSessionsForTranslator).
+     */
+    async issueStreamAccessToken(
+        programId: string,
+        streamId: string,
+        expiresAt: string,
+        passwordPepper: string,
+    ): Promise<{ token: string; expiresAt: string }> {
+        if (!(await this.programExists(programId))) {
+            throw new ProgramNotFoundError();
+        }
+
+        const stream = this.db
+            .prepare(
+                `SELECT language_name as languageName FROM language_streams
+             WHERE program_id = ? AND id = ?`,
+            )
+            .get(programId, streamId) as { languageName: string } | undefined;
+        if (!stream) {
+            throw new StreamNotFoundError();
+        }
+
+        const token = randomToken();
+        await this.ensureAutomaticTranslator(
+            programId,
+            streamId,
+            stream.languageName,
+            token,
+            passwordPepper,
+            expiresAt,
+        );
+        return { token, expiresAt };
+    }
+
+    /**
+     * Disables the stream's translator credential immediately by replacing it with an unknown
+     * random secret that is already expired. Callers must also revoke live sessions.
+     */
+    async revokeStreamAccess(
+        programId: string,
+        streamId: string,
+        passwordPepper: string,
+    ): Promise<void> {
+        if (!(await this.programExists(programId))) {
+            throw new ProgramNotFoundError();
+        }
+
+        const timestamp = nowIso();
+        const result = this.db
+            .prepare(
+                `UPDATE translators
+             SET password_hash = ?, access_expires_at = ?, updated_at = ?
+             WHERE program_id = ? AND id = ?`,
+            )
+            .run(
+                await this.passwordHash(randomToken(), passwordPepper),
+                timestamp,
+                timestamp,
+                programId,
+                streamId,
+            );
+        if (result.changes === 0) {
+            throw new TranslatorNotFoundError();
+        }
     }
 
     async authenticateByStream(
@@ -171,7 +253,7 @@ export class TranslatorRepository {
             this.db
                 .prepare(
                     `SELECT id, program_id as programId, name, email,
-              password_hash as passwordHash
+              password_hash as passwordHash, access_expires_at as accessExpiresAt
             FROM translators
             WHERE program_id = ? AND id = ?`,
                 )
@@ -284,7 +366,7 @@ export class TranslatorRepository {
         const result = this.db
             .prepare(
                 `UPDATE translators
-        SET password_hash = ?, updated_at = ?
+        SET password_hash = ?, access_expires_at = NULL, updated_at = ?
         WHERE program_id = ? AND id = ?`,
             )
             .run(passwordHash, timestamp, programId, translatorId);
@@ -380,7 +462,7 @@ export class TranslatorRepository {
         const translator = this.db
             .prepare(
                 `SELECT id, program_id as programId, name, email,
-          password_hash as passwordHash
+          password_hash as passwordHash, access_expires_at as accessExpiresAt
         FROM translators
         WHERE program_id = ? AND email = ?`,
             )
@@ -400,6 +482,11 @@ export class TranslatorRepository {
 
         const candidate = `sha256:${await sha256Hex(password + passwordPepper)}`;
         if (candidate !== translator.passwordHash) {
+            return null;
+        }
+
+        // A generated access token is time-limited; a hand-set password has no expiry.
+        if (translator.accessExpiresAt && translator.accessExpiresAt <= nowIso()) {
             return null;
         }
 
@@ -747,6 +834,7 @@ export class TranslatorRepository {
                 `SELECT t.id as translatorId,
           t.name as translatorName,
           t.email as translatorEmail,
+          t.access_expires_at as accessExpiresAt,
           ls.id as streamId,
           ls.language_name as languageName,
           ls.language_code as languageCode
@@ -771,6 +859,7 @@ export class TranslatorRepository {
                     id: row.translatorId,
                     email: row.translatorEmail,
                     name: row.translatorName,
+                    accessExpiresAt: row.accessExpiresAt,
                     assignments: [],
                 };
                 translators.set(row.translatorId, translator);
@@ -804,12 +893,16 @@ JOIN translators t
   ON t.program_id = s.program_id
   AND t.id = s.translator_id`;
 
-type TranslatorRowWithHash = TranslatorRecord & { passwordHash: string };
+type TranslatorRowWithHash = TranslatorRecord & {
+    passwordHash: string;
+    accessExpiresAt: string | null;
+};
 
 type AdminTranslatorAssignmentRow = {
     translatorId: string;
     translatorName: string;
     translatorEmail: string;
+    accessExpiresAt: string | null;
     streamId: string | null;
     languageName: string | null;
     languageCode: string | null;

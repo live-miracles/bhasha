@@ -1158,6 +1158,7 @@ describe('program and stream admin API', () => {
                     id: translatorId,
                     email: translatorEmail,
                     name: 'Hindi translator',
+                    accessExpiresAt: null,
                     assignments: [
                         {
                             streamId: hindiStreamId,

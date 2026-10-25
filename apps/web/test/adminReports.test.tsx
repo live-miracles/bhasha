@@ -110,6 +110,7 @@ function eventDetail(): AdminProgramDetail {
                 id: 'translator_hindi',
                 email: 'hindi@example.com',
                 name: 'Hindi Translator',
+                accessExpiresAt: null,
                 assignments: [],
             },
         ],

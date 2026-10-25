@@ -31,6 +31,7 @@ import { ApproverPasswordTooShortError, ApproverRepository } from '../db/approve
 import {
     parseCreateProgramInput,
     parseCreateStreamInput,
+    parseCreateTranslatorAccessInput,
     parseResetTranslatorPasswordInput,
     parseUpdateProgramInput,
     parseUpdateStreamInput,
@@ -1676,6 +1677,103 @@ export async function handleAdminRoutes(
             } catch (error) {
                 return repositoryErrorResponse(error);
             }
+        }
+    }
+
+    const translatorAccessMatch = url.pathname.match(
+        /^\/api\/admin\/programs\/([^/]+)\/streams\/([^/]+)\/translator-access$/,
+    );
+    if ((request.method === 'POST' || request.method === 'DELETE') && translatorAccessMatch) {
+        const [, programId, streamId] = translatorAccessMatch;
+        if (!programId || !streamId) {
+            return null;
+        }
+
+        const access = await requireProgramAccess(programs, programId, auth!, {
+            write: true,
+            includeDeleted: false,
+        });
+        if (access instanceof Response) {
+            return access;
+        }
+
+        const realtime = new RealtimeStreamRepository(env.DB);
+
+        // Replacing or disabling the credential must also end sessions already signed in with
+        // the old one, including a translator who is publishing right now.
+        const endLiveSessions = async () => {
+            const freed = await translators.revokeAllSessionsForTranslator(
+                realtime,
+                programId,
+                streamId,
+            );
+            await Promise.all(
+                freed.map((entry) =>
+                    removeParticipantBestEffort(
+                        roomService,
+                        roomNameForStream(programId, entry.streamId),
+                        translatorIdentity(streamId),
+                    ),
+                ),
+            );
+        };
+
+        if (request.method === 'DELETE') {
+            try {
+                await translators.revokeStreamAccess(
+                    programId,
+                    streamId,
+                    env.TRANSLATOR_PASSWORD_PEPPER,
+                );
+                await endLiveSessions();
+                console.info(
+                    JSON.stringify({
+                        action: 'revoke_translator_access',
+                        programId,
+                        target: streamId,
+                        at: new Date().toISOString(),
+                    }),
+                );
+                return json({ ok: true });
+            } catch (error) {
+                return repositoryErrorResponse(error);
+            }
+        }
+
+        const input = await parseBody(request, parseCreateTranslatorAccessInput);
+        if (input instanceof Response) {
+            return input;
+        }
+
+        try {
+            const expiresAt = new Date(Date.now() + input.expiresInHours * 3_600_000).toISOString();
+            const issued = await translators.issueStreamAccessToken(
+                programId,
+                streamId,
+                expiresAt,
+                env.TRANSLATOR_PASSWORD_PEPPER,
+            );
+            await endLiveSessions();
+            console.info(
+                JSON.stringify({
+                    action: 'issue_translator_access',
+                    programId,
+                    target: streamId,
+                    expiresAt: issued.expiresAt,
+                    at: new Date().toISOString(),
+                }),
+            );
+
+            // The credentials live in the URL fragment, which browsers never send to a server,
+            // so they stay out of access logs.
+            const link = new URL(`/${access.slug}/translate`, publicOrigin(env, url));
+            link.hash = new URLSearchParams({ s: streamId, t: issued.token }).toString();
+            return json(
+                { token: issued.token, url: link.toString(), expiresAt: issued.expiresAt },
+                { status: 201, headers: { 'cache-control': 'no-store' } },
+            );
+        } catch (error) {
+            return repositoryErrorResponse(error);
         }
     }
 

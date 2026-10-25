@@ -34,6 +34,12 @@ export function runMigrations(
               locked_until TEXT
             )
         `);
+        const translatorColumns = db.prepare('PRAGMA table_info(translators)').all() as {
+            name: string;
+        }[];
+        if (!translatorColumns.some((column) => column.name === 'access_expires_at')) {
+            db.exec('ALTER TABLE translators ADD COLUMN access_expires_at TEXT');
+        }
         return { applied: [] };
     }
 

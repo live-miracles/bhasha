@@ -55,6 +55,9 @@ CREATE TABLE translators (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   email TEXT,
+  -- When set, the stored credential (a generated access token) stops working at this time.
+  -- NULL means the credential never expires (a password chosen by hand).
+  access_expires_at TEXT,
   PRIMARY KEY (program_id, id),
   FOREIGN KEY (program_id) REFERENCES programs(id) ON DELETE CASCADE
 );

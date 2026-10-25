@@ -374,6 +374,7 @@ describe('TranslatorRoute', () => {
     afterEach(() => {
         vi.restoreAllMocks();
         cleanup();
+        window.history.replaceState(null, '', '/');
     });
 
     it('shows the login form with the program slug when there is no session', async () => {
@@ -543,6 +544,104 @@ describe('TranslatorRoute', () => {
 
         await waitFor(() => {
             expect(api.login).toHaveBeenCalledWith('patna-event-2026', 'stream_hi', 'secret-pass');
+        });
+    });
+
+    describe('access link', () => {
+        function unauthenticated(overrides: Partial<TranslatorApi> = {}): TranslatorApi {
+            return translatorApi({
+                session: vi.fn(async () => {
+                    throw new ApiError({
+                        status: 401,
+                        code: 'translator_auth_required',
+                        body: { error: 'translator_auth_required' },
+                    });
+                }),
+                ...overrides,
+            });
+        }
+
+        it('signs in with the credentials in the URL fragment and removes them from the URL', async () => {
+            window.history.replaceState(
+                null,
+                '',
+                '/patna-event-2026/translate#s=stream_hi&t=link-token',
+            );
+            const api = unauthenticated();
+
+            renderRoute({ translatorApi: api });
+
+            expect(await screen.findByRole('button', { name: 'Go live' })).toBeInTheDocument();
+            expect(api.login).toHaveBeenCalledTimes(1);
+            expect(api.login).toHaveBeenCalledWith('patna-event-2026', 'stream_hi', 'link-token');
+            expect(window.location.hash).toBe('');
+            expect(window.location.href).not.toContain('link-token');
+            expect(screen.queryByRole('heading', { name: 'Translator login' })).toBeNull();
+        });
+
+        it('lets the link take precedence over an existing session', async () => {
+            window.history.replaceState(null, '', '/x#s=stream_hi&t=link-token');
+            const api = translatorApi();
+
+            renderRoute({ translatorApi: api });
+
+            expect(await screen.findByRole('button', { name: 'Go live' })).toBeInTheDocument();
+            expect(api.login).toHaveBeenCalledWith('patna-event-2026', 'stream_hi', 'link-token');
+            expect(api.session).not.toHaveBeenCalled();
+        });
+
+        it('shows an expired-link message on the login form when the link is rejected', async () => {
+            window.history.replaceState(null, '', '/x#s=stream_hi&t=stale-token');
+            const api = unauthenticated({
+                login: vi.fn(async () => {
+                    throw new ApiError({
+                        status: 401,
+                        code: 'invalid_translator_credentials',
+                        body: { error: 'invalid_translator_credentials' },
+                    });
+                }),
+            });
+
+            renderRoute({ translatorApi: api });
+
+            expect(
+                await screen.findByText(
+                    'This access link has expired or was replaced. Ask an organizer for a new one.',
+                ),
+            ).toBeInTheDocument();
+            expect(screen.getByRole('heading', { name: 'Translator login' })).toBeInTheDocument();
+            expect(screen.getByLabelText('Language')).toHaveValue('stream_hi');
+            expect(window.location.hash).toBe('');
+            // One automatic attempt only; it must not retry in a loop.
+            expect(api.login).toHaveBeenCalledTimes(1);
+        });
+
+        it('shows a generic message for other failures', async () => {
+            window.history.replaceState(null, '', '/x#s=stream_hi&t=link-token');
+            const api = unauthenticated({
+                login: vi.fn(async () => {
+                    throw new Error('network down');
+                }),
+            });
+
+            renderRoute({ translatorApi: api });
+
+            expect(
+                await screen.findByText('Could not sign in with this link. Please try again.'),
+            ).toBeInTheDocument();
+        });
+
+        it('falls back to the normal flow when the fragment is incomplete', async () => {
+            window.history.replaceState(null, '', '/x#s=stream_hi');
+            const api = unauthenticated();
+
+            renderRoute({ translatorApi: api });
+
+            expect(
+                await screen.findByRole('heading', { name: 'Translator login' }),
+            ).toBeInTheDocument();
+            expect(api.login).not.toHaveBeenCalled();
+            expect(api.session).toHaveBeenCalled();
         });
     });
 

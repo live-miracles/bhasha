@@ -94,6 +94,15 @@ the route that owns the state transition.
 
 ## Debugging recipes
 
+### Translator's access link says "expired or was replaced"
+
+Links are time-limited, and generating a new link (or revoking, or resetting the
+password) invalidates the previous one and ends that translator's sessions. In the
+management workspace open the language's **Link** dialog: it shows whether a link is
+active and until when. Generate a new link and send it to the translator. If the
+language is live, generating a new link ends the broadcast, so do it between
+sessions where possible.
+
 ### Translator sees "Realtime connection failed"
 
 Likely surfaces from `ApiError.code === "realtime_error"` in

@@ -73,6 +73,8 @@ export interface AdminProgramTranslatorRecord {
     id: string;
     email: string;
     name: string;
+    /** When the translator's generated access token stops working; null if it never expires. */
+    accessExpiresAt: string | null;
     assignments: AdminProgramAssignmentRecord[];
 }
 
@@ -716,6 +718,7 @@ export class ProgramRepository {
                 `SELECT t.id as translatorId,
           t.name as translatorName,
           t.email as translatorEmail,
+          t.access_expires_at as accessExpiresAt,
           ls.id as streamId,
           ls.language_name as languageName,
           ls.language_code as languageCode
@@ -739,6 +742,7 @@ export class ProgramRepository {
                     id: row.translatorId,
                     email: row.translatorEmail,
                     name: row.translatorName,
+                    accessExpiresAt: row.accessExpiresAt,
                     assignments: [],
                 };
                 translators.set(row.translatorId, translator);
@@ -871,6 +875,7 @@ type AdminTranslatorAssignmentRow = {
     translatorId: string;
     translatorName: string;
     translatorEmail: string;
+    accessExpiresAt: string | null;
     streamId: string | null;
     languageName: string | null;
     languageCode: string | null;

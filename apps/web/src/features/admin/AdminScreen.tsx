@@ -61,6 +61,7 @@ import { formatISTDateTime } from './formatTime';
 import { ConfirmDialog } from './ConfirmDialog';
 import { AdminDialog } from './AdminDialog';
 import { KickConfirmDialog } from './KickConfirmDialog';
+import { TranslatorAccessDialog } from './TranslatorAccessDialog';
 import { AdminLayout, AdminUiProvider, KpiTile, StatusPill } from './AdminShell';
 import { UsersPanel } from './UsersPanel';
 import { AdminAccountHeader } from './AccountPanel';
@@ -216,6 +217,19 @@ function KeyIcon() {
             <circle cx="8" cy="15" r="3.5" stroke="currentColor" strokeWidth="1.8" />
             <path
                 d="m10.5 12.5 8-8m-2 2 2 2m-4-0 2 2"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeWidth="1.8"
+            />
+        </svg>
+    );
+}
+
+function LinkIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <path
+                d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"
                 stroke="currentColor"
                 strokeLinecap="round"
                 strokeWidth="1.8"
@@ -680,6 +694,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
     const summaryRef = useRef(summary);
     summaryRef.current = summary;
     const [historyStream, setHistoryStream] = useState<AdminStream | null>(null);
+    const [accessStream, setAccessStream] = useState<AdminStream | null>(null);
     const [historyFeed, setHistoryFeed] = useState<AdminEventFeed | null>(null);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyError, setHistoryError] = useState<string | null>(null);
@@ -732,6 +747,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
         reportSeriesCursor.current = null;
         reportSeriesRangeKey.current = null;
         setHistoryStream(null);
+        setAccessStream(null);
         setHistoryFeed(null);
         setHistoryError(null);
         setActiveSection('programs');
@@ -810,6 +826,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
             reportSeriesCursor.current = null;
             reportSeriesRangeKey.current = null;
             setHistoryStream(null);
+            setAccessStream(null);
             setHistoryFeed(null);
             setHistoryError(null);
             try {
@@ -1107,6 +1124,7 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                     onDelete={(stream) => void deleteStream(stream)}
                     onToggle={(stream) => void toggleStream(stream)}
                     onResetPassword={(translator) => void resetPassword(translator)}
+                    onTranslatorAccess={(stream) => setAccessStream(stream)}
                     liveStreams={
                         new Map(
                             (status?.streams ?? [])
@@ -1884,6 +1902,24 @@ export function AdminScreen({ adminApi: adminApiProp }: AdminScreenProps) {
                                 }
                             }}
                             stream={historyStream}
+                        />
+                        <TranslatorAccessDialog
+                            api={adminApi}
+                            isLive={
+                                accessStream !== null &&
+                                (status?.streams ?? []).some(
+                                    (candidate) =>
+                                        candidate.id === accessStream.id &&
+                                        candidate.state === 'live',
+                                )
+                            }
+                            onChanged={() => refreshDetail()}
+                            onClose={() => setAccessStream(null)}
+                            programId={selectedProgramId ?? ''}
+                            stream={accessStream}
+                            translator={detail?.translators.find(
+                                (candidate) => candidate.id === accessStream?.id,
+                            )}
                         />
                     </>
                 ) : null}
@@ -2871,6 +2907,7 @@ function LanguagesPanel({
     onDelete,
     onToggle,
     onResetPassword,
+    onTranslatorAccess,
     onKickStream,
     onHistory,
     readOnly,
@@ -2883,6 +2920,7 @@ function LanguagesPanel({
     onDelete: (stream: AdminStream) => void;
     onToggle: (stream: AdminStream) => void;
     onResetPassword: (translator: AdminTranslator) => void;
+    onTranslatorAccess: (stream: AdminStream) => void;
     onKickStream: (stream: AdminProgramStatus['streams'][number]) => void;
     onHistory: (stream: AdminStream) => void;
     readOnly: boolean;
@@ -2973,6 +3011,15 @@ function LanguagesPanel({
                                             </Tooltip>
                                             {readOnly ? null : (
                                                 <>
+                                                    <Button
+                                                        leftSection={<LinkIcon />}
+                                                        onClick={() => onTranslatorAccess(stream)}
+                                                        size="compact-xs"
+                                                        type="button"
+                                                        variant="default"
+                                                    >
+                                                        Link
+                                                    </Button>
                                                     {translator ? (
                                                         <Button
                                                             leftSection={<KeyIcon />}

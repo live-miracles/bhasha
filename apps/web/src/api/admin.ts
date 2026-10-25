@@ -23,6 +23,12 @@ export interface AdminStream {
     updatedAt: string;
 }
 
+export interface TranslatorAccessLink {
+    token: string;
+    url: string;
+    expiresAt: string;
+}
+
 export type AdminRole = 'admin' | 'user';
 
 export interface AdminMe {
@@ -41,6 +47,8 @@ export interface AdminTranslator {
     id: string;
     email: string;
     name: string;
+    /** When the generated access link stops working; null when sign-in uses a plain password. */
+    accessExpiresAt: string | null;
     assignments: AdminTranslatorAssignment[];
 }
 
@@ -355,6 +363,12 @@ export interface AdminApi {
         streamId: string,
         password: string,
     ): Promise<AdminTranslator>;
+    createTranslatorAccess(
+        programId: string,
+        streamId: string,
+        expiresInHours: number,
+    ): Promise<TranslatorAccessLink>;
+    revokeTranslatorAccess(programId: string, streamId: string): Promise<void>;
     getTranslatorSessions?(
         programId: string,
         translatorId: string,
@@ -618,6 +632,15 @@ export function createAdminApi(client: AdminHttpClient = apiClient): AdminApi {
                 `${streamPath(programId, streamId)}/reset-password`,
                 { password },
             );
+        },
+        createTranslatorAccess(programId: string, streamId: string, expiresInHours: number) {
+            return client.post<TranslatorAccessLink>(
+                `${streamPath(programId, streamId)}/translator-access`,
+                { expiresInHours },
+            );
+        },
+        revokeTranslatorAccess(programId: string, streamId: string) {
+            return client.delete(`${streamPath(programId, streamId)}/translator-access`);
         },
         getTranslatorSessions(programId: string, translatorId: string) {
             return client.get<{ sessions: TranslatorSessionSummary[] }>(

@@ -49,6 +49,13 @@ export interface ResetTranslatorPasswordInput {
     password: string;
 }
 
+export const TRANSLATOR_ACCESS_DEFAULT_HOURS = 12;
+export const TRANSLATOR_ACCESS_MAX_HOURS = 72;
+
+export interface CreateTranslatorAccessInput {
+    expiresInHours: number;
+}
+
 export interface CreateTranslatorAssignmentInput {
     streamId: string;
 }
@@ -255,6 +262,27 @@ export function parseResetTranslatorPasswordInput(input: unknown): ResetTranslat
     return {
         password: requireString(data.password, 'password'),
     };
+}
+
+export function parseCreateTranslatorAccessInput(input: unknown): CreateTranslatorAccessInput {
+    // expiresInHours is optional; omitting it uses the default lifetime.
+    const data =
+        input === undefined || input === null ? {} : requireRecord(input, 'translator access');
+    const hours = data.expiresInHours;
+    if (hours === undefined) {
+        return { expiresInHours: TRANSLATOR_ACCESS_DEFAULT_HOURS };
+    }
+    if (
+        typeof hours !== 'number' ||
+        !Number.isInteger(hours) ||
+        hours < 1 ||
+        hours > TRANSLATOR_ACCESS_MAX_HOURS
+    ) {
+        throw new Error(
+            `expiresInHours must be a whole number between 1 and ${TRANSLATOR_ACCESS_MAX_HOURS}`,
+        );
+    }
+    return { expiresInHours: hours };
 }
 
 export function parseCreateTranslatorAssignmentInput(
