@@ -176,7 +176,7 @@ describe('listener realtime connection request', () => {
         const bySlug = await request('/api/listeners/request', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.10',
+                'x-forwarded-for': '203.0.113.10',
                 'user-agent': 'Mobile Safari',
             },
             body: JSON.stringify({

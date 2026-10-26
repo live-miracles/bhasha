@@ -10,6 +10,7 @@ import { createFireAndForgetCtx, json, notFound, type WaitUntilCtx } from './htt
 import { openDatabase } from './db/sqlite';
 import { runMigrations } from './db/migrate';
 import { assertSafeDeployment } from './startupChecks';
+import { ListenerRateLimiter, listenerRateLimitConfigFromEnv } from './security/rateLimiter';
 import { UsersRepository } from './db/usersRepository';
 import { handleAdminRoutes } from './routes/admin';
 import { handleListenerRoutes } from './routes/listeners';
@@ -57,6 +58,7 @@ const CRITICAL_CH_VALUE = 'Sec-CH-UA-Model, Sec-CH-UA-Platform, Sec-CH-UA-Platfo
 export function createApp(env: Env): Hono {
     const app = new Hono();
     const ctx: WaitUntilCtx = createFireAndForgetCtx();
+    const listenerLimiter = new ListenerRateLimiter(listenerRateLimitConfigFromEnv(env));
     // Docker uses /app/apps/web/dist, while local API development resolves the
     // repository-relative default. If a Docker path is left in a local .env,
     // use the existing local build instead of making every SPA deep link 404.
@@ -126,7 +128,13 @@ export function createApp(env: Env): Hono {
                 return approverResponse;
             }
 
-            const listenerResponse = await handleListenerRoutes(request, env, url, ctx);
+            const listenerResponse = await handleListenerRoutes(
+                request,
+                env,
+                url,
+                ctx,
+                listenerLimiter,
+            );
             if (listenerResponse) {
                 return listenerResponse;
             }
@@ -233,6 +241,15 @@ export async function buildEnvFromProcess(): Promise<Env> {
             : {}),
         ...(process.env.PUBLIC_APP_URL !== undefined
             ? { PUBLIC_APP_URL: process.env.PUBLIC_APP_URL }
+            : {}),
+        ...(process.env.LISTENER_RATE_LIMIT_IP_PER_MIN !== undefined
+            ? { LISTENER_RATE_LIMIT_IP_PER_MIN: process.env.LISTENER_RATE_LIMIT_IP_PER_MIN }
+            : {}),
+        ...(process.env.LISTENER_RATE_LIMIT_SUBJECT_PER_MIN !== undefined
+            ? {
+                  LISTENER_RATE_LIMIT_SUBJECT_PER_MIN:
+                      process.env.LISTENER_RATE_LIMIT_SUBJECT_PER_MIN,
+              }
             : {}),
     };
 }

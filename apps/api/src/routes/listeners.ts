@@ -22,6 +22,8 @@ import { json, readJson, type WaitUntilCtx } from '../http';
 import { isLiveKitConfigured } from '../livekit/client';
 import { mintListenerToken } from '../livekit/tokens';
 import { isProgramExpired } from '../domain/programExpiry';
+import { clientIp } from '../auth/clientIp';
+import type { ListenerRateLimiter } from '../security/rateLimiter';
 import {
     ProgramReferenceMismatchError,
     resolveBrowserProgramReference,
@@ -91,7 +93,16 @@ export async function handleListenerRoutes(
     env: Env,
     url: URL,
     _ctx: WaitUntilCtx,
+    limiter?: ListenerRateLimiter,
 ): Promise<Response | null> {
+    // Per-IP layer: counts only the join-type endpoints (see security/rateLimiter.ts).
+    if (request.method === 'POST') {
+        const limited = limiter?.checkRequest(request, url.pathname);
+        if (limited) {
+            return limited;
+        }
+    }
+
     const listeners = new ListenerRepository(env.DB);
     const listenerAccess = new ListenerAccessRepository(env.DB);
     const programs = new ProgramRepository(env.DB);
@@ -100,6 +111,10 @@ export async function handleListenerRoutes(
         const input = await parseBody(request, parseAccessClaimInput);
         if (input instanceof Response) {
             return noStore(input);
+        }
+        const rateLimited = limiter?.checkSubject('client', input.clientId);
+        if (rateLimited) {
+            return rateLimited;
         }
         return createAccessClaim(programs, listenerAccess, input);
     }
@@ -117,6 +132,10 @@ export async function handleListenerRoutes(
         if (input instanceof Response) {
             return input;
         }
+        const rateLimited = limiter?.checkSubject('connection', input.connectionId);
+        if (rateLimited) {
+            return rateLimited;
+        }
 
         return handleListenerRealtimeToken(env, programs, listeners, input);
     }
@@ -125,6 +144,10 @@ export async function handleListenerRoutes(
         const input = await parseBody(request, parseCreateConnectionInput);
         if (input instanceof Response) {
             return input;
+        }
+        const rateLimited = limiter?.checkSubject('client', input.clientId);
+        if (rateLimited) {
+            return rateLimited;
         }
 
         const resolved = await resolveCreateConnectionInput(programs, input);
@@ -158,6 +181,10 @@ export async function handleListenerRoutes(
         if (input instanceof Response) {
             return input;
         }
+        const rateLimited = limiter?.checkSubject('connection', input.connectionId);
+        if (rateLimited) {
+            return rateLimited;
+        }
 
         try {
             await listeners.markConnected(input.connectionId, listenerClientHints(request.headers));
@@ -171,6 +198,10 @@ export async function handleListenerRoutes(
         const input = await parseBody(request, parseHeartbeatInput);
         if (input instanceof Response) {
             return input;
+        }
+        const rateLimited = limiter?.checkSubject('connection', input.connectionId);
+        if (rateLimited) {
+            return rateLimited;
         }
 
         try {
@@ -195,6 +226,10 @@ export async function handleListenerRoutes(
         if (input instanceof Response) {
             return input;
         }
+        const rateLimited = limiter?.checkSubject('connection', input.connectionId);
+        if (rateLimited) {
+            return rateLimited;
+        }
 
         try {
             // Presence leave is no longer notified from here -- see the /request
@@ -212,6 +247,10 @@ export async function handleListenerRoutes(
         if (input instanceof Response) {
             return input;
         }
+        const rateLimited = limiter?.checkSubject('client', input.clientId);
+        if (rateLimited) {
+            return rateLimited;
+        }
 
         const resolved = await resolveCreateConnectionInput(programs, input);
         if (resolved instanceof Response) {
@@ -228,6 +267,10 @@ export async function handleListenerRoutes(
         const input = await parseBody(request, parseReconnectConnectionInput);
         if (input instanceof Response) {
             return input;
+        }
+        const rateLimited = limiter?.checkSubject('client', input.clientId);
+        if (rateLimited) {
+            return rateLimited;
         }
 
         const resolved = await resolveCreateConnectionInput(programs, input);
@@ -692,11 +735,10 @@ function listenerClientMetadata(request: Request): {
     userAgent: string;
 } {
     return {
-        // TODO(slice-5): `cf-connecting-ip` was Cloudflare's edge header; the
-        // Caddy-fronted deploy needs to forward a real client IP header instead
-        // (e.g. X-Forwarded-For), or every listener_connections row records
-        // "0.0.0.0" for listenerIp.
-        listenerIp: request.headers.get('cf-connecting-ip')?.trim() || '0.0.0.0',
+        // Caddy overwrites X-Forwarded-For with the real connecting address; clientIp() only
+        // trusts CF-Connecting-IP when TRUST_CF_CONNECTING_IP=1, because behind Caddy with
+        // DNS-only Cloudflare a client could otherwise record any address it likes.
+        listenerIp: clientIp(request) || '0.0.0.0',
         userAgent: request.headers.get('user-agent')?.trim() || '',
     };
 }

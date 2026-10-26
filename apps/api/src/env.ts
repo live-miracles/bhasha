@@ -31,6 +31,10 @@ export type WorkerEnv = {
     LIVEKIT_URL?: string;
     LIVEKIT_API_KEY?: string;
     LIVEKIT_API_SECRET?: string;
+    // Public listener API rate limits (see security/rateLimiter.ts). Whole numbers per minute;
+    // 0 disables that layer, unset uses the defaults.
+    LISTENER_RATE_LIMIT_IP_PER_MIN?: string;
+    LISTENER_RATE_LIMIT_SUBJECT_PER_MIN?: string;
 };
 
 export type Env = WorkerEnv;

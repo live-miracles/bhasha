@@ -1225,6 +1225,89 @@ describe('ListenerRoute', () => {
         expect(screen.getByText('Listening to Hindi')).toBeInTheDocument();
     });
 
+    it('keeps playing when a heartbeat is rate limited (429)', async () => {
+        const heartbeat = vi.fn(async () => {
+            throw new ApiError({
+                status: 429,
+                code: 'rate_limited',
+                body: { error: 'rate_limited' },
+            });
+        });
+
+        render(
+            <ListenerRoute
+                programSlug="patna-event-2026"
+                publicApi={publicApi()}
+                listenerApi={listenerApi({ heartbeat })}
+                realtimeClient={realtimeClient()}
+                heartbeatMs={20}
+            />,
+        );
+
+        await screen.findByRole('button', { name: 'Listen to Hindi' });
+        fireEvent.click(screen.getByRole('button', { name: 'Listen to Hindi' }));
+        await screen.findByText('Listening to Hindi');
+
+        // Several rejected beats later the listener is still connected: a 429 is the server
+        // shedding load, not a lost connection.
+        await waitFor(() => {
+            expect(heartbeat.mock.calls.length).toBeGreaterThanOrEqual(3);
+        });
+        expect(screen.getByText('Listening to Hindi')).toBeInTheDocument();
+        expect(screen.queryByText('Disconnected')).not.toBeInTheDocument();
+    });
+
+    it('still drops the listener when a heartbeat fails for any other reason', async () => {
+        const heartbeat = vi.fn(async () => {
+            throw new Error('network_down');
+        });
+
+        render(
+            <ListenerRoute
+                programSlug="patna-event-2026"
+                publicApi={publicApi()}
+                listenerApi={listenerApi({ heartbeat })}
+                realtimeClient={realtimeClient()}
+                heartbeatMs={20}
+            />,
+        );
+
+        await screen.findByRole('button', { name: 'Listen to Hindi' });
+        fireEvent.click(screen.getByRole('button', { name: 'Listen to Hindi' }));
+        await screen.findByText('Listening to Hindi');
+
+        expect(await screen.findByText('Disconnected')).toBeInTheDocument();
+    });
+
+    it('explains a rate-limited join instead of a generic connection failure', async () => {
+        const realtime = realtimeClient({
+            subscribe: vi.fn(async () => {
+                throw new ApiError({
+                    status: 429,
+                    code: 'rate_limited',
+                    body: { error: 'rate_limited' },
+                });
+            }),
+        });
+
+        render(
+            <ListenerRoute
+                programSlug="patna-event-2026"
+                publicApi={publicApi()}
+                listenerApi={listenerApi()}
+                realtimeClient={realtime}
+            />,
+        );
+
+        await screen.findByRole('button', { name: 'Listen to Hindi' });
+        fireEvent.click(screen.getByRole('button', { name: 'Listen to Hindi' }));
+
+        expect(
+            await screen.findByText('Too many attempts. Wait a few seconds, then try again.'),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Reconnect Hindi' })).toBeInTheDocument();
+    });
+
     it('sends heartbeats while connected and stops them after leaving', async () => {
         const api = listenerApi();
         const realtime = realtimeClient();

@@ -177,7 +177,7 @@ describe('listener lifecycle', () => {
         const requested = await request('/api/listeners/request', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Test Mobile Browser',
             },
             body: JSON.stringify({
@@ -244,7 +244,7 @@ describe('listener lifecycle', () => {
         const requested = await request('/api/listeners/request', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Test Mobile Browser',
             },
             body: JSON.stringify({
@@ -299,7 +299,7 @@ describe('listener lifecycle', () => {
             const requested = await request('/api/listeners/request', {
                 method: 'POST',
                 headers: {
-                    'cf-connecting-ip': '203.0.113.9',
+                    'x-forwarded-for': '203.0.113.9',
                     'user-agent': 'Test Mobile Browser',
                 },
                 body: JSON.stringify({
@@ -348,7 +348,7 @@ describe('listener lifecycle', () => {
         const requested = await request('/api/listeners/request', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Initial Mobile Browser',
             },
             body: JSON.stringify({
@@ -377,7 +377,7 @@ describe('listener lifecycle', () => {
         const heartbeat = await request('/api/listeners/heartbeat', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '198.51.100.99',
+                'x-forwarded-for': '198.51.100.99',
                 'user-agent': 'Heartbeat Should Not Persist',
             },
             body: JSON.stringify({ connectionId: connection.connectionId }),
@@ -405,7 +405,7 @@ describe('listener lifecycle', () => {
         const requested = await request('/api/listeners/request', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Initial Mobile Browser',
             },
             body: JSON.stringify({
@@ -443,7 +443,7 @@ describe('listener lifecycle', () => {
         const requested = await request('/api/listeners/request', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Initial Mobile Browser',
             },
             body: JSON.stringify({
@@ -591,7 +591,7 @@ describe('listener lifecycle', () => {
         const requested = await request('/api/listeners/request', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Test Mobile Browser',
             },
             body: JSON.stringify({
@@ -616,7 +616,7 @@ describe('listener lifecycle', () => {
         const switched = await request('/api/listeners/switch', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Test Mobile Browser',
             },
             body: JSON.stringify(switchPayload),
@@ -629,7 +629,7 @@ describe('listener lifecycle', () => {
         const retriedSwitch = await request('/api/listeners/switch', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Test Mobile Browser',
             },
             body: JSON.stringify(switchPayload),
@@ -702,7 +702,7 @@ describe('listener lifecycle', () => {
         const requested = await request('/api/listeners/request', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Test Mobile Browser',
             },
             body: JSON.stringify({
@@ -731,7 +731,7 @@ describe('listener lifecycle', () => {
         const retriedSwitch = await request('/api/listeners/switch', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Test Mobile Browser',
             },
             body: JSON.stringify({
@@ -758,7 +758,7 @@ describe('listener lifecycle', () => {
         const requested = await request('/api/listeners/request', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Test Mobile Browser',
             },
             body: JSON.stringify({
@@ -786,7 +786,7 @@ describe('listener lifecycle', () => {
         const retriedSwitch = await request('/api/listeners/switch', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Test Mobile Browser',
             },
             body: JSON.stringify({
@@ -810,39 +810,46 @@ describe('listener lifecycle', () => {
         expect(successorCount?.count).toBe(0);
     });
 
-    it('does not persist client-controlled forwarding headers as listener IP', async () => {
+    // Behind Caddy, X-Forwarded-For carries the real connecting address (Caddy replaces whatever
+    // the client sent). CF-Connecting-IP is passed through untouched, so a client can set it to
+    // anything and it must not be recorded.
+    async function recordedListenerIp(headers: Record<string, string>): Promise<string> {
         const { cookie, program, hindi } = await seedProgramAndStreams();
-
         const requested = await request('/api/listeners/request', {
             method: 'POST',
-            headers: {
-                'x-forwarded-for': '198.51.100.10',
-                'user-agent': 'Test Mobile Browser',
-            },
+            headers: { 'user-agent': 'Test Mobile Browser', ...headers },
             body: JSON.stringify({
                 programId: program.id,
                 streamId: hindi.id,
                 clientId: 'client_1',
             }),
         });
-
         expect(requested.status).toBe(201);
-        const connection = (await requested.json()) as { connectionId: string };
-        expect(await presenceTotal(program.id)).toBe(0);
-
         const report = await request(`/api/admin/programs/${program.id}/listener-report`, {
             headers: { Cookie: cookie },
         });
+        const body = (await report.json()) as { connections: { listenerIp: string }[] };
+        return body.connections[0]?.listenerIp ?? '';
+    }
 
-        expect(await report.json()).toMatchObject({
-            connections: [
-                {
-                    id: connection.connectionId,
-                    subscriptionStatus: 'requested',
-                    listenerIp: '0.0.0.0',
-                },
-            ],
-        });
+    it('records the address the proxy put in X-Forwarded-For as the listener IP', async () => {
+        expect(await recordedListenerIp({ 'x-forwarded-for': '198.51.100.10' })).toBe(
+            '198.51.100.10',
+        );
+    });
+
+    it('does not record a client-supplied CF-Connecting-IP as the listener IP', async () => {
+        expect(await recordedListenerIp({ 'cf-connecting-ip': '203.0.113.99' })).toBe('0.0.0.0');
+        expect(
+            await recordedListenerIp({
+                'x-forwarded-for': '198.51.100.10',
+                'cf-connecting-ip': '203.0.113.99',
+            }),
+        ).toBe('198.51.100.10');
+    });
+
+    it('records 0.0.0.0 when no proxy address header is present', async () => {
+        expect(await recordedListenerIp({})).toBe('0.0.0.0');
     });
 
     it('reconnects by closing the old connection and requesting a replacement', async () => {
@@ -851,7 +858,7 @@ describe('listener lifecycle', () => {
         const requested = await request('/api/listeners/request', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Test Mobile Browser',
             },
             body: JSON.stringify({
@@ -877,7 +884,7 @@ describe('listener lifecycle', () => {
         const reconnected = await request('/api/listeners/reconnect', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.10',
+                'x-forwarded-for': '203.0.113.10',
                 'user-agent': 'Reconnect Browser',
             },
             body: JSON.stringify(reconnectPayload),
@@ -890,7 +897,7 @@ describe('listener lifecycle', () => {
         const retriedReconnect = await request('/api/listeners/reconnect', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.10',
+                'x-forwarded-for': '203.0.113.10',
                 'user-agent': 'Reconnect Browser',
             },
             body: JSON.stringify(reconnectPayload),
@@ -945,7 +952,7 @@ describe('listener lifecycle', () => {
         const requested = await request('/api/listeners/request', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.9',
+                'x-forwarded-for': '203.0.113.9',
                 'user-agent': 'Test Mobile Browser',
             },
             body: JSON.stringify({
@@ -974,7 +981,7 @@ describe('listener lifecycle', () => {
         const retriedReconnect = await request('/api/listeners/reconnect', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.10',
+                'x-forwarded-for': '203.0.113.10',
                 'user-agent': 'Reconnect Browser',
             },
             body: JSON.stringify({

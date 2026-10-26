@@ -55,10 +55,13 @@ Add the domain to Cloudflare, then create **two `A` records, both _DNS only_ (gr
 
 - Do **not** turn the orange cloud on for `rtc`: Cloudflare's proxy does not carry WebRTC media,
   so audio would silently fail.
-- Keeping `@` grey too means the app sees real client IPs (login throttling and listener
-  reports depend on that) and Caddy can issue certificates normally. If you later want
-  Cloudflare in front of the web app, that needs a code change first (trust `CF-Connecting-IP`
-  only for requests that really come from Cloudflare), so do not just flip the cloud.
+- Keeping `@` grey too means Caddy can issue certificates normally and the app sees real
+  client IPs, which login throttling, listener reports and the rate limits all depend on.
+  Those addresses come from `X-Forwarded-For`, which Caddy overwrites with the real
+  connecting address. `CF-Connecting-IP` is **ignored**: Caddy passes it through untouched, so
+  with a grey cloud any client could forge it and pick its own "IP". Only if you later put the
+  web app behind Cloudflare's proxy (orange cloud) _and_ make the origin accept connections
+  only from Cloudflare, set `TRUST_CF_CONNECTING_IP=1`; do not just flip the cloud.
 - Check propagation: `dig +short example.org` and `dig +short rtc.example.org` should both return
   the VM's IP.
 
@@ -114,7 +117,29 @@ the week of an event.
 - Google Cloud bills internet egress per GB. Estimate with: listeners × hours × ~20 MB, then
   check the current price for your region before the event.
 
-## 6. Known risks to test on the real VM
+## 6. Rate limiting the public listener API
+
+The endpoints a listener's browser calls without any login are rate limited in the app
+(in memory, so a restart resets the counters):
+
+| Layer                                                                                               | Default              | Why                                                                                         |
+| --------------------------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------- |
+| Per IP, for join-type calls (`request`, `token`, `switch`, `reconnect`, `access/*`)                 | 6000/min, burst 3000 | Stops one source flooding the API                                                           |
+| Per `clientId` (join-type calls) or per `connectionId` (`token`, `connected`, `heartbeat`, `leave`) | 30/min, burst 15     | A real listener does a handful of these per minute; this stops one client hammering the API |
+
+- **The per-IP number is high on purpose.** A venue's listeners usually share one public
+  address (NAT). About 1,000 people joining in a minute is roughly 2,000 join-type requests
+  from that one IP, so the burst must clear that or the audience would lock itself out at the
+  start of the event. Raise `LISTENER_RATE_LIMIT_IP_PER_MIN` for a larger audience; set a
+  layer to `0` to turn it off (`LISTENER_RATE_LIMIT_SUBJECT_PER_MIN`).
+- Heartbeats, `connected` and `leave` are **not** limited per IP. A refused request answers
+  `429` with a `Retry-After` header and `{"error":"rate_limited"}`; the listener page treats a
+  429 heartbeat as harmless and shows "Too many attempts" for a refused join.
+- Refusals are logged as `listener_rate_limited`, at most one line per 10 seconds.
+- This protects the API, not the network: it does nothing against a flood of raw UDP/TCP
+  traffic, which needs the cloud provider's own protection.
+
+## 7. Known risks to test on the real VM
 
 1. **Media runs over ONE UDP port (50000), on purpose.** LiveKit's default is a range of
    10,001 ports (50000–60000), and publishing that through Docker does not work on a normal

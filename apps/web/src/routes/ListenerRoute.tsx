@@ -79,6 +79,7 @@ type ListenerPlaybackErrorCode =
     | 'listener_invalid_state'
     | 'realtime_error'
     | 'playback_failed'
+    | 'rate_limited'
     | 'connection_lost';
 
 type ScreenWakeLockSentinel = {
@@ -796,7 +797,13 @@ export function ListenerRoute({
         const connectionId = playback.connectionId;
         const streamId = playback.streamId;
         const handle = setInterval(() => {
-            listenerApi.heartbeat({ connectionId }).catch(() => {
+            listenerApi.heartbeat({ connectionId }).catch((error: unknown) => {
+                // The heartbeat only refreshes an audit timestamp; the audio is carried by
+                // LiveKit. A 429 means the server is shedding load, not that this listener's
+                // connection is gone, so it must not end playback. The next beat retries.
+                if (error instanceof ApiError && error.status === 429) {
+                    return;
+                }
                 setPlayback({ status: 'disconnected', streamId, connectionId });
             });
         }, heartbeatMs);
@@ -2024,6 +2031,10 @@ function playbackErrorCode(
         if (error.code === 'realtime_error') {
             return 'realtime_error';
         }
+
+        if (error.status === 429 || error.code === 'rate_limited') {
+            return 'rate_limited';
+        }
     }
 
     return fallback ?? 'connection_lost';
@@ -2044,6 +2055,10 @@ function playbackErrorMessage(errorCode: ListenerPlaybackErrorCode): string {
 
     if (errorCode === 'playback_failed') {
         return 'Audio playback failed. Try reconnecting.';
+    }
+
+    if (errorCode === 'rate_limited') {
+        return 'Too many attempts. Wait a few seconds, then try again.';
     }
 
     return 'Connection lost. Try reconnecting.';

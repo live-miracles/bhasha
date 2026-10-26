@@ -53,6 +53,13 @@ services:
             LIVEKIT_API_KEY: '${LIVEKIT_API_KEY:?LIVEKIT_API_KEY must be set (see .env.example)}'
             LIVEKIT_API_SECRET: '${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set (see .env.example)}'
             PORT: '${PORT:-8787}'
+            # Public listener API rate limits (whole numbers per minute; 0 turns a layer
+            # off; empty uses the built-in defaults). See docs/deployment.md.
+            LISTENER_RATE_LIMIT_IP_PER_MIN: '${LISTENER_RATE_LIMIT_IP_PER_MIN:-}'
+            LISTENER_RATE_LIMIT_SUBJECT_PER_MIN: '${LISTENER_RATE_LIMIT_SUBJECT_PER_MIN:-}'
+            # Leave empty. Set to 1 ONLY if all traffic really arrives through Cloudflare's
+            # proxy; otherwise clients can forge CF-Connecting-IP and dodge every IP limit.
+            TRUST_CF_CONNECTING_IP: '${TRUST_CF_CONNECTING_IP:-}'
         volumes:
             # Named volume for the SQLite file's directory -- DATABASE_PATH above
             # points inside it, so the DB (and its WAL files) survive container

@@ -153,7 +153,7 @@ describe('admin program status', () => {
         const requested = await request('/api/listeners/request', {
             method: 'POST',
             headers: {
-                'cf-connecting-ip': '203.0.113.44',
+                'x-forwarded-for': '203.0.113.44',
                 'user-agent': 'Admin Status Browser',
             },
             body: JSON.stringify({

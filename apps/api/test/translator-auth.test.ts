@@ -467,6 +467,27 @@ describe('translator auth', () => {
         expect(otherLogin.status).toBe(200);
     });
 
+    it('cannot bypass the login throttle by forging CF-Connecting-IP', async () => {
+        const { programId, email } = await seedTranslatorWithAssignment('translator-pass');
+
+        // The real address is fixed (what Caddy forwards); only the forgeable header changes.
+        const statuses: number[] = [];
+        for (let attempt = 1; attempt <= 12; attempt += 1) {
+            const response = await request('/api/translator/login', {
+                method: 'POST',
+                headers: {
+                    'x-forwarded-for': '198.51.100.77',
+                    'cf-connecting-ip': `203.0.113.${attempt}`,
+                },
+                body: JSON.stringify({ programId, email, password: 'wrong-password' }),
+            });
+            statuses.push(response.status);
+        }
+
+        expect(statuses).toContain(429);
+        expect(statuses.indexOf(429)).toBeLessThanOrEqual(9);
+    });
+
     it('returns the current translator session', async () => {
         const { programId, translatorId, email, streamId } =
             await seedTranslatorWithAssignment('translator-pass');

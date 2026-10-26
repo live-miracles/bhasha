@@ -55,13 +55,14 @@ async function approverLogin(
     },
     env: Env = buildTestEnv(),
     ip: string | null = '198.51.100.7',
-    useForwardedFor = false,
 ): Promise<Response> {
+    // In production Caddy sets X-Forwarded-For to the real client address; CF-Connecting-IP is
+    // forgeable there and ignored (see auth/clientIp.ts).
     const headers: Record<string, string> = {
         'content-type': 'application/json',
     };
     if (ip !== null) {
-        headers[useForwardedFor ? 'X-Forwarded-For' : 'CF-Connecting-IP'] = ip;
+        headers['X-Forwarded-For'] = ip;
     }
     return request(
         '/api/approver/login',
@@ -394,7 +395,35 @@ describe('approver auth and admin approver access', () => {
         expect(row).toEqual({ attemptCount: 29, lockedUntil: null });
     });
 
-    it('uses only the program aggregate limiter when CF-Connecting-IP is missing', async () => {
+    it('cannot bypass the per-IP limit by forging CF-Connecting-IP', async () => {
+        const program = await seedApproverProgram('patna-approver-forged-cf');
+        await configureApprover(program.id, 'approver@example.com', 'correct-pass-1');
+
+        // Same real address (what Caddy forwards), but every attempt claims a different
+        // Cloudflare address. Honouring that header would give each attempt a fresh bucket.
+        const statuses: number[] = [];
+        for (let attempt = 1; attempt <= 31; attempt += 1) {
+            const response = await request('/api/approver/login', {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    'X-Forwarded-For': '198.51.100.7',
+                    'CF-Connecting-IP': `203.0.113.${attempt}`,
+                },
+                body: JSON.stringify({
+                    programSlug: program.slug,
+                    loginId: 'approver@example.com',
+                    password: 'wrong-pass-1',
+                }),
+            });
+            statuses.push(response.status);
+        }
+
+        expect(statuses.slice(0, 30).every((status) => status === 401)).toBe(true);
+        expect(statuses[30]).toBe(429);
+    });
+
+    it('uses only the program aggregate limiter when the client IP header is missing', async () => {
         const program = await seedApproverProgram('patna-approver-headerless');
         await configureApprover(program.id, 'approver@example.com', 'correct-pass-1');
 
@@ -448,7 +477,6 @@ describe('approver auth and admin approver access', () => {
             },
             buildTestEnv(),
             clientIp,
-            true,
         );
 
         expect(response.status).toBe(429);
