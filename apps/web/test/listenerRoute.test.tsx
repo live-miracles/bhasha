@@ -1615,11 +1615,22 @@ describe('ListenerRoute', () => {
     });
 
     it('backs off repeated failures without a tight reconnect loop', async () => {
-        const realtime = realtimeClient({
-            reconnect: vi.fn(async () => {
+        // Recovery re-establishes the connection through reconnect() when it still knows the
+        // connection id and through subscribe() when it does not, and which one it uses depends
+        // on render timing. Both must fail here, and attempts are counted across both, so the
+        // test checks the backoff itself rather than that incidental choice.
+        let down = false;
+        const healthy = realtimeClient();
+        const subscribe = vi.fn(async (input: Parameters<typeof healthy.subscribe>[0]) => {
+            if (down) {
                 throw new Error('still_down');
-            }),
+            }
+            return healthy.subscribe(input);
         });
+        const reconnect = vi.fn(async () => {
+            throw new Error('still_down');
+        });
+        const realtime = realtimeClient({ subscribe, reconnect });
         let fireState: ConnectionStateHandler | null = null;
         const recoveryBaseMs = 5;
         const recoveryMaxMs = 20;
@@ -1630,7 +1641,8 @@ describe('ListenerRoute', () => {
                 publicApi={publicApi()}
                 listenerApi={listenerApi()}
                 realtimeClient={realtime}
-                statusPollMs={20}
+                // Keep the real status poll out of this test: it would fire outside the fake clock.
+                statusPollMs={60_000}
                 recoveryBaseMs={recoveryBaseMs}
                 recoveryMaxMs={recoveryMaxMs}
                 recoveryMaxAttempts={3}
@@ -1649,32 +1661,56 @@ describe('ListenerRoute', () => {
         if (fireState === null) {
             throw new Error('realtime handler not ready');
         }
+        down = true;
+        const initialSubscribes = subscribe.mock.calls.length;
+        const attempts = () =>
+            reconnect.mock.calls.length + subscribe.mock.calls.length - initialSubscribes;
         vi.useFakeTimers();
 
-        const fireStateFn = fireState as ConnectionStateHandler;
-        fireStateFn('listener_connection_1', 'disconnected');
-        await vi.advanceTimersByTimeAsync(recoveryBaseMs);
-        await Promise.resolve();
-        expect((realtime.reconnect as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+        // The retry timer is armed from the rejected attempt's promise chain. Settle that chain
+        // (without moving the fake clock) after every attempt, then advance time. The old
+        // version of this test raced it and failed intermittently.
+        const advance = (ms: number) =>
+            act(async () => {
+                await vi.advanceTimersByTimeAsync(ms);
+            });
+        const settle = () =>
+            act(async () => {
+                for (let i = 0; i < 20; i++) {
+                    await Promise.resolve();
+                }
+            });
 
-        await vi.advanceTimersByTimeAsync(recoveryBaseMs * 2);
-        await Promise.resolve();
-        expect((realtime.reconnect as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+        await act(async () => {
+            (fireState as ConnectionStateHandler)('listener_connection_1', 'disconnected');
+        });
+        await settle();
 
-        // The next backoff is scheduled from the rejected reconnect's microtask.
-        // Run the timers that are pending after that continuation instead of
-        // assuming the timer existed at the start of a fixed clock advance.
-        await vi.runOnlyPendingTimersAsync();
-        await Promise.resolve();
+        // Attempt 1 waits the base delay (5ms), and not a millisecond less.
+        await advance(recoveryBaseMs - 1);
+        expect(attempts()).toBe(0);
+        await advance(1);
+        await settle();
+        expect(attempts()).toBe(1);
 
-        // Let the rejection continuation arm its final capped attempt, then prove
-        // a long clock advance produces exactly that attempt and no retry storm.
-        await vi.advanceTimersByTimeAsync(3000);
-        await Promise.resolve();
-        const reconnectAttempts = (realtime.reconnect as ReturnType<typeof vi.fn>).mock.calls
-            .length;
-        expect(reconnectAttempts).toBeGreaterThanOrEqual(2);
-        expect(reconnectAttempts).toBeLessThanOrEqual(3);
+        // Attempt 2 doubles it (10ms).
+        await advance(recoveryBaseMs * 2 - 1);
+        expect(attempts()).toBe(1);
+        await advance(1);
+        await settle();
+        expect(attempts()).toBe(2);
+
+        // Attempt 3 would be 20ms; it is capped at recoveryMaxMs (also 20ms).
+        await advance(recoveryMaxMs - 1);
+        expect(attempts()).toBe(2);
+        await advance(1);
+        await settle();
+        expect(attempts()).toBe(3);
+
+        // recoveryMaxAttempts is 3: a long wait produces no further attempts (no retry storm).
+        await advance(3000);
+        await settle();
+        expect(attempts()).toBe(3);
     });
 
     it('continues recovery for silent streams up to the capped attempt limit', async () => {
