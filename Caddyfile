@@ -20,15 +20,19 @@
 # environment, so ACME issuance is expected to fail there -- see the
 # deployment task's verification notes.
 #
+# Caddy and LiveKit both run on the host network (see docker-compose.yml), so the upstreams
+# below are loopback addresses: the app is published on 127.0.0.1:8787 and LiveKit's signaling
+# port listens on 127.0.0.1:7880 only. Caddy is therefore the single public way in to both.
+#
 # {$DOMAIN} is Caddy's own native env-var substitution (distinct from, and
 # unrelated to, docker-compose.yml's ${VAR} substitution for the LiveKit
 # config) -- no extra wiring needed for it to pick up the DOMAIN env var
 # Compose passes to this container.
 
 {$DOMAIN} {
-	reverse_proxy app:8787
+	reverse_proxy 127.0.0.1:8787
 }
 
 rtc.{$DOMAIN} {
-	reverse_proxy livekit:7880
+	reverse_proxy 127.0.0.1:7880
 }

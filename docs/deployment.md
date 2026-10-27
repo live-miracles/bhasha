@@ -10,8 +10,9 @@ application changes, and leaves Caddy to issue its own Let's Encrypt certificate
 
 ## 1. Google Cloud
 
-1. **Create the VM.** Ubuntu LTS, 2–4 vCPU is plenty for audio-only (see "Capacity"). Install
-   Docker Engine and the Compose plugin.
+1. **Create the VM.** Ubuntu LTS. 4 vCPU / 16 GB handled 1,000 listeners on one language in
+   testing (see section 5); take 8 vCPU for more headroom. Install Docker Engine and the Compose
+   plugin.
 2. **Reserve a static external IP** and attach it to the VM (Console → VPC network → IP
    addresses → _Reserve external static address_). An ephemeral IP changes on restart and would
    break DNS.
@@ -22,7 +23,7 @@ application changes, and leaves Caddy to issue its own Let's Encrypt certificate
     gcloud compute firewall-rules create bhasha-web \
       --direction=INGRESS --allow=tcp:80,tcp:443 --target-tags=bhasha
     gcloud compute firewall-rules create bhasha-livekit \
-      --direction=INGRESS --allow=tcp:7881,udp:3478,udp:50000 --target-tags=bhasha
+      --direction=INGRESS --allow=tcp:7881,udp:3478,udp:50000-60000 --target-tags=bhasha
     ```
 
     | Port            | Why                                                            |
@@ -30,7 +31,7 @@ application changes, and leaves Caddy to issue its own Let's Encrypt certificate
     | 80/tcp, 443/tcp | Caddy: Let's Encrypt challenge, the web app, LiveKit signaling |
     | 7881/tcp        | WebRTC over TCP, for networks that block UDP                   |
     | 3478/udp        | LiveKit's built-in TURN/STUN                                   |
-    | 50000/udp       | WebRTC media (the audio itself), all on one port               |
+    | 50000–60000/udp | WebRTC media (the audio itself), one socket per participant    |
 
     Keep SSH (22) restricted to your own address.
 
@@ -96,6 +97,10 @@ The app **refuses to start** on a public domain while any secret is still a plac
 short, or the development LiveKit key, and its log lists which variables to fix (never their
 values). The check is skipped for local development.
 
+LiveKit and Caddy run on the **host network** (see section 7), so ports 80 and 443 on the VM must
+be free. LiveKit's signaling port (7880) listens on the loopback only; Caddy is the only public way
+in to it.
+
 The LiveKit and Caddy images are pinned in `docker-compose.yml`; bump them deliberately, not
 the week of an event.
 
@@ -112,10 +117,24 @@ the week of an event.
 
 ## 5. Capacity and cost
 
-- Audio is roughly 40–50 kbps per listener, so a thousand listeners is on the order of 50 Mbps
-  of egress. CPU is not the limit for audio-only.
-- Google Cloud bills internet egress per GB. Estimate with: listeners × hours × ~20 MB, then
-  check the current price for your region before the event.
+Measured on Google Cloud with LiveKit's own load tester: one publisher (the translator) and N
+listeners all on **one** language (the worst case), steady state, the topology in this repo
+(Caddy in front, LiveKit on the host network). Method and caveats: [load-testing.md](load-testing.md).
+
+| VM                     | Listeners on one language | Audio each listener received | LiveKit CPU, avg / peak | LiveKit RAM |
+| ---------------------- | ------------------------- | ---------------------------- | ----------------------- | ----------- |
+| e2-standard-4 (4 vCPU) | 1,000                     | 100%                         | 157% / 256% of 400%     | ~2.3 GB     |
+| e2-standard-8 (8 vCPU) | 2,000                     | 100%                         | 328% / 409% of 800%     | ~4.7 GB     |
+
+- **A 4 vCPU / 16 GB VM runs 1,000 listeners with roughly 2.5× average headroom.** Choose 8 vCPU
+  if you want room for a bigger crowd or for the transcription work on the roadmap.
+- Memory is about 2.3 MB per listener, retained rather than leaked (it levelled off at a plateau
+  in the 2,000-listener run), so size RAM at ~2.5 MB × listeners plus a few GB.
+- Egress is about 55 kbit/s per listener on the wire (1,000 listeners ≈ 55 Mbit/s). Google Cloud
+  bills internet egress per GB: estimate with listeners × hours × ~25 MB, then check the current
+  price for your region.
+- Not yet tested: runs of several hours (memory behaviour over a whole event day), real phones on
+  real venue networks, and a real translator's microphone instead of the tester's synthetic audio.
 
 ## 6. Rate limiting the public listener API
 
@@ -141,18 +160,27 @@ The endpoints a listener's browser calls without any login are rate limited in t
 
 ## 7. Known risks to test on the real VM
 
-1. **Media runs over ONE UDP port (50000), on purpose.** LiveKit's default is a range of
-   10,001 ports (50000–60000), and publishing that through Docker does not work on a normal
-   VM: Docker starts one `docker-proxy` process per published UDP port. On the 4 GB rehearsal
-   VM it had created ~2,500 processes, used all memory, and the machine stopped answering
-   SSH and had to be hard-reset. `docker-compose.yml` therefore sets LiveKit's
-   `rtc.udp_port: 50000` (single-port "ICE/UDP Mux") and publishes only that port; with it the
-   stack starts in about 3 seconds using ~11 proxy processes and ~680 MB.
-2. **The UDP port number must be in 49152–65535.** From a real office network, UDP to 3478 and
-   to 49152 and above reached the VM, while 7882, 12000, 16384, 20000, 32768 and 40000 were
-   silently dropped before reaching Google Cloud (the same firewall rule allowed all of them).
-   Listeners on similar networks would not connect on a low port. Do not move `udp_port` out of
-   that range, and re-test from a restrictive network if you change it.
+1. **LiveKit runs on the host network, on purpose.** LiveKit's media uses thousands of UDP ports and
+   publishing them through Docker is a trap. Everything below was measured on a real VM:
+    - Publishing LiveKit's default `50000-60000` range makes Docker start one `docker-proxy`
+      process per port. At ~2,500 of them a 4 GB VM ran out of memory and stopped answering SSH.
+    - With `userland-proxy` off that becomes one iptables rule per port instead. No memory
+      problem, but a 3,000-port range took ~6 minutes to publish, ~8 minutes to tear down, and
+      ~14 minutes for LiveKit to come back after a reboot of the VM.
+    - The cheap workaround, a single multiplexed UDP port (`rtc.udp_port`), **caps media egress at
+      roughly 31,000 packets/s** (about 630 listeners). At 1,000 listeners every one of them got
+      only ~63% of their audio, and LiveKit reported 0% packet loss because it drops before
+      sequence numbers are assigned, so this fails silently.
+    - On the host network there is nothing to publish: LiveKit restarts in about 7 seconds, and
+      1,000 listeners on one language each received 100% of the audio (so did 2,000 on 8 vCPU).
+      Do not reintroduce `rtc.udp_port` or publish the range through Docker.
+      Docker Desktop (macOS/Windows) has no real host network, so `docker-compose.dev.yml` puts
+      LiveKit back on the compose network with a small published range for development only.
+2. **UDP ports must be in the 49152–65535 range.** From a real office network, UDP to 3478 and to
+   49152 and above reached the VM, while 7882, 12000, 16384, 20000, 32768 and 40000 were silently
+   dropped before reaching Google Cloud (the same firewall rule allowed all of them). LiveKit's
+   default `50000-60000` range is inside the safe zone; keep it there and re-test from a
+   restrictive network if you ever change it.
    To check a port: on the VM run `sudo tcpdump -U -ni <iface> -w /tmp/c.pcap udp` (note `-U`:
    without it the file stays empty until tcpdump exits), send UDP packets to the port from
    outside, then read them back with `tcpdump -nr /tmp/c.pcap`. Include a port you know works

@@ -55,6 +55,12 @@ services:
             - app
 
     livekit:
+        # Docker Desktop (macOS/Windows) has no real host network, so development puts LiveKit back
+        # on the compose network with a small published UDP range. The production file runs it on
+        # the host network; see the comments there.
+        network_mode: !reset null
+        networks:
+            - bhasha
         ports: !override
             - '7880:7880/tcp'
             - '7881:7881/tcp'
