@@ -60,6 +60,9 @@ services:
             # Leave empty. Set to 1 ONLY if all traffic really arrives through Cloudflare's
             # proxy; otherwise clients can forge CF-Connecting-IP and dodge every IP limit.
             TRUST_CF_CONNECTING_IP: '${TRUST_CF_CONNECTING_IP:-}'
+            ELEVENLABS_API_KEY: '${ELEVENLABS_API_KEY:-}'
+            ANTHROPIC_API_KEY: '${ANTHROPIC_API_KEY:-}'
+            TRANSCRIPT_TRANSLATION_MODEL: '${TRANSCRIPT_TRANSLATION_MODEL:-}'
         volumes:
             # Named volume for the SQLite file's directory -- DATABASE_PATH above
             # points inside it, so the DB (and its WAL files) survive container

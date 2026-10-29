@@ -2780,6 +2780,13 @@ function QrPanel({ detail }: { detail: AdminProgramDetail }) {
                     value={detail.urls.approverUrl}
                 />
             </SimpleGrid>
+            <Text mt="md" size="sm">
+                Live transcript for translators:{' '}
+                <a href={`/${encodeURIComponent(detail.program.slug)}/source`}>
+                    open the hall feed page
+                </a>{' '}
+                on the computer that has the hall audio.
+            </Text>
         </section>
     );
 }

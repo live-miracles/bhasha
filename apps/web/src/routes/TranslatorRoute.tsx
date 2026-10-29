@@ -30,6 +30,7 @@ import {
 } from '../lib/translatorAccessLink';
 import { loadTranslatorPrefs, saveTranslatorPrefs } from '../lib/translatorPrefs';
 import { getMeterZone, levelToFilledSegments, METER_SEGMENTS } from '../lib/micMeter';
+import { TranscriptPanel } from '../components/TranscriptPanel';
 import { bhashaTheme } from '../app/theme';
 import { LoginPage } from '../components/LoginPage';
 
@@ -1538,6 +1539,13 @@ function PublishPanel({
 
             {publish.status === 'live' ? (
                 <MeterCard meterLevel={meterLevel} muted={muted || silent} />
+            ) : null}
+
+            {selectedStream ? (
+                <TranscriptPanel
+                    languageName={selectedStream.languageName}
+                    streamId={selectedStream.id}
+                />
             ) : null}
 
             <div className="translator-spacer" />

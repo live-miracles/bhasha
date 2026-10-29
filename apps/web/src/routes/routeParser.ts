@@ -4,6 +4,7 @@ export type AppRoute =
     | { type: 'listener'; programSlug: string }
     | { type: 'translator'; programSlug: string }
     | { type: 'approver'; programSlug: string }
+    | { type: 'source'; programSlug: string }
     | { type: 'notFound' };
 
 export function parseRoute(pathname: string): AppRoute {
@@ -29,6 +30,11 @@ export function parseRoute(pathname: string): AppRoute {
     if (segments.length === 2 && segments[1] === 'approver') {
         const programSlug = decodeSegment(segments[0]);
         return programSlug === null ? { type: 'notFound' } : { type: 'approver', programSlug };
+    }
+
+    if (segments.length === 2 && segments[1] === 'source') {
+        const programSlug = decodeSegment(segments[0]);
+        return programSlug === null ? { type: 'notFound' } : { type: 'source', programSlug };
     }
 
     if (segments.length === 1) {

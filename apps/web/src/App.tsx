@@ -7,6 +7,7 @@ import { LandingRoute } from './routes/LandingRoute';
 import { ListenerRoute } from './routes/ListenerRoute';
 import { TranslatorRoute } from './routes/TranslatorRoute';
 import { ApproverRoute } from './routes/ApproverRoute';
+import { SourceConsoleRoute } from './routes/SourceConsoleRoute';
 import { NotFoundRoute } from './routes/NotFoundRoute';
 
 export interface AppProps {
@@ -29,6 +30,11 @@ function RoutedApprover({ publicApi }: { publicApi: PublicApi }) {
     return <ApproverRoute programSlug={programSlug ?? ''} publicApi={publicApi} />;
 }
 
+function RoutedSourceConsole() {
+    const { programSlug } = useParams<{ programSlug: string }>();
+    return <SourceConsoleRoute programSlug={programSlug ?? ''} />;
+}
+
 function AppRoutes({ publicApi }: { publicApi: PublicApi }) {
     return (
         <Routes>
@@ -46,6 +52,7 @@ function AppRoutes({ publicApi }: { publicApi: PublicApi }) {
                 element={<RoutedApprover publicApi={publicApi} />}
                 path="/:programSlug/approver"
             />
+            <Route element={<RoutedSourceConsole />} path="/:programSlug/source" />
             <Route element={<RoutedListener publicApi={publicApi} />} path="/:programSlug" />
             <Route element={<NotFoundRoute />} path="*" />
         </Routes>

@@ -65,6 +65,9 @@ time, then live translation resumes.
 
 ### 3. Live transcript and machine translation for translators (nice to have)
 
+> **Built** (English hall feed only, via a browser source console instead of Ingress). See
+> [live-transcript.md](live-transcript.md). The notes below are the original plan.
+
 Show a live English transcript of the source, plus machine translation into the translator's
 language, as a prompting aid in the translator interface.
 

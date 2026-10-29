@@ -16,6 +16,10 @@ import { handleAdminRoutes } from './routes/admin';
 import { handleListenerRoutes } from './routes/listeners';
 import { handlePublicRoutes } from './routes/public';
 import { handleTranslatorRoutes } from './routes/translator';
+import { handleTranscriptRoutes, type TranscriptDeps } from './routes/transcript';
+import { TranscriptHub } from './transcript/hub';
+import { ClaudeTranslator } from './transcript/translate';
+import { createScribeTokenMinter } from './transcript/scribeToken';
 import { handleApproverRoutes } from './routes/approver';
 import { handleLiveKitWebhook } from './livekit/webhook';
 import { ListenerRepository } from './db/listenerRepository';
@@ -55,7 +59,7 @@ const CRITICAL_CH_VALUE = 'Sec-CH-UA-Model, Sec-CH-UA-Platform, Sec-CH-UA-Platfo
  * (`main`, below) so tests can construct an app around an in-memory database
  * without starting a real HTTP listener — call `app.fetch(request)` directly.
  */
-export function createApp(env: Env): Hono {
+export function createApp(env: Env, transcript: TranscriptDeps = createTranscriptDeps(env)): Hono {
     const app = new Hono();
     const ctx: WaitUntilCtx = createFireAndForgetCtx();
     const listenerLimiter = new ListenerRateLimiter(listenerRateLimitConfigFromEnv(env));
@@ -116,6 +120,11 @@ export function createApp(env: Env): Hono {
             const adminResponse = await handleAdminRoutes(request, env, url, ctx);
             if (adminResponse) {
                 return adminResponse;
+            }
+
+            const transcriptResponse = await handleTranscriptRoutes(request, env, url, transcript);
+            if (transcriptResponse) {
+                return transcriptResponse;
             }
 
             const translatorResponse = await handleTranslatorRoutes(request, env, url, ctx);
@@ -187,6 +196,37 @@ export function createApp(env: Env): Hono {
     return app;
 }
 
+const SOURCE_SILENCE_LIMIT_MS = 30_000;
+
+/** Builds the live-transcript services from the configured provider keys. */
+export function createTranscriptDeps(env: Env): TranscriptDeps {
+    const translator = env.ANTHROPIC_API_KEY
+        ? new ClaudeTranslator({
+              apiKey: env.ANTHROPIC_API_KEY,
+              model: env.TRANSCRIPT_TRANSLATION_MODEL,
+          })
+        : undefined;
+    const hub = new TranscriptHub({
+        translator,
+        // The console reports in every few seconds; silence for this long means it is gone.
+        silenceLimitMs: SOURCE_SILENCE_LIMIT_MS,
+        onTranslationFailure: (error) =>
+            console.error(
+                JSON.stringify({
+                    level: 'error',
+                    message: 'transcript_translation_failed',
+                    error: error instanceof Error ? error.message : String(error),
+                }),
+            ),
+    });
+    return {
+        hub,
+        mintScribeToken: env.ELEVENLABS_API_KEY
+            ? createScribeTokenMinter(env.ELEVENLABS_API_KEY)
+            : undefined,
+    };
+}
+
 function requireEnvVar(name: string): string {
     const value = process.env[name];
     if (!value) {
@@ -241,6 +281,15 @@ export async function buildEnvFromProcess(): Promise<Env> {
             : {}),
         ...(process.env.PUBLIC_APP_URL !== undefined
             ? { PUBLIC_APP_URL: process.env.PUBLIC_APP_URL }
+            : {}),
+        ...(process.env.ELEVENLABS_API_KEY
+            ? { ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY }
+            : {}),
+        ...(process.env.ANTHROPIC_API_KEY
+            ? { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY }
+            : {}),
+        ...(process.env.TRANSCRIPT_TRANSLATION_MODEL
+            ? { TRANSCRIPT_TRANSLATION_MODEL: process.env.TRANSCRIPT_TRANSLATION_MODEL }
             : {}),
         ...(process.env.LISTENER_RATE_LIMIT_IP_PER_MIN !== undefined
             ? { LISTENER_RATE_LIMIT_IP_PER_MIN: process.env.LISTENER_RATE_LIMIT_IP_PER_MIN }

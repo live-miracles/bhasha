@@ -35,6 +35,12 @@ export type WorkerEnv = {
     // 0 disables that layer, unset uses the defaults.
     LISTENER_RATE_LIMIT_IP_PER_MIN?: string;
     LISTENER_RATE_LIMIT_SUBJECT_PER_MIN?: string;
+    // Live transcript for translators (see transcript/). Both keys are optional: without
+    // ELEVENLABS_API_KEY the source console cannot start; without ANTHROPIC_API_KEY translators
+    // see the English transcript only. TRANSCRIPT_TRANSLATION_MODEL overrides the default model.
+    ELEVENLABS_API_KEY?: string;
+    ANTHROPIC_API_KEY?: string;
+    TRANSCRIPT_TRANSLATION_MODEL?: string;
 };
 
 export type Env = WorkerEnv;
