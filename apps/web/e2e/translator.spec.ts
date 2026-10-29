@@ -279,3 +279,31 @@ test('translator opens an access link and is signed in without typing anything',
     expect(page.url()).not.toContain('link-token');
     expect(new URL(page.url()).hash).toBe('');
 });
+
+test('translator sees the hall transcript with its translation, and the page still works', async ({
+    page,
+}) => {
+    const event = (type: string, data: object) =>
+        `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
+    await page.route('**/api/translator/transcript/stream**', (route) =>
+        route.fulfill({
+            status: 200,
+            headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+            body:
+                event('config', { translationEnabled: true }) +
+                event('source_state', { active: true }) +
+                event('segment', { seq: 1, text: 'Good morning everyone.' }) +
+                event('translation', { seq: 1, text: 'सभी को सुप्रभात।' }) +
+                event('segment', { seq: 2, text: 'Welcome to the session.' }),
+        }),
+    );
+
+    await page.goto('/patna-event-2026/translate#s=stream_hi&t=link-token');
+
+    const panel = page.getByRole('region', { name: 'Live transcript' });
+    await expect(panel.getByText('सभी को सुप्रभात।')).toBeVisible();
+    await expect(panel.getByText('Good morning everyone.')).toBeVisible();
+    await expect(panel.getByText(/Translating to .*…/)).toBeVisible();
+    // The publishing controls stay usable next to it.
+    await expect(page.getByRole('button', { name: 'Go live' })).toBeVisible();
+});

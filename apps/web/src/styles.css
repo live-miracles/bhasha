@@ -3225,3 +3225,117 @@ body {
 [data-mantine-color-scheme='dark'] .approver-cancel-btn:hover {
     background: var(--lp-bg);
 }
+
+/* Live transcript shown to translators (components/TranscriptPanel.tsx). */
+.transcript-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid var(--lp-border);
+    border-radius: var(--lp-radius);
+    background: var(--lp-surface);
+}
+
+.transcript-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.transcript-eyebrow {
+    margin: 0;
+    flex: 1;
+    color: var(--lp-text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.transcript-status {
+    color: var(--lp-text-muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.transcript-status--live {
+    color: var(--lp-live);
+}
+
+.transcript-toggle {
+    min-height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--lp-control-border);
+    border-radius: 8px;
+    background: var(--lp-control-bg);
+    color: var(--lp-text-primary);
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.transcript-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--lp-text-secondary);
+    font-size: 0.85rem;
+}
+
+.transcript-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 38vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.transcript-line {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+}
+
+.transcript-main {
+    color: var(--lp-text-primary);
+    font-size: 1.15rem;
+    line-height: 1.4;
+}
+
+.transcript-source {
+    color: var(--lp-text-muted);
+    font-size: 0.85rem;
+    line-height: 1.35;
+}
+
+.transcript-partial,
+.transcript-empty {
+    margin: 0;
+    color: var(--lp-text-muted);
+    font-style: italic;
+}
+
+/* Operator page for the hall-feed transcript (routes/SourceConsoleRoute.tsx). */
+.source-console {
+    min-height: 100vh;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 24px 16px;
+}
+
+.source-level {
+    height: 10px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--lp-border);
+}
+
+.source-level-fill {
+    height: 100%;
+    background: var(--lp-live);
+    transition: width 80ms linear;
+}

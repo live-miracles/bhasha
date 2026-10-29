@@ -243,6 +243,7 @@ production):
 - [Deployment: Google Cloud VM + Cloudflare DNS](docs/deployment.md)
 - [Load testing the media path: method, results, pitfalls](docs/load-testing.md)
 - [Production debugging & recovery runbook](docs/runbook.md)
+- [Live transcript for translators (hall feed → English text → translation)](docs/live-transcript.md)
 - [Roadmap: planned features & platform decision](docs/roadmap.md)
 - [LiveKit room-sharding brief](docs/livekit.md) (early speculative notes — see the note at
   the top of that file for how it differs from what was actually built)

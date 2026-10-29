@@ -22,6 +22,13 @@ describe('parseRoute', () => {
         });
     });
 
+    it('matches the source console route', () => {
+        expect(parseRoute('/patna-event-2026/source')).toEqual({
+            type: 'source',
+            programSlug: 'patna-event-2026',
+        });
+    });
+
     it('matches translator routes with a decoded program slug', () => {
         expect(parseRoute('/patna-event-2026/translate')).toEqual({
             type: 'translator',
