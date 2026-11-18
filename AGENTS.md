@@ -214,3 +214,13 @@ For a bug fix:
 - For listener reporting, store listener IP address and user agent only as authenticated admin operational telemetry. Do not write IP data on heartbeats.
 - Treat mobile browser behavior as a first-class constraint: audio starts only after a user tap, reconnect controls must remain visible, and iPhone Safari plus Android Chrome must be tested before real events.
 - A stream is "Live" only when the translator is connected, an audio track is published, and recent audio activity is detected.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues for live-miracles/bhasha (via the `gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
