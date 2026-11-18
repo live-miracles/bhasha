@@ -1,12 +1,39 @@
+<p align="center">
+  <img src="apps/web/public/branding/logo.png" width="96" height="96" alt="Bhasha logo" />
+</p>
+
 # Bhasha — Live Translation
 
-Browser-based, **voice-only** live translation for large in-person events.
+Open-source, browser-based **live translation and simultaneous interpretation**
+for large in-person events. **Voice-only**: no app to install, no headsets to hand
+out. Attendees scan a QR code and listen to the interpreter in their own language on
+their own phone.
 
 > One translator publishes. Thousands of people listen.
 
 A translator speaks into their microphone; the translated audio is fanned out to
 listeners over a self-hosted LiveKit WebRTC SFU. Listeners are strictly receive-only —
 clients never request audio/video publishing permission.
+
+Part of the [Live Miracles](https://live-miracles.github.io/projects/bhasha/) open-source
+tools for live events.
+
+## Features
+
+- **Zero-install listening** — participants open `/{programSlug}` (or scan the QR code)
+  in any phone browser, pick a live language, and tap to listen.
+- **One stream per language** — switch languages without leaving the page.
+- **Translator console** — sign in with a time-limited link or QR, publish the
+  microphone, mute/unmute, and reconnect.
+- **Honest "Live" status** — a stream shows as live only when the translator is
+  connected, audio is published, and sound was heard recently.
+- **Listener counts for organizers** — active listeners per language, counted only
+  once they are actually connected.
+- **Live transcript for translators** — hall-feed speech-to-text with a translation,
+  to help interpreters follow the speaker ([docs](docs/live-transcript.md)).
+- **Self-hosted** — one server running Docker Compose (app + LiveKit with built-in
+  TURN + Caddy for HTTPS). Load-tested; see [docs/load-testing.md](docs/load-testing.md).
+- **Mobile-first** — built and field-tested for iPhone Safari and Android Chrome.
 
 This is not a meeting app. Keep the system optimized for: voice only, receive-only
 participants, fast joining, clear language selection, reliable reconnection, and low
