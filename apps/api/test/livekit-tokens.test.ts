@@ -33,6 +33,7 @@ interface DecodedJwtPayload {
         roomJoin?: boolean;
         room?: string;
         canPublish?: boolean;
+        canPublishSources?: string[];
         canSubscribe?: boolean;
         canPublishData?: boolean;
     };
@@ -85,6 +86,7 @@ describe('mintTranslatorToken', () => {
             roomJoin: true,
             room: 'program-program_1-stream-stream_1',
             canPublish: true,
+            canPublishSources: ['microphone'],
             canSubscribe: false,
             canPublishData: false,
         });

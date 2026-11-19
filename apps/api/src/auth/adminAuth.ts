@@ -2,6 +2,7 @@ import type { Env } from '../env';
 import { json } from '../http';
 import { sha256Hex } from './crypto';
 import { UsersRepository, type UserRole } from '../db/usersRepository';
+import { parseResetPasswordInput } from '../domain/users';
 import { clientIp } from './clientIp';
 import {
     adminLoginBuckets,
@@ -236,8 +237,10 @@ export async function handleChangeOwnPassword(request: Request, env: Env): Promi
         return body;
     }
 
-    const newPassword = readString(body, 'newPassword');
-    if (!newPassword) {
+    let newPassword: string;
+    try {
+        newPassword = parseResetPasswordInput({ newPassword: body.newPassword }).newPassword;
+    } catch {
         return json({ error: 'invalid_password' }, { status: 400 });
     }
 

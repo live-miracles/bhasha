@@ -1,4 +1,4 @@
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, TrackSource } from 'livekit-server-sdk';
 import type { Env } from '../env';
 
 // Reconnects just mint a fresh token, so a short TTL is fine -- there is no
@@ -59,6 +59,7 @@ export async function mintTranslatorToken(
         roomJoin: true,
         room: roomName,
         canPublish: true,
+        canPublishSources: [TrackSource.MICROPHONE],
         canSubscribe: false,
         canPublishData: false,
     });

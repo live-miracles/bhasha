@@ -171,6 +171,72 @@ describe('listener lifecycle', () => {
         await seedAdmin(testEnv);
     });
 
+    describe('input limits', () => {
+        async function requestWith(
+            fields: Record<string, unknown>,
+            headers: Record<string, string> = {},
+        ) {
+            const { program, hindi } = await seedProgramAndStreams();
+            return request('/api/listeners/request', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    programId: program.id,
+                    streamId: hindi.id,
+                    clientId: 'client_1',
+                    ...fields,
+                }),
+            });
+        }
+
+        it('rejects a clientId longer than 128 characters', async () => {
+            const response = await requestWith({ clientId: 'a'.repeat(129) });
+            expect(response.status).toBe(400);
+        });
+
+        it('rejects a clientId containing disallowed characters', async () => {
+            const response = await requestWith({ clientId: 'client 1' });
+            expect(response.status).toBe(400);
+        });
+
+        it('accepts the front-end generated clientId format', async () => {
+            const response = await requestWith({
+                clientId: `listener_client_${crypto.randomUUID()}`,
+            });
+            expect(response.status).toBe(201);
+        });
+
+        it('rejects an over-long or malformed leave reason', async () => {
+            const long = await request('/api/listeners/leave', {
+                method: 'POST',
+                body: JSON.stringify({ connectionId: 'c1', reason: 'a'.repeat(65) }),
+            });
+            expect(long.status).toBe(400);
+            const bad = await request('/api/listeners/leave', {
+                method: 'POST',
+                body: JSON.stringify({ connectionId: 'c1', reason: 'Bad Reason!' }),
+            });
+            expect(bad.status).toBe(400);
+        });
+
+        it('truncates a stored user agent to 512 characters', async () => {
+            const response = await requestWith({}, { 'user-agent': 'U'.repeat(2000) });
+            expect(response.status).toBe(201);
+            const { connectionId } = (await response.json()) as { connectionId: string };
+            expect((await storedConnection(connectionId)).userAgent).toHaveLength(512);
+        });
+
+        it('returns 413 for a request declaring a body over 1 MiB', async () => {
+            const response = await request('/api/listeners/request', {
+                method: 'POST',
+                headers: { 'content-length': '2000000' },
+                body: '{}',
+            });
+            expect(response.status).toBe(413);
+            expect(await response.json()).toEqual({ error: 'payload_too_large' });
+        });
+    });
+
     it('requests, connects, reports, and disconnects a listener', async () => {
         const { cookie, program, hindi } = await seedProgramAndStreams();
 

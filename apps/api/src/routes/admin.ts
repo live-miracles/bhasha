@@ -1078,6 +1078,9 @@ export async function handleAdminRoutes(
         /^\/api\/admin\/maintenance\/backfill-device-labels$/,
     );
     if (request.method === 'POST' && backfillDeviceLabelsMatch) {
+        if (auth!.role !== 'admin') {
+            return json({ error: 'admin_role_required' }, { status: 403 });
+        }
         const batchSize = clampBatchSize(url.searchParams.get('batchSize'));
         try {
             const { updated, remaining } = await listeners.backfillDeviceLabels(batchSize);

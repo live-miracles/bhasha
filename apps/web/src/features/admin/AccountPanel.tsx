@@ -157,6 +157,7 @@ export function AdminAccountHeader({ adminApi, username, role, onSignOut }: Acco
                                 aria-label="New password"
                                 label="New password"
                                 autoComplete="new-password"
+                                minLength={8}
                                 onChange={(event) => setNewPassword(event.target.value)}
                                 required
                                 type="password"

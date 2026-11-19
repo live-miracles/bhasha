@@ -43,6 +43,24 @@ async function request(
     return app.fetch(new Request(`https://bhasha.test${path}`, init));
 }
 
+describe('security headers', () => {
+    for (const target of ['/api/health', '/']) {
+        it(`sets hardening headers on ${target}`, async () => {
+            const response = await request(target);
+
+            expect(response.headers.get('x-frame-options')).toBe('DENY');
+            expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+            expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+            expect(response.headers.get('permissions-policy')).toContain('camera=(self)');
+            expect(response.headers.get('permissions-policy')).toContain('microphone=(self)');
+            const csp = response.headers.get('content-security-policy-report-only') ?? '';
+            expect(csp).toContain("frame-ancestors 'none'");
+            expect(csp).toContain('ws://localhost:7880');
+            expect(csp).toContain('http://localhost:7880');
+        });
+    }
+});
+
 describe('static SPA serving', () => {
     it('serves a real static asset from WEB_DIST_PATH', async () => {
         const response = await request('/assets/app.js');

@@ -592,7 +592,7 @@ function parseCreateConnectionInput(body: unknown): CreateConnectionInput {
     return {
         ...readProgramReference(body),
         streamId: readRequiredString(body, 'streamId'),
-        clientId: readRequiredString(body, 'clientId'),
+        clientId: readClientId(body),
         ...(accessToken ? { accessToken } : {}),
     };
 }
@@ -600,7 +600,7 @@ function parseCreateConnectionInput(body: unknown): CreateConnectionInput {
 function parseAccessClaimInput(body: unknown): AccessClaimInput {
     return {
         programSlug: readRequiredString(body, 'programSlug'),
-        clientId: readRequiredString(body, 'clientId'),
+        clientId: readClientId(body),
     };
 }
 
@@ -656,11 +656,38 @@ function parseHeartbeatInput(body: unknown): ConnectionIdInput {
 function parseLeaveInput(body: unknown): LeaveInput {
     return {
         ...parseConnectionIdInput(body),
-        reason: readRequiredString(body, 'reason'),
+        reason: readLeaveReason(body),
     };
 }
 
-function readRequiredString(body: unknown, key: string): string {
+function readLeaveReason(body: unknown): string {
+    const reason = readRequiredString(body, 'reason', MAX_LEAVE_REASON_LENGTH);
+    if (!LEAVE_REASON_PATTERN.test(reason)) {
+        throw new Error('reason is invalid');
+    }
+    return reason;
+}
+
+function readClientId(body: unknown): string {
+    const clientId = readRequiredString(body, 'clientId');
+    if (!CLIENT_ID_PATTERN.test(clientId)) {
+        throw new Error('clientId is invalid');
+    }
+    return clientId;
+}
+
+const DEFAULT_MAX_FIELD_LENGTH = 128;
+const CLIENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+const LEAVE_REASON_PATTERN = /^[a-z_]+$/;
+const MAX_LEAVE_REASON_LENGTH = 64;
+const MAX_USER_AGENT_LENGTH = 512;
+const MAX_CLIENT_HINT_LENGTH = 256;
+
+function readRequiredString(
+    body: unknown,
+    key: string,
+    maxLength = DEFAULT_MAX_FIELD_LENGTH,
+): string {
     if (body === null || typeof body !== 'object' || Array.isArray(body)) {
         throw new Error(`${key} is required`);
     }
@@ -673,6 +700,9 @@ function readRequiredString(body: unknown, key: string): string {
     const trimmed = value.trim();
     if (trimmed.length === 0) {
         throw new Error(`${key} is required`);
+    }
+    if (trimmed.length > maxLength) {
+        throw new Error(`${key} is too long`);
     }
 
     return trimmed;
@@ -691,7 +721,11 @@ function readProgramReference(body: unknown): BrowserProgramReference {
     };
 }
 
-function readOptionalString(body: unknown, key: string): string | null {
+function readOptionalString(
+    body: unknown,
+    key: string,
+    maxLength = DEFAULT_MAX_FIELD_LENGTH,
+): string | null {
     if (body === null || typeof body !== 'object' || Array.isArray(body)) {
         return null;
     }
@@ -702,6 +736,9 @@ function readOptionalString(body: unknown, key: string): string | null {
     }
 
     const trimmed = value.trim();
+    if (trimmed.length > maxLength) {
+        throw new Error(`${key} is too long`);
+    }
     return trimmed.length > 0 ? trimmed : null;
 }
 
@@ -739,7 +776,10 @@ function listenerClientMetadata(request: Request): {
         // trusts CF-Connecting-IP when TRUST_CF_CONNECTING_IP=1, because behind Caddy with
         // DNS-only Cloudflare a client could otherwise record any address it likes.
         listenerIp: clientIp(request) || '0.0.0.0',
-        userAgent: request.headers.get('user-agent')?.trim() || '',
+        userAgent: (request.headers.get('user-agent')?.trim() || '').slice(
+            0,
+            MAX_USER_AGENT_LENGTH,
+        ),
     };
 }
 
@@ -752,12 +792,12 @@ function cleanQuotedClientHint(value: string | null): string | undefined {
         trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')
             ? trimmed.slice(1, -1).trim()
             : trimmed;
-    return unquoted === '' ? undefined : unquoted;
+    return unquoted === '' ? undefined : unquoted.slice(0, MAX_CLIENT_HINT_LENGTH);
 }
 
 function cleanRawClientHint(value: string | null): string | undefined {
     const trimmed = value?.trim() ?? '';
-    return trimmed === '' ? undefined : trimmed;
+    return trimmed === '' ? undefined : trimmed.slice(0, MAX_CLIENT_HINT_LENGTH);
 }
 
 function listenerClientHints(headers: Headers): ListenerClientHints {

@@ -106,6 +106,18 @@ describe('source console endpoints', () => {
         expect(response.status).toBe(401);
     });
 
+    it('returns 404, not 500, for a malformed percent-encoded slug', async () => {
+        const { call } = build();
+        const cookie = await adminCookie();
+
+        const response = await call('/api/admin/transcript/%E0%A4%A/session', {
+            method: 'POST',
+            headers: { Cookie: cookie },
+        });
+
+        expect(response.status).toBe(404);
+    });
+
     it("keeps another user's program out of reach", async () => {
         const ownerId = await seedUser(testEnv, 'owner_user');
         const program = await seedProgram(testEnv, { slug: 'not-yours', createdBy: ownerId });

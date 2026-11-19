@@ -13,7 +13,7 @@ import {
     RealtimeStreamRepository,
 } from '../db/realtimeStreamRepository';
 import { presenceJoin, presenceLeave } from '../presence/status';
-import { createRoomServiceClient, createWebhookReceiver } from './client';
+import { createRoomServiceClient, createWebhookReceiver, isLiveKitConfigured } from './client';
 import { listenerIdentity, translatorIdentity } from './tokens';
 
 interface TranslatorParticipantMetadata {
@@ -53,6 +53,9 @@ export async function handleLiveKitWebhook(
     receiver: WebhookReceiver = createWebhookReceiver(env),
     roomService: RoomServiceClient = createRoomServiceClient(env),
 ): Promise<Response> {
+    if (!isLiveKitConfigured(env)) {
+        return json({ error: 'realtime_not_configured' }, { status: 503 });
+    }
     const body = await request.text();
     const authHeader = request.headers.get('authorization') ?? undefined;
 

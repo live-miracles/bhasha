@@ -178,6 +178,21 @@ describe('handleLiveKitWebhook', () => {
         vi.restoreAllMocks();
     });
 
+    it('returns 503 when LiveKit is not configured', async () => {
+        const receive = vi.fn();
+        const response = await handleLiveKitWebhook(
+            new Request('https://bhasha.test/api/livekit/webhook', {
+                method: 'POST',
+                headers: { authorization: 'Bearer fake' },
+                body: '{}',
+            }),
+            (({ LIVEKIT_API_KEY: _omit, ...rest }) => rest)(buildTestEnv()),
+            { receive } as unknown as WebhookReceiver,
+        );
+        expect(response.status).toBe(503);
+        expect(receive).not.toHaveBeenCalled();
+    });
+
     it('returns 401 when the webhook signature is rejected', async () => {
         const response = await postWebhook(fakeReceiver({ error: new Error('invalid signature') }));
 

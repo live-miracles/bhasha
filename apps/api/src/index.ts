@@ -22,6 +22,7 @@ import { ClaudeTranslator } from './transcript/translate';
 import { createScribeTokenMinter } from './transcript/scribeToken';
 import { handleApproverRoutes } from './routes/approver';
 import { handleLiveKitWebhook } from './livekit/webhook';
+import { livekitHttpUrl } from './livekit/client';
 import { ListenerRepository } from './db/listenerRepository';
 import { ProgramRepository } from './db/programRepository';
 import { RetentionRepository } from './db/retentionRepository';
@@ -46,6 +47,11 @@ const DEFAULT_WEB_DIST_PATH = path.join(
     'dist',
 );
 
+// Application-level request body ceiling. Only enforced when the request
+// declares a Content-Length; chunked uploads are capped by Caddy's
+// `request_body { max_size }` (see Caddyfile).
+const MAX_BODY_BYTES = 1_048_576;
+
 // Client-hint headers Cloudflare Pages used to set via apps/web/public/_headers.
 // Requesting these opts the browser into sending them on *subsequent*
 // requests (device-model-aware analytics/telemetry downstream) -- see
@@ -55,12 +61,49 @@ const ACCEPT_CH_VALUE =
 const CRITICAL_CH_VALUE = 'Sec-CH-UA-Model, Sec-CH-UA-Platform, Sec-CH-UA-Platform-Version';
 
 /**
+ * Content-Security-Policy, served Report-Only for now (not enforced). Mantine needs inline
+ * styles; fonts come from Google Fonts (apps/web/index.html); ElevenLabs Scribe is reached over
+ * wss (apps/web/src/lib/transcript/scribeSession.ts). Browsers ignore `frame-ancestors` in
+ * Report-Only mode, so clickjacking protection relies on X-Frame-Options below.
+ */
+function buildCsp(env: Env): string {
+    let livekitSources: string[] = [];
+    if (env.LIVEKIT_URL) {
+        try {
+            const origin = new URL(env.LIVEKIT_URL).origin;
+            livekitSources = [origin, livekitHttpUrl(origin)];
+        } catch {
+            livekitSources = [];
+        }
+    }
+    return [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data: blob:",
+        "media-src 'self' blob:",
+        `connect-src ${["'self'", ...livekitSources, 'wss://api.elevenlabs.io'].join(' ')}`,
+        "worker-src 'self' blob:",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ].join('; ');
+}
+
+// camera=(self) is for the approver QR scanner, microphone=(self) for translators and the
+// transcript source console -- do not tighten these to ().
+const PERMISSIONS_POLICY = 'camera=(self), microphone=(self), geolocation=(), payment=(), usb=()';
+
+/**
  * Builds the Hono app for a given `Env`. Kept separate from process wiring
  * (`main`, below) so tests can construct an app around an in-memory database
  * without starting a real HTTP listener — call `app.fetch(request)` directly.
  */
 export function createApp(env: Env, transcript: TranscriptDeps = createTranscriptDeps(env)): Hono {
     const app = new Hono();
+    const cspValue = buildCsp(env);
     const ctx: WaitUntilCtx = createFireAndForgetCtx();
     const listenerLimiter = new ListenerRateLimiter(listenerRateLimitConfigFromEnv(env));
     // Docker uses /app/apps/web/dist, while local API development resolves the
@@ -84,12 +127,22 @@ export function createApp(env: Env, transcript: TranscriptDeps = createTranscrip
         await next();
         c.res.headers.set('Accept-CH', ACCEPT_CH_VALUE);
         c.res.headers.set('Critical-CH', CRITICAL_CH_VALUE);
+        c.res.headers.set('X-Frame-Options', 'DENY');
+        c.res.headers.set('X-Content-Type-Options', 'nosniff');
+        c.res.headers.set('Referrer-Policy', 'no-referrer');
+        c.res.headers.set('Permissions-Policy', PERMISSIONS_POLICY);
+        c.res.headers.set('Content-Security-Policy-Report-Only', cspValue);
     });
 
     app.all('*', async (c, next) => {
         try {
             const request = c.req.raw;
             const url = new URL(c.req.url);
+
+            const contentLength = Number(request.headers.get('content-length') ?? '0');
+            if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+                return json({ error: 'payload_too_large' }, { status: 413 });
+            }
 
             if (
                 request.method === 'GET' &&

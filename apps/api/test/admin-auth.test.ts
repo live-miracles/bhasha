@@ -4,7 +4,14 @@ import { createApp } from '../src/index';
 import { requireAdminRole, requireUserAuth } from '../src/auth/adminAuth';
 import { sha256Hex } from '../src/auth/crypto';
 import { UsersRepository } from '../src/db/usersRepository';
-import { ADMIN_TEST_USERNAME, adminCookie, buildTestEnv, seedAdmin, testEnv } from './test-env';
+import {
+    ADMIN_TEST_USERNAME,
+    adminCookie,
+    buildTestEnv,
+    seedAdmin,
+    seedUser,
+    testEnv,
+} from './test-env';
 
 async function request(
     path: string,
@@ -345,6 +352,52 @@ describe('admin auth (username + password, single-tier user model)', () => {
             }),
         });
         expect(login.status).toBe(200);
+    });
+
+    it('restricts the device-label backfill maintenance route to admins', async () => {
+        await seedAdmin(testEnv);
+        await seedUser(testEnv, 'plain_user');
+        const userCookie = await adminCookie('plain_user');
+        const adminSession = await adminCookie();
+
+        const forbidden = await request('/api/admin/maintenance/backfill-device-labels', {
+            method: 'POST',
+            headers: cookieHeader(userCookie),
+        });
+        expect(forbidden.status).toBe(403);
+        expect(await forbidden.json()).toEqual({ error: 'admin_role_required' });
+
+        const allowed = await request('/api/admin/maintenance/backfill-device-labels', {
+            method: 'POST',
+            headers: cookieHeader(adminSession),
+        });
+        expect(allowed.status).toBe(200);
+    });
+
+    it('rejects a too-short new password and accepts an 8-character one', async () => {
+        await seedAdmin(testEnv);
+        const cookie = await adminCookie();
+
+        const tooShort = await request('/api/admin/me/password', {
+            method: 'POST',
+            headers: cookieHeader(cookie),
+            body: JSON.stringify({
+                newPassword: 'x'.repeat(7),
+                currentPassword: testEnv.TEST_PASSWORD,
+            }),
+        });
+        expect(tooShort.status).toBe(400);
+        expect(await tooShort.json()).toEqual({ error: 'invalid_password' });
+
+        const ok = await request('/api/admin/me/password', {
+            method: 'POST',
+            headers: cookieHeader(cookie),
+            body: JSON.stringify({
+                newPassword: 'x'.repeat(8),
+                currentPassword: testEnv.TEST_PASSWORD,
+            }),
+        });
+        expect(ok.status).toBe(200);
     });
 
     it('rejects own-password change with a wrong current password', async () => {

@@ -38,7 +38,13 @@ export async function handleTranscriptRoutes(
     const adminMatch = url.pathname.match(ADMIN_PATH);
     if (adminMatch && request.method === 'POST') {
         const [, rawSlug, action] = adminMatch;
-        return handleSourceConsole(request, env, deps, decodeURIComponent(rawSlug ?? ''), action);
+        let slug: string;
+        try {
+            slug = decodeURIComponent(rawSlug ?? '');
+        } catch {
+            return json({ error: 'program_not_found' }, { status: 404 });
+        }
+        return handleSourceConsole(request, env, deps, slug, action);
     }
     if (request.method === 'GET' && url.pathname === TRANSLATOR_PATH) {
         return handleTranslatorStream(request, env, url, deps);
