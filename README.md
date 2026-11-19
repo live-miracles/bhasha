@@ -284,3 +284,7 @@ production):
     apps/api    Node.js + Hono API (better-sqlite3, LiveKit server-sdk)
     apps/web    React + Vite web app (built to static dist/, served by apps/api)
     docs/       Runbooks, checklists, and plans
+
+## License
+
+[MIT](LICENSE) © Live Stream Miracles
